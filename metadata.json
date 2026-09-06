@@ -1,7 +1,6 @@
 {
   "name": "Kotonoha",
   "description": "A private Japanese vocabulary trainer designed around washi paper, wabi-sabi minimalism, and bamboo stem progression.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": []
 }
 

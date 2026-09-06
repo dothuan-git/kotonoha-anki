@@ -7,11 +7,10 @@ A private Japanese vocabulary trainer with Anki-style spaced repetition, built a
 - Spaced-repetition review flow with rating-based scheduling and undo
 - Word and kanji management screens with local persistence (localStorage)
 - Stats dashboard and mobile/desktop viewport modes with dark mode
-- Gemini API integration for AI-assisted features
 
 ## Tech Stack
 
-React 19, TypeScript, Vite, Tailwind CSS, Framer Motion (`motion`), Express.
+React 19, TypeScript, Vite, Tailwind CSS, Framer Motion (`motion`).
 
 ## Run Locally
 
@@ -19,8 +18,7 @@ React 19, TypeScript, Vite, Tailwind CSS, Framer Motion (`motion`), Express.
 
 1. Install dependencies:
    `npm install`
-2. Copy `.env.example` to `.env.local` and set `GEMINI_API_KEY` to your Gemini API key
-3. Run the app:
+2. Run the app:
    `npm run dev`
 
 ## Scripts
