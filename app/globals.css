@@ -1,5 +1,21 @@
 @import "tailwindcss";
 
+/* §11: tokens live in exactly one place. Tailwind v4 is CSS-first, so they are
+   CSS custom properties here and exposed to utilities via @theme inline below
+   — there is no tailwind.config.ts to mirror them into. */
+@theme inline {
+  --color-page: var(--bg-page);
+  --color-surface: var(--bg-surface);
+  --color-surface-elevated: var(--bg-surface-elevated);
+  --color-muted: var(--bg-muted);
+  --color-subtle: var(--bg-subtle);
+  --color-bamboo: var(--bamboo);
+  --color-bamboo-hover: var(--bamboo-hover);
+  --color-bamboo-light: var(--bamboo-light);
+  --color-bamboo-subtle: var(--bamboo-subtle);
+  --color-bamboo-border: var(--bamboo-border);
+}
+
 @layer base {
   :root {
     /* Washi Paper & Bamboo Theme (Light) */
@@ -123,3 +139,15 @@
   background: rgba(156, 163, 175, 0.6);
 }
 
+
+/* §11: respect prefers-reduced-motion globally, once. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

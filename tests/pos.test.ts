@@ -155,7 +155,7 @@ describe('mapPos', () => {
 
   it('survives unrecognised tag shapes without throwing', () => {
     const weird = [{ Verb: { Godan: 'Mu' } }, { Something: { Deeply: 'Nested' } }, null, 42];
-    expect(mapPos(weird as JotobaPosTag[]).pos).toBe('Verb 1');
+    expect(mapPos(weird as unknown as JotobaPosTag[]).pos).toBe('Verb 1');
   });
 });
 
