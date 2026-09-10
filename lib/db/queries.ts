@@ -1,7 +1,8 @@
 import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
-import { kanji, sentences, wordKanji, words } from '@/lib/db/schema';
+import { kanji, sentences, settings, wordKanji, words } from '@/lib/db/schema';
+import type { Settings } from '@/lib/db/schema';
 import type { KanjiView, WordView } from '@/lib/types';
 
 /**
@@ -157,4 +158,34 @@ function dedupeById<T extends { id: string }>(rows: T[]): T[] {
 export async function countWords(): Promise<number> {
   const [row] = await db.select({ n: count() }).from(words);
   return Number(row?.n ?? 0);
+}
+
+const SETTINGS_ID = 1;
+
+/**
+ * The single settings row, created with §4's defaults on first read.
+ *
+ * A read, so it lives here rather than in lib/actions: every export of a
+ * 'use server' module becomes a callable endpoint, and a read exported from
+ * there would be reachable without a session.
+ */
+export async function getSettings(): Promise<Settings> {
+  const [row] = await db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1);
+  if (row) return row;
+
+  const [created] = await db
+    .insert(settings)
+    .values({ id: SETTINGS_ID })
+    .onConflictDoNothing()
+    .returning();
+  if (created) return created;
+
+  // Another request created it between the select and the insert.
+  const [existing] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.id, SETTINGS_ID))
+    .limit(1);
+  if (!existing) throw new Error('Could not initialise settings');
+  return existing;
 }

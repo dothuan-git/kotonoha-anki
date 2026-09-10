@@ -7,7 +7,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [Google],
   // No adapter and no user tables: one person, no registration (§1).
   session: { strategy: 'jwt' },
-  pages: { signIn: '/signin' },
+  // error must be set too: a signIn-callback rejection routes to pages.error,
+  // which otherwise falls back to Auth.js's own page and loses our message.
+  pages: { signIn: '/signin', error: '/signin' },
   callbacks: {
     signIn({ profile }) {
       // §10: refuse anyone but the allowlisted address. A missing

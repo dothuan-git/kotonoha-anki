@@ -20,7 +20,8 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
-    // Everything except the auth routes, the sign-in page and static assets.
-    '/((?!api/auth|signin|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/).*)',
+    // Pages only. /api/* is deliberately excluded so route handlers answer
+    // 401 JSON via requireSession instead of redirecting a fetch() to HTML.
+    '/((?!api/|signin|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/).*)',
   ],
 };

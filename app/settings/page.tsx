@@ -1,5 +1,5 @@
 import { SettingsScreen } from '@/components/SettingsScreen';
-import { getSettings } from '@/lib/actions/settings';
+import { getSettings } from '@/lib/db/queries';
 import { auth } from '@/lib/auth';
 
 export default async function SettingsPage() {

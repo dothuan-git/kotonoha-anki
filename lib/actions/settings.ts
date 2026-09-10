@@ -6,7 +6,8 @@ import { z } from 'zod';
 
 import { requireSession, signOut } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { settings, type Settings } from '@/lib/db/schema';
+import { getSettings } from '@/lib/db/queries';
+import { settings } from '@/lib/db/schema';
 
 const SINGLETON_ID = 1;
 
@@ -15,29 +16,6 @@ const schema = z.object({
   reviewsPerDay: z.number().int().min(0).max(1000),
   requestRetention: z.number().min(0.7).max(0.99),
 });
-
-/** Reads the single settings row, creating it with §4's defaults on first run. */
-export async function getSettings(): Promise<Settings> {
-  const [row] = await db.select().from(settings).where(eq(settings.id, SINGLETON_ID)).limit(1);
-  if (row) return row;
-
-  const [created] = await db
-    .insert(settings)
-    .values({ id: SINGLETON_ID })
-    .onConflictDoNothing()
-    .returning();
-
-  if (created) return created;
-
-  // Another request created it between the select and the insert.
-  const [existing] = await db
-    .select()
-    .from(settings)
-    .where(eq(settings.id, SINGLETON_ID))
-    .limit(1);
-  if (!existing) throw new Error('Could not initialise settings');
-  return existing;
-}
 
 export async function saveSettings(input: z.input<typeof schema>) {
   await requireSession();
