@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireSession } from '@/lib/auth';
+import { MAX_CONFUSION_BATCH, recordConfusions } from '@/lib/db/confusions';
 import { syncReviews } from '@/lib/db/review';
 
 export const runtime = 'nodejs';
@@ -24,6 +25,21 @@ const batchSchema = z.object({
       }),
     )
     .max(MAX_BATCH),
+  /**
+   * §13's wrong answers, riding along. Optional because a client from before
+   * Phase 5 does not send them, and because most batches have none.
+   */
+  confusions: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        cardId: z.string().uuid(),
+        typed: z.string().max(200),
+        observedAt: z.iso.datetime(),
+      }),
+    )
+    .max(MAX_CONFUSION_BATCH)
+    .default([]),
 });
 
 /**
@@ -58,7 +74,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    return NextResponse.json(await syncReviews(parsed.data.reviews));
+    const result = await syncReviews(parsed.data.reviews);
+    // After the reviews, and never instead of them: a confusion is a note
+    // about a miss that `review_logs` has already recorded, so it must not be
+    // able to fail the thing it annotates. `recordConfusions` swallows its own
+    // errors for the same reason.
+    await recordConfusions(parsed.data.confusions);
+    return NextResponse.json(result);
   } catch (error) {
     // The outbox is durable, so a 5xx costs nothing but a retry. Losing the
     // batch by answering 200 would cost the reviews themselves.
