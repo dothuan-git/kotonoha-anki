@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Check, Sparkles, UserCheck } from 'lucide-react';
+import { ArrowRight, Check, Sparkles, UserCheck, Volume2, VolumeX } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
@@ -8,6 +8,7 @@ import { bind, unbind } from 'wanakana';
 
 import { Ruby } from '@/components/Ruby';
 import { createWord } from '@/lib/actions/words';
+import { hasJapaneseVoice, onVoicesReady, playJapaneseAudio } from '@/lib/client/audio';
 import { JLPT_VALUES, POS_VALUES, type Jlpt, type LookupCandidate, type Pos } from '@/lib/types';
 
 const JLPT_LABELS: Record<Jlpt, string> = {
@@ -39,6 +40,8 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
   const [status, setStatus] = useState<Status>('idle');
   const [autofilled, setAutofilled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** null until the voice list has loaded — §13's TTS check, see lib/client/audio. */
+  const [canSpeak, setCanSpeak] = useState<boolean | null>(null);
 
   const headwordRef = useRef<HTMLInputElement>(null);
   const readingRef = useRef<HTMLInputElement>(null);
@@ -62,6 +65,17 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
     bind(el, { IMEMode: 'toHiragana' });
     return () => unbind(el);
   }, []);
+
+  /**
+   * §13's TTS, checked where it can still be acted on.
+   *
+   * Nothing is generated or stored: the voice is the platform's and it is on
+   * the device, which is why it works on the train. What is worth knowing at
+   * save time is whether it exists at all — a phone with no Japanese voice
+   * reads 開ける in English, and discovering that in the middle of a session is
+   * both too late and easy to mistake for a bad recording.
+   */
+  useEffect(() => onVoicesReady(() => setCanSpeak(hasJapaneseVoice())), []);
 
   useEffect(() => {
     const q = headword.trim();
@@ -199,13 +213,40 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               autoComplete="off"
               className="font-jp-serif w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-2xl font-semibold text-[var(--text-primary)] shadow-xs transition-all focus:border-[var(--bamboo)] focus:outline-none focus:ring-2 focus:ring-[var(--bamboo)]/20"
             />
-            {status === 'looking' && (
+            {status === 'looking' ? (
               <div className="absolute right-3.5 top-3.5 flex animate-pulse items-center gap-1.5 text-xs text-[var(--text-muted)]">
                 <Sparkles className="h-4 w-4 text-[var(--bamboo)]" />
                 <span>Đang tra cứu…</span>
               </div>
+            ) : (
+              headword.trim() !== '' && (
+                <button
+                  type="button"
+                  onClick={() => playJapaneseAudio(reading.trim() || headword.trim())}
+                  disabled={canSpeak === false}
+                  title={
+                    canSpeak === false
+                      ? 'Thiết bị này chưa có giọng tiếng Nhật'
+                      : 'Nghe thử trước khi lưu'
+                  }
+                  aria-label="Nghe thử cách đọc"
+                  className="absolute right-3 top-3 rounded-lg border border-[var(--border-subtle)] p-1.5 text-[var(--text-secondary)] transition-colors hover:border-[var(--bamboo)] hover:text-[var(--bamboo)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {canSpeak === false ? (
+                    <VolumeX className="h-4 w-4" />
+                  ) : (
+                    <Volume2 className="h-4 w-4" />
+                  )}
+                </button>
+              )
             )}
           </div>
+          {canSpeak === false && (
+            <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
+              Thiết bị này chưa cài giọng đọc tiếng Nhật, nên nút loa trong phiên ôn tập sẽ im
+              hoặc đọc sai. Từ vẫn lưu bình thường.
+            </p>
+          )}
         </div>
 
         {/* The user's own note — visually the primary field, as in the design. */}
