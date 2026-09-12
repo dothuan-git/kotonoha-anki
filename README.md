@@ -4,11 +4,13 @@ A private Japanese vocabulary trainer with Vietnamese meanings, built around a
 washi-paper, wabi-sabi aesthetic. Single user, no sharing. See
 [kotonoha-technical-plan.md](kotonoha-technical-plan.md) for the full design.
 
-## Status — Phase 2 (review)
+## Status — Phase 3 (recall)
 
 Working: add a word (dictionary lookup, Hán Việt), the word list with search
 and inline edit, the kanji index, and the review session — FSRS scheduling,
-the daily queue, recognition cards, rating, and session end.
+the daily queue, recognition **and production** cards, kana input with §6
+answer matching, "gõ nhầm", the ten-second undo, editing a word mid-review,
+and session end.
 
 Not built yet: `/stats` shows an empty state. It is four charts over
 `review_logs` and belongs to Phase 5; nothing on it is mocked.
@@ -44,6 +46,9 @@ can.
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run seed:unihan` | Seed `kanji.han_viet`; idempotent, `-- --fresh` re-downloads |
 | `npm run recompute` | Rebuild every `card_states` row from `review_logs`; `-- --check` reports without writing |
+
+Layout note: `lib/answer.ts` is §6's matcher, and the only thing that decides
+whether a typed answer is right.
 
 ## Layout
 
@@ -97,11 +102,66 @@ stability estimates for `Good` and `Easy` — which distorts the model's own
 first-review guesses. Left alone pending a decision; the override is a one-line
 change in `lib/fsrs/params.ts`.
 
+## How recall works
+
+- **A production card asks for the word, given only the meaning.** No Hán Việt
+  and no example sentence on the prompt side — both leak the answer. The
+  headword, the reading and the furigana appear together once you have
+  answered.
+- **Matching is exact** (`lib/answer.ts`, §6). NFKC, katakana folded to
+  hiragana, ー expanded to the vowel before it (コーヒー → こおひい, which is
+  why こうひい does not match), punctuation and interpuncts stripped. Accepts
+  the reading or the headword — typing 開ける instead of あける is correct. No
+  Levenshtein tolerance: in an SRS a near miss is a miss, and じ/ぢ stay apart.
+- **A wrong answer can only be graded Quên.** The other three buttons are not
+  rendered and the keys do nothing, so a miss cannot be self-graded into Được.
+  The escape is **"gõ nhầm"**, which discards the attempt without writing a log
+  row — no rating, no state change, retype it.
+- **"Chưa nhớ ra"** reveals the answer and counts as a miss. Without it the
+  only way to see the answer is to type a wrong one, which logs a review you
+  did not mean to grade.
+- **Undo is ten seconds** (§5), and it is the one deletion `review_logs`
+  permits. The server deletes that row by id and refolds the card; the card
+  comes back in front of you carrying the state the shorter log implies, not
+  the values the client had cached. Two guards, because a delete against an
+  append-only table should be narrow: the row must be inside the window
+  (checked against `reviewed_at`, not the client's countdown) and it must be
+  the card's most recent review.
+- **Editing mid-review saves before it redraws.** A failed write leaves the old
+  values on screen rather than a lie. The panel is narrower than /words on
+  purpose — headword, reading, meaning, note; the things you can be wrong about
+  while looking at the card.
+
+### When production cards appear
+
+§4 unlocks one at `stability >= 21` on the word's recognition card, checked
+after every review. With the stock FSRS-5 weights that is the **4th consecutive
+Được** (stability steps 2.3 → 2.3 → 11.0 → 44.0, about eight weeks in) or the
+**2nd Dễ**. Nothing lands exactly on 21; the fold steps over it.
+
+The new card's state row is `createEmptyCard(word.created_at)` — the same seed
+every other fold uses — so `npm run recompute` reproduces it instead of moving
+it to whenever the rebuild ran. It is therefore due in the past, which is
+correct: it is a new card, and it joins the *next* session, never the one that
+unlocked it (§4 allows one card per word per session).
+
+One consequence worth knowing: new cards are ordered by `words.created_at`, so
+an unlocked production card sorts ahead of recently added vocabulary and spends
+the 12/day new-card budget first. In practice unlocks arrive at roughly the
+rate you were adding words two months ago, so it is self-limiting — but if a
+backlog ever crowds out new words, that ordering in `buildSession` is where to
+change it.
+
 ## Notes for the next phase
 
 - **`review_logs` is append-only.** The single permitted deletion is the
-  10-second undo window, by id, followed by a recompute. Phase 3 builds it;
-  `recomputeCardState` is already the second half of it.
+  10-second undo window (`undoReview`), by id, followed by a refold.
+- **Undo is server-enforced.** Phase 4's offline outbox will need the same
+  guard client-side, against the client's own `reviewed_at`, before a batch
+  leaves the device — an undone review must never reach `/api/sync` at all.
+- **`checkAnswer` is pure and client-only.** Phase 4 runs the session offline,
+  so answer matching has to work with no server; it already does, and the
+  rating it produces is the only thing that travels.
 - **`applyReview` is not inside the server action.** Phase 4's `/api/sync`
   replays an offline batch through the same function, so an offline review and
   an online one cannot drift apart. It is idempotent on the client-generated
