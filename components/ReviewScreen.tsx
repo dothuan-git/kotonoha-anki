@@ -23,7 +23,7 @@ import { UndoToast } from '@/components/UndoToast';
 import { acknowledgeLeech } from '@/lib/actions/leech';
 import { undoReview } from '@/lib/actions/review';
 import { updateWord } from '@/lib/actions/words';
-import { playJapaneseAudio } from '@/lib/client/audio';
+import { playSentenceAudio, playWordAudio } from '@/lib/client/audio';
 import { useOnline } from '@/lib/client/online';
 import { enqueue, flush, noteConfusion, pendingCount, takeBack } from '@/lib/client/outbox';
 import { chooseSession, loadSession, saveSession } from '@/lib/client/session';
@@ -361,7 +361,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const handleReveal = useCallback(() => {
     if (!currentWord || typing) return;
     setIsRevealed(true);
-    playJapaneseAudio(currentWord.word.headword);
+    playWordAudio(currentWord.word);
   }, [currentWord, typing]);
 
   /**
@@ -372,7 +372,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     (result: Attempt) => {
       setAttempt(result);
       setIsRevealed(true);
-      if (currentWord) playJapaneseAudio(currentWord.word.headword);
+      if (currentWord) playWordAudio(currentWord.word);
     },
     [currentWord],
   );
@@ -789,22 +789,15 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    */
   const revealedRows: RevealedRow[] = asking
     ? [
-        { label: 'Từ tiếng Nhật', value: word.headword, kind: 'headword', speak: word.headword },
+        { label: 'Từ tiếng Nhật', value: word.headword, kind: 'headword' },
         // A kana-only word is its own reading. Printing it twice under two
         // labels reads as a mistake rather than as a fact about the word.
         ...(word.reading === word.headword
           ? []
-          : [
-              {
-                label: 'Cách đọc',
-                value: word.reading,
-                kind: 'reading' as const,
-                speak: word.reading,
-              },
-            ]),
+          : [{ label: 'Cách đọc', value: word.reading, kind: 'reading' as const }]),
       ]
     : [
-        { label: 'Cách đọc', value: word.reading, kind: 'reading', speak: word.reading },
+        { label: 'Cách đọc', value: word.reading, kind: 'reading' },
         { label: 'Nghĩa tiếng Việt', value: word.meaning, kind: 'vietnamese' },
       ];
 
@@ -889,15 +882,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={() => playJapaneseAudio(word.headword)}
-            disabled={!canHearWord}
-            className="p-1.5 rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)] cursor-pointer transition-[color,border-color,opacity] duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={canHearWord ? 'Nghe phát âm' : 'Nghe phát âm sau khi trả lời'}
-          >
-            <Volume2 className="w-3.5 h-3.5" />
-          </button>
         </div>
       </div>
 
@@ -976,26 +960,54 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
               </span>
             </div>
 
-            {/* Dedicated Japanese Font Toggle (Mincho Serif vs Gothic Sans) */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setFontStyle(fontStyle === 'mincho' ? 'gothic' : 'mincho');
-              }}
-              className="px-2 py-0.5 rounded-md text-[11px] font-medium border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 hover:bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer flex items-center gap-1 transition-colors"
-              title="Đổi phông chữ tiếng Nhật (Mincho Serif / Gothic Sans)"
-            >
-              <span
-                className={
-                  fontStyle === 'mincho'
-                    ? 'font-jp-serif font-bold text-[var(--bamboo)]'
-                    : 'font-jp-sans'
-                }
+            {/*
+              The card's own controls: how the word is set, and how it sounds.
+              The speaker sits here rather than up in the session bar because
+              both of these act on the word in front of you, while everything
+              in that bar — progress, sync, the answer mode — acts on the
+              session. Sorting them that way puts each control next to the
+              thing it changes.
+            */}
+            <div className="flex items-center gap-1.5">
+              {/* Dedicated Japanese Font Toggle (Mincho Serif vs Gothic Sans) */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFontStyle(fontStyle === 'mincho' ? 'gothic' : 'mincho');
+                }}
+                className="px-2 py-0.5 rounded-md text-[11px] font-medium border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 hover:bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer flex items-center gap-1 transition-colors"
+                title="Đổi phông chữ tiếng Nhật (Mincho Serif / Gothic Sans)"
               >
-                {fontStyle === 'mincho' ? '明朝 (Serif)' : 'ゴシック (Sans)'}
-              </span>
-            </button>
+                <span
+                  className={
+                    fontStyle === 'mincho'
+                      ? 'font-jp-serif font-bold text-[var(--bamboo)]'
+                      : 'font-jp-sans'
+                  }
+                >
+                  {fontStyle === 'mincho' ? '明朝 (Serif)' : 'ゴシック (Sans)'}
+                </span>
+              </button>
+
+              {/*
+                Gated by `canHearWord`, and the click stops here: the card
+                itself is the reveal target, so a speaker that bubbled would
+                turn the card over on its way to making a sound.
+              */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  playWordAudio(word);
+                }}
+                disabled={!canHearWord}
+                className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 p-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--bamboo)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                title={canHearWord ? 'Nghe phát âm' : 'Nghe phát âm sau khi trả lời'}
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* Center: the prompt — the headword, or the meaning to produce it from */}
@@ -1161,7 +1173,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          playJapaneseAudio(sentence.jp);
+                          playSentenceAudio(sentence);
                         }}
                         className="p-1 text-[var(--text-muted)] hover:text-[var(--bamboo)] shrink-0 cursor-pointer"
                         title="Nghe câu ví dụ"
@@ -1288,8 +1300,6 @@ interface RevealedRow {
   label: string;
   value: string;
   kind: 'headword' | 'reading' | 'vietnamese';
-  /** Japanese to speak. Absent on a row there is nothing to hear. */
-  speak?: string;
 }
 
 /**
@@ -1335,27 +1345,12 @@ function RevealedRows({
 
   return (
     <>
-      {rows.map(({ label, value, kind, speak }) => (
-        <div key={label} className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <span className="block text-[11px] font-medium text-[var(--text-muted)]">{label}</span>
-            <p className={`mt-0.5 ${ROW_STYLES[kind]} ${kind === 'headword' ? jpWeight : ''}`}>
-              {value}
-            </p>
-          </div>
-          {speak && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                playJapaneseAudio(speak);
-              }}
-              className="shrink-0 cursor-pointer rounded-xl bg-[var(--bg-muted)] p-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bamboo-subtle)] hover:text-[var(--bamboo)]"
-              title="Nghe phát âm"
-            >
-              <Volume2 className="h-4 w-4" />
-            </button>
-          )}
+      {rows.map(({ label, value, kind }) => (
+        <div key={label} className="min-w-0">
+          <span className="block text-[11px] font-medium text-[var(--text-muted)]">{label}</span>
+          <p className={`mt-0.5 ${ROW_STYLES[kind]} ${kind === 'headword' ? jpWeight : ''}`}>
+            {value}
+          </p>
         </div>
       ))}
     </>

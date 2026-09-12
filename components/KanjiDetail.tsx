@@ -6,7 +6,7 @@ import { useState, useTransition } from 'react';
 
 import { Ruby } from '@/components/Ruby';
 import { setKanjiDetails } from '@/lib/actions/words';
-import { playJapaneseAudio } from '@/lib/client/audio';
+import { playWordAudio } from '@/lib/client/audio';
 import { formatHanViet, formatPos, type KanjiView, type WordView } from '@/lib/types';
 
 export function KanjiDetail({ kanji, words }: { kanji: KanjiView; words: WordView[] }) {
@@ -132,7 +132,7 @@ export function KanjiDetail({ kanji, words }: { kanji: KanjiView; words: WordVie
                 </div>
                 <button
                   type="button"
-                  onClick={() => playJapaneseAudio(word.headword)}
+                  onClick={() => playWordAudio(word)}
                   aria-label={`Đọc ${word.headword}`}
                   className="shrink-0 rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
                 >
