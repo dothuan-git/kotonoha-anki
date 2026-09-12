@@ -1,6 +1,16 @@
 'use client';
 
-import { Check, Pencil, Search, Trash2, Volume2, X } from 'lucide-react';
+import {
+  BookOpen,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  Search,
+  Trash2,
+  Volume2,
+  X,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
 import { useMemo, useState, useTransition } from 'react';
@@ -18,8 +28,25 @@ import {
   type WordView,
 } from '@/lib/types';
 
+/** The prototype's filter row: every JLPT level, plus an "everything" pill. */
+const LEVELS = ['ALL', ...JLPT_VALUES] as const;
+type Level = (typeof LEVELS)[number];
+
+/**
+ * The kho từ list, as the prototype draws it: one sheet of washi with hairline
+ * rules between the rows, each row collapsed to headword / reading / meaning
+ * and opening in place.
+ *
+ * The list here was a stack of separate cards with every detail already
+ * showing, which is a fine shape for six words and unreadable at two hundred
+ * — the screen you go to looking for one word is the screen that has the most
+ * of them. Editing and deleting live inside the opened row rather than on the
+ * collapsed one, so the resting state is only the three things you scan by.
+ */
 export function WordsScreen({ words }: { words: WordView[] }) {
   const [query, setQuery] = useState('');
+  const [level, setLevel] = useState<Level>('ALL');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -31,15 +58,29 @@ export function WordsScreen({ words }: { words: WordView[] }) {
    */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return words;
-    return words.filter(
-      (w) =>
+    return words.filter((w) => {
+      if (level !== 'ALL' && w.jlpt !== level) return false;
+      if (!q) return true;
+      return (
         w.headword.toLowerCase().includes(q) ||
         w.reading.toLowerCase().includes(q) ||
         w.meaning.toLowerCase().includes(q) ||
-        formatHanViet(w.kanji).toLowerCase().includes(q),
-    );
-  }, [words, query]);
+        formatHanViet(w.kanji).toLowerCase().includes(q)
+      );
+    });
+  }, [words, query, level]);
+
+  /** Opening a row closes whatever the last one had going on. */
+  function toggle(id: string) {
+    setExpandedId((current) => (current === id ? null : id));
+    setEditingId(null);
+    setConfirmingId(null);
+  }
+
+  function clearFilters() {
+    setQuery('');
+    setLevel('ALL');
+  }
 
   return (
     <div className="w-full">
@@ -47,7 +88,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">Kho từ</h1>
           <p className="mt-1 text-xs text-[var(--text-muted)]">
-            {words.length} từ trong sổ. Chạm vào bút chì để sửa ngay tại chỗ.
+            {words.length} từ trong sổ. Chạm vào một dòng để mở rộng và sửa tại chỗ.
           </p>
         </div>
         <Link
@@ -58,88 +99,173 @@ export function WordsScreen({ words }: { words: WordView[] }) {
         </Link>
       </div>
 
-      <div className="relative mb-3">
-        <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--text-muted)]" />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Tìm theo từ, cách đọc, nghĩa, Hán Việt…"
-          className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-2 pl-9 pr-3 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
-        />
+      <div className="mb-4 space-y-2.5">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3.5 top-3 h-4 w-4 text-[var(--text-muted)]" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Tìm theo Kanji, Hiragana, Hán Việt hoặc nghĩa…"
+            aria-label="Tìm từ"
+            className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-2.5 pl-10 pr-14 text-sm text-[var(--text-primary)] shadow-xs transition-colors focus:border-[var(--bamboo)] focus:outline-none"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="absolute right-3 top-3 cursor-pointer text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            >
+              Xoá
+            </button>
+          )}
+        </div>
+
+        {/* The count sits outside the scrolling pill row: inside it, `ml-auto`
+            pushes it past the right edge on a narrow screen and it is never
+            seen. */}
+        <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            {LEVELS.map((lvl) => (
+              <motion.button
+                key={lvl}
+                type="button"
+                whileTap={{ scale: 0.94 }}
+                onClick={() => setLevel(lvl)}
+                aria-pressed={level === lvl}
+                className={`shrink-0 cursor-pointer rounded-lg px-3 py-1 font-medium transition-colors ${
+                  level === lvl
+                    ? 'bg-[var(--bamboo)] font-semibold text-white shadow-xs'
+                    : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)]'
+                }`}
+              >
+                {lvl === 'ALL' ? 'Tất cả' : lvl}
+              </motion.button>
+            ))}
+          </div>
+          <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] text-[var(--text-muted)]">
+            {filtered.length} từ
+          </span>
+        </div>
       </div>
 
       {words.length === 0 ? (
         <EmptyState />
       ) : filtered.length === 0 ? (
-        <p className="py-10 text-center text-sm text-[var(--text-muted)]">
-          Không có từ nào khớp với “{query}”.
-        </p>
+        <NoMatches onClear={clearFilters} />
       ) : (
-        <ul className="space-y-2.5">
-          <AnimatePresence initial={false}>
-            {filtered.map((word) => (
-              <motion.li
-                key={word.id}
-                layout
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs"
-              >
-                {editingId === word.id ? (
-                  <EditRow
-                    word={word}
-                    disabled={pending}
-                    onCancel={() => setEditingId(null)}
-                    onSave={(patch) =>
-                      startTransition(async () => {
-                        await updateWord({ id: word.id, ...patch });
-                        setEditingId(null);
-                      })
+        <div className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs">
+          {filtered.map((word) => {
+            const isExpanded = expandedId === word.id;
+
+            return (
+              <div key={word.id} className="transition-colors hover:bg-[var(--bg-muted)]/30">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  onClick={() => toggle(word.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggle(word.id);
                     }
-                  />
-                ) : (
-                  <ViewRow
-                    word={word}
-                    confirming={confirmingId === word.id}
-                    disabled={pending}
-                    onEdit={() => setEditingId(word.id)}
-                    onAskDelete={() => setConfirmingId(word.id)}
-                    onCancelDelete={() => setConfirmingId(null)}
-                    onConfirmDelete={() =>
-                      startTransition(async () => {
-                        await deleteWord(word.id);
-                        setConfirmingId(null);
-                      })
-                    }
-                  />
-                )}
-              </motion.li>
-            ))}
-          </AnimatePresence>
-        </ul>
+                  }}
+                  className="flex cursor-pointer select-none items-center justify-between p-3.5 sm:p-4"
+                >
+                  <div className="flex min-w-0 items-baseline gap-2.5">
+                    <span className="font-jp-serif shrink-0 text-lg font-semibold text-[var(--text-primary)] sm:text-xl">
+                      {word.headword}
+                    </span>
+                    <span className="font-jp-serif shrink-0 text-xs font-medium text-[var(--bamboo)] sm:text-sm">
+                      {word.reading}
+                    </span>
+                    <span className="truncate text-xs text-[var(--text-secondary)] sm:text-sm">
+                      {word.meaning}
+                    </span>
+                  </div>
+
+                  <div className="ml-2 flex shrink-0 items-center gap-1.5 sm:gap-2">
+                    {word.suspended && (
+                      <span className="rounded-md border border-[var(--warning)]/40 bg-[var(--warning-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--warning)]">
+                        Tạm dừng
+                      </span>
+                    )}
+                    <span className="rounded-md bg-[var(--bg-muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-muted)] sm:px-2 sm:text-[11px]">
+                      {word.jlpt ?? '—'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        playJapaneseAudio(word.headword);
+                      }}
+                      aria-label={`Đọc ${word.headword}`}
+                      className="cursor-pointer p-1 text-[var(--text-muted)] hover:text-[var(--bamboo)]"
+                    >
+                      <Volume2 className="h-3.5 w-3.5" />
+                    </button>
+                    {isExpanded ? (
+                      <ChevronUp className="h-4 w-4 text-[var(--text-muted)]" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
+                    )}
+                  </div>
+                </div>
+
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18, ease: 'easeOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="space-y-2.5 border-t border-[var(--border-subtle)] bg-[var(--bg-page)]/40 px-3.5 pb-3.5 pt-1 text-sm sm:px-4 sm:pb-4">
+                        {editingId === word.id ? (
+                          <EditForm
+                            word={word}
+                            disabled={pending}
+                            onCancel={() => setEditingId(null)}
+                            onSave={(patch) =>
+                              startTransition(async () => {
+                                await updateWord({ id: word.id, ...patch });
+                                setEditingId(null);
+                              })
+                            }
+                          />
+                        ) : (
+                          <Details
+                            word={word}
+                            confirming={confirmingId === word.id}
+                            disabled={pending}
+                            onEdit={() => setEditingId(word.id)}
+                            onAskDelete={() => setConfirmingId(word.id)}
+                            onCancelDelete={() => setConfirmingId(null)}
+                            onConfirmDelete={() =>
+                              startTransition(async () => {
+                                await deleteWord(word.id);
+                                setConfirmingId(null);
+                                setExpandedId(null);
+                              })
+                            }
+                          />
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
 
-function EmptyState() {
-  return (
-    <div className="rounded-2xl border border-dashed border-[var(--border-strong)] px-6 py-12 text-center">
-      <p className="text-sm font-medium text-[var(--text-secondary)]">Sổ từ còn trống.</p>
-      <p className="mx-auto mt-1 max-w-xs text-xs text-[var(--text-muted)]">
-        Thêm từ đầu tiên và hệ thống sẽ tự tra từ điển, âm Hán Việt và soạn câu ví dụ.
-      </p>
-      <Link
-        href="/add"
-        className="mt-5 inline-block rounded-xl bg-[var(--bamboo)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--bamboo-hover)]"
-      >
-        Thêm từ đầu tiên
-      </Link>
-    </div>
-  );
-}
-
-function ViewRow({
+function Details({
   word,
   confirming,
   disabled,
@@ -156,71 +282,62 @@ function ViewRow({
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
 }) {
-  const sentence = word.sentences[0];
-
   return (
-    <div className="p-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-baseline gap-2">
-            <span className="font-jp-serif text-2xl font-semibold leading-tight">
-              {word.headword}
-            </span>
-            <span className="font-jp-serif truncate text-sm text-[var(--text-muted)]">
-              {word.reading}
-            </span>
-          </div>
-          <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">{word.meaning}</p>
+    <>
+      <div className="grid grid-cols-2 gap-2 pt-1 text-xs text-[var(--text-secondary)]">
+        <div>
+          <span className="text-[var(--text-muted)]">Hán Việt: </span>
+          <span className="font-semibold text-[var(--text-primary)]">
+            {formatHanViet(word.kanji)}
+          </span>
         </div>
+        <div>
+          <span className="text-[var(--text-muted)]">Từ loại: </span>
+          <span>{formatPos(word.pos, word.transitivity)}</span>
+        </div>
+      </div>
 
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => playJapaneseAudio(word.headword)}
-            aria-label={`Đọc ${word.headword}`}
-            className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
-          >
-            <Volume2 className="h-4 w-4" />
-          </button>
+      {word.sentences.map((sentence) => (
+        <div
+          key={sentence.id}
+          className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3"
+        >
+          <Ruby
+            text={sentence.jpRuby}
+            className="font-jp-sans text-sm font-medium leading-relaxed text-[var(--text-primary)]"
+          />
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">{sentence.vi}</p>
+        </div>
+      ))}
+
+      {word.note && <p className="text-xs italic text-[var(--text-muted)]">{word.note}</p>}
+
+      <div className="flex items-center justify-between gap-2 pt-1 text-xs">
+        <div className="text-[11px] text-[var(--text-muted)]">
+          Thêm ngày {formatAdded(word.createdAt)}
+        </div>
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onEdit}
-            aria-label={`Sửa ${word.headword}`}
-            className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
+            className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
           >
-            <Pencil className="h-4 w-4" />
+            <Pencil className="h-3 w-3" />
+            <span>Sửa</span>
           </button>
           <button
             type="button"
             onClick={onAskDelete}
-            aria-label={`Xoá ${word.headword}`}
-            className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--danger-subtle)] hover:text-[var(--danger)]"
+            className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--danger)]/30 px-2.5 py-1 text-[var(--danger)] hover:bg-[var(--danger-subtle)]"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-3 w-3" />
+            <span>Xoá</span>
           </button>
         </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-        <Tag>{formatPos(word.pos, word.transitivity)}</Tag>
-        {word.jlpt && <Tag>{word.jlpt}</Tag>}
-        <Tag>{formatHanViet(word.kanji)}</Tag>
-        {word.suspended && <Tag tone="warning">Tạm dừng</Tag>}
-      </div>
-
-      {sentence && (
-        <div className="mt-2.5 rounded-xl bg-[var(--bg-muted)]/50 px-3 py-2">
-          <Ruby text={sentence.jpRuby} className="font-jp-serif text-base leading-loose" />
-          <p className="mt-1 text-xs text-[var(--text-secondary)]">{sentence.vi}</p>
-        </div>
-      )}
-
-      {word.note && (
-        <p className="mt-2 text-xs italic text-[var(--text-muted)]">{word.note}</p>
-      )}
-
       {confirming && (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[var(--danger)]/40 bg-[var(--danger-subtle)] px-3 py-2">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--danger)]/40 bg-[var(--danger-subtle)] px-3 py-2">
           <span className="text-xs font-medium text-[var(--danger)]">
             Xoá từ này cùng câu ví dụ và lịch sử ôn tập?
           </span>
@@ -228,7 +345,7 @@ function ViewRow({
             <button
               type="button"
               onClick={onCancelDelete}
-              className="rounded-lg px-2 py-1 text-xs font-medium text-[var(--text-secondary)]"
+              className="cursor-pointer rounded-lg px-2 py-1 text-xs font-medium text-[var(--text-secondary)]"
             >
               Huỷ
             </button>
@@ -236,18 +353,18 @@ function ViewRow({
               type="button"
               onClick={onConfirmDelete}
               disabled={disabled}
-              className="rounded-lg bg-[var(--danger)] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60"
+              className="cursor-pointer rounded-lg bg-[var(--danger)] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60"
             >
               Xoá
             </button>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
-function EditRow({
+function EditForm({
   word,
   disabled,
   onCancel,
@@ -276,85 +393,87 @@ function EditRow({
   const [jlpt, setJlpt] = useState<Jlpt | ''>(word.jlpt ?? '');
   const [note, setNote] = useState(word.note ?? '');
 
+  const field =
+    'w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none';
+
   return (
-    <div className="space-y-2.5 bg-[var(--bg-muted)]/40 p-3.5">
+    <div className="space-y-2.5 pt-2">
       <div className="grid grid-cols-2 gap-2">
-        <input
-          value={headword}
-          onChange={(e) => setHeadword(e.target.value)}
-          aria-label="Từ"
-          className="font-jp-serif rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-lg"
-        />
-        <input
-          value={reading}
-          onChange={(e) => setReading(e.target.value)}
-          aria-label="Cách đọc"
-          className="font-jp-serif rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm"
-        />
+        <Labelled label="Từ">
+          <input
+            value={headword}
+            onChange={(e) => setHeadword(e.target.value)}
+            className={`font-jp-serif ${field} text-lg`}
+          />
+        </Labelled>
+        <Labelled label="Cách đọc">
+          <input
+            value={reading}
+            onChange={(e) => setReading(e.target.value)}
+            className={`font-jp-serif ${field}`}
+          />
+        </Labelled>
       </div>
 
-      <input
-        value={meaning}
-        onChange={(e) => setMeaning(e.target.value)}
-        aria-label="Nghĩa"
-        className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm font-medium"
-      />
+      <Labelled label="Nghĩa tiếng Việt">
+        <input
+          value={meaning}
+          onChange={(e) => setMeaning(e.target.value)}
+          className={`${field} font-medium`}
+        />
+      </Labelled>
 
       <div className="grid grid-cols-3 gap-2">
-        <select
-          value={pos}
-          onChange={(e) => setPos(e.target.value as Pos)}
-          aria-label="Từ loại"
-          className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1.5 text-xs"
-        >
-          {POS_VALUES.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
-        <select
-          value={transitivity}
-          onChange={(e) => setTransitivity(e.target.value as typeof transitivity)}
-          aria-label="Tự / tha động từ"
-          className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1.5 text-xs"
-        >
-          <option value="">—</option>
-          <option value="transitive">Tha động từ</option>
-          <option value="intransitive">Tự động từ</option>
-        </select>
-        <select
-          value={jlpt}
-          onChange={(e) => setJlpt(e.target.value as Jlpt | '')}
-          aria-label="Cấp độ JLPT"
-          className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1.5 text-xs"
-        >
-          <option value="">—</option>
-          {JLPT_VALUES.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
+        <Labelled label="Từ loại">
+          <select
+            value={pos}
+            onChange={(e) => setPos(e.target.value as Pos)}
+            className={`${field} px-2 text-xs`}
+          >
+            {POS_VALUES.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Labelled>
+        <Labelled label="Tự / tha">
+          <select
+            value={transitivity}
+            onChange={(e) => setTransitivity(e.target.value as typeof transitivity)}
+            className={`${field} px-2 text-xs`}
+          >
+            <option value="">—</option>
+            <option value="transitive">Tha động từ</option>
+            <option value="intransitive">Tự động từ</option>
+          </select>
+        </Labelled>
+        <Labelled label="JLPT">
+          <select
+            value={jlpt}
+            onChange={(e) => setJlpt(e.target.value as Jlpt | '')}
+            className={`${field} px-2 text-xs`}
+          >
+            <option value="">—</option>
+            {JLPT_VALUES.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Labelled>
       </div>
 
-      <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder="Ghi chú riêng"
-        aria-label="Ghi chú"
-        className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs"
-      />
+      <Labelled label="Ghi chú riêng">
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Dễ lẫn với 開く…"
+          className={`${field} text-xs`}
+        />
+      </Labelled>
 
-      <div className="flex items-center justify-end gap-2 pt-0.5">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)]"
-        >
-          <X className="h-3.5 w-3.5" />
-          Huỷ
-        </button>
+      <div className="flex items-center gap-2 pt-1">
         <button
           type="button"
           disabled={disabled || !headword.trim() || !meaning.trim()}
@@ -369,32 +488,74 @@ function EditRow({
               note: note.trim() || null,
             })
           }
-          className="flex items-center gap-1 rounded-lg bg-[var(--bamboo)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--bamboo)] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[var(--bamboo-hover)] disabled:opacity-60"
         >
           <Check className="h-3.5 w-3.5" />
-          Lưu
+          <span>Lưu thay đổi</span>
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-xs text-[var(--text-secondary)]"
+        >
+          <X className="h-3.5 w-3.5" />
+          <span>Huỷ</span>
         </button>
       </div>
     </div>
   );
 }
 
-function Tag({
-  children,
-  tone = 'default',
-}: {
-  children: React.ReactNode;
-  tone?: 'default' | 'warning';
-}) {
+function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <span
-      className={`rounded-full border px-2 py-0.5 ${
-        tone === 'warning'
-          ? 'border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning)]'
-          : 'border-[var(--border-subtle)] bg-[var(--bg-muted)]/60 text-[var(--text-muted)]'
-      }`}
-    >
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-semibold text-[var(--text-muted)]">{label}</span>
       {children}
-    </span>
+    </label>
   );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-12 text-center">
+      <BookOpen className="mx-auto mb-3 h-8 w-8 text-[var(--text-muted)]" />
+      <p className="text-sm font-semibold text-[var(--text-primary)]">Sổ từ còn trống.</p>
+      <p className="mx-auto mt-1 max-w-xs text-xs text-[var(--text-muted)]">
+        Thêm từ đầu tiên và hệ thống sẽ tự tra từ điển, âm Hán Việt và soạn câu ví dụ.
+      </p>
+      <Link
+        href="/add"
+        className="mt-4 inline-block rounded-xl bg-[var(--bamboo)] px-4 py-2 text-xs font-semibold text-white hover:bg-[var(--bamboo-hover)]"
+      >
+        Thêm từ đầu tiên
+      </Link>
+    </div>
+  );
+}
+
+function NoMatches({ onClear }: { onClear: () => void }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-12 text-center">
+      <BookOpen className="mx-auto mb-3 h-8 w-8 text-[var(--text-muted)]" />
+      <p className="text-sm font-semibold text-[var(--text-primary)]">
+        Không tìm thấy từ vựng phù hợp
+      </p>
+      <p className="mt-1 text-xs text-[var(--text-muted)]">
+        Thử thay đổi từ khoá tìm kiếm hoặc chọn lại cấp độ JLPT.
+      </p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="mt-4 cursor-pointer rounded-xl bg-[var(--bamboo)] px-4 py-2 text-xs font-semibold text-white hover:bg-[var(--bamboo-hover)]"
+      >
+        Xoá bộ lọc
+      </button>
+    </div>
+  );
+}
+
+/** `2026-09-12T…` → `12/09/2026`. */
+function formatAdded(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('vi-VN');
 }

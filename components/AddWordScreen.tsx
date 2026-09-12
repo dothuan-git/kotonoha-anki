@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Check, Sparkles, UserCheck, Volume2, VolumeX } from 'lucide-react';
+import { ArrowRight, Bot, Check, Sparkles, UserCheck, Volume2, VolumeX } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
@@ -272,12 +272,23 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
           />
         </div>
 
-        <div className="space-y-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-muted)]/40 p-3.5">
-          {autofilled && (
-            <p className="text-[11px] font-semibold text-[var(--bamboo)]">
-              Đã tự động điền từ từ điển
-            </p>
-          )}
+        {/* Everything the dictionary drafted. The dashed rule is the design's
+            way of saying provisional: the block above is yours, this one is a
+            suggestion you are expected to overwrite. */}
+        <div className="space-y-3 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-muted)]/40 p-3.5">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
+            <div className="flex items-center gap-1.5">
+              <Bot className="h-3.5 w-3.5" />
+              <span className="font-semibold text-[var(--text-secondary)]">
+                Thông tin máy gợi ý (có thể chỉnh sửa)
+              </span>
+            </div>
+            {autofilled && (
+              <span className="text-[11px] font-semibold text-[var(--bamboo)]">
+                Đã tự động điền
+              </span>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Field label="Cách đọc (Hiragana)" htmlFor="reading">

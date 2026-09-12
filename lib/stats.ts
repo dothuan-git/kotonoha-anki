@@ -286,6 +286,102 @@ export function maturityOf(row: { state: number; stability: number | null }): Ma
   return 'retired';
 }
 
+/** How many days the heatmap draws — five rows of seven, as in the design. */
+export const HEATMAP_DAYS = 35;
+
+export interface Streak {
+  /** Consecutive study days with at least one rating, ending today. */
+  current: number;
+  /** The longest such run anywhere in the window. */
+  longest: number;
+  /** Days in the window with nothing on them — the gaps, counted not hidden. */
+  gaps: number;
+}
+
+/**
+ * The streak, counted backwards from today.
+ *
+ * Today is allowed to be empty without breaking the run. The study day rolls
+ * over at 04:00 and this screen is read in the morning, so a streak that
+ * reset itself every day until the first review would be wrong far more often
+ * than it was right — it would say 0 to someone on day fourteen. An empty
+ * *yesterday* does break it; that is a missed day.
+ *
+ * Nothing here repairs a gap. The kintsugi framing in the design is about not
+ * hiding the break — `gaps` is returned for exactly that reason — not about
+ * pretending the run continued through it.
+ */
+export function computeStreak(volume: readonly VolumeDay[]): Streak {
+  const active = volume.map((day) => day.ratings > 0);
+
+  let current = 0;
+  for (let i = active.length - 1; i >= 0; i--) {
+    if (active[i]) {
+      current++;
+    } else if (i === active.length - 1) {
+      // Today, still untouched: the run stands on yesterday.
+      continue;
+    } else {
+      break;
+    }
+  }
+
+  let longest = 0;
+  let run = 0;
+  let gaps = 0;
+  for (const on of active) {
+    if (on) {
+      run++;
+      longest = Math.max(longest, run);
+    } else {
+      run = 0;
+      gaps++;
+    }
+  }
+
+  return { current, longest, gaps };
+}
+
+export interface HeatCell {
+  day: string;
+  ratings: number;
+  /** 0 for an empty day, then four steps of the bamboo ramp. */
+  level: 0 | 1 | 2 | 3 | 4;
+  /** An empty day with study on both sides of it — a break in a run, not a lead-in. */
+  repaired: boolean;
+}
+
+/**
+ * The heatmap, over the last `days` study days.
+ *
+ * The steps are quartiles of the busiest day in the window rather than fixed
+ * counts. The prototype hardcoded 6 and 10, which were right for its mock
+ * data and wrong for a real cap of 100 reviews a day — every cell would sit
+ * at the top step and the map would be a solid green block.
+ */
+export function buildHeatmap(volume: readonly VolumeDay[], days = HEATMAP_DAYS): HeatCell[] {
+  const window = volume.slice(-days);
+  const peak = Math.max(0, ...window.map((day) => day.ratings));
+
+  return window.map((day, i) => {
+    let level: HeatCell['level'] = 0;
+    if (day.ratings > 0 && peak > 0) {
+      const share = day.ratings / peak;
+      level = share > 0.75 ? 4 : share > 0.5 ? 3 : share > 0.25 ? 2 : 1;
+    }
+
+    const before = window.slice(0, i).some((d) => d.ratings > 0);
+    const after = window.slice(i + 1).some((d) => d.ratings > 0);
+
+    return {
+      day: day.day,
+      ratings: day.ratings,
+      level,
+      repaired: day.ratings === 0 && before && after,
+    };
+  });
+}
+
 /** Everything /stats renders. Assembled by `buildStats` in `lib/db/stats.ts`. */
 export interface StatsView {
   now: string;

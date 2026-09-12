@@ -571,7 +571,14 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const wrongAnswer = isProduction && attempt !== null && !attempt.correct;
 
   return (
-    <div className="w-full flex flex-col justify-between min-h-[580px] p-2">
+    /*
+      Fills the phone screen rather than demanding a fixed 580px. That minimum
+      was written for a page that scrolled; inside the frame it is taller than
+      the screen itself, which pushed the rating row off the bottom — the one
+      control the session cannot work without. The progress bar and the ratings
+      now stay put and the card scrolls between them.
+    */
+    <div className="flex h-full min-h-0 w-full flex-col justify-between p-2">
       {/* Top Session Progress Bar & Controls */}
       <div className="w-full flex items-center justify-between pb-3 border-b border-[var(--border-subtle)] text-xs text-[var(--text-muted)]">
         {/* Progress pill */}
@@ -699,7 +706,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           exit={{ opacity: 0, y: -8, scale: 0.99 }}
           transition={{ duration: 0.18, ease: 'easeOut' }}
           onClick={!isRevealed && !isProduction ? handleReveal : undefined}
-          className={`w-full mt-3 flex-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl p-5 sm:p-7 flex flex-col justify-between shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-colors ${
+          className={`w-full mt-3 flex-1 min-h-0 overflow-y-auto bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl p-5 sm:p-7 flex flex-col justify-between shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-colors ${
             !isRevealed && !isProduction ? 'cursor-pointer hover:border-[var(--bamboo)]/50' : ''
           }`}
         >

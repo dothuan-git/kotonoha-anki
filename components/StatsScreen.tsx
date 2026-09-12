@@ -9,9 +9,13 @@ import { MaturityBar } from '@/components/stats/MaturityBar';
 import { RetentionChart } from '@/components/stats/RetentionChart';
 import {
   FORECAST_DAYS,
+  HEATMAP_DAYS,
   RETENTION_WEEKS,
   VOLUME_DAYS,
+  buildHeatmap,
+  computeStreak,
   formatDayLabel,
+  type HeatCell,
   type StatsView,
 } from '@/lib/stats';
 
@@ -46,6 +50,8 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
         </p>
       </div>
 
+      <StreakCard stats={stats} />
+
       <div className="mb-4 grid grid-cols-3 gap-2.5">
         <Tile label="Tổng lượt chấm" value={stats.totals.ratings} />
         <Tile label="Thẻ đã học" value={stats.totals.cardsStudied} />
@@ -53,6 +59,8 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
       </div>
 
       <div className="space-y-4">
+        <Heatmap stats={stats} />
+
         <ChartCard
           title="Lượt ôn mỗi ngày"
           caption="Số thẻ khác nhau đã học mỗi ngày, tính theo ngày học bắt đầu lúc 04:00 — đúng cách hạn mức mỗi ngày đếm. Một thẻ chỉ tính một lần dù nó quay lại trong phiên."
@@ -174,6 +182,138 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
       </div>
     </div>
   );
+}
+
+/**
+ * The streak, and the kintsugi framing the design asks for.
+ *
+ * The gold seam is not a metaphor applied to a number here: the count is a
+ * real run of study days and a missed day really does end it. What the design
+ * is about is not hiding the break — so the card says how many empty days are
+ * in the window rather than quietly dropping them, and the longest run stays
+ * on screen after a gap resets the current one.
+ */
+function StreakCard({ stats }: { stats: StatsView }) {
+  const streak = computeStreak(stats.volume);
+
+  return (
+    <section className="mb-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-xs sm:p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+          Chuỗi ngày học tập
+        </span>
+        <span className="shrink-0 rounded-full border border-[var(--warning)]/30 bg-[var(--warning-subtle)] px-2.5 py-0.5 text-xs font-medium text-[var(--warning)]">
+          Hàn gắn Kintsugi
+        </span>
+      </div>
+
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className="text-4xl font-extrabold tracking-tight text-[var(--text-primary)] tabular-nums">
+          {streak.current}
+        </span>
+        <span className="text-sm font-medium text-[var(--text-muted)]">ngày liên tục</span>
+        {streak.longest > streak.current && (
+          <span className="ml-auto text-xs text-[var(--text-muted)]">
+            Dài nhất: <span className="font-semibold tabular-nums">{streak.longest}</span> ngày
+          </span>
+        )}
+      </div>
+
+      <p className="mt-2 text-xs leading-relaxed text-[var(--text-secondary)]">{streakNote(streak, stats)}</p>
+    </section>
+  );
+}
+
+/**
+ * The line under the streak count.
+ *
+ * A collection with no history at all is not a collection with ninety broken
+ * days — nothing has been interrupted yet, and the heatmap below marks none of
+ * those days gold, because a gap needs study on both sides of it to be a gap.
+ * Saying otherwise would have the card contradicting the map directly beneath.
+ */
+function streakNote(streak: ReturnType<typeof computeStreak>, stats: StatsView): string {
+  if (stats.totals.ratings === 0) {
+    return 'Chưa có lượt ôn nào được ghi lại. Chuỗi ngày bắt đầu từ phiên đầu tiên.';
+  }
+  if (streak.gaps === 0) {
+    return `Chưa có ngày trống nào trong ${VOLUME_DAYS} ngày gần nhất.`;
+  }
+  return (
+    `${streak.gaps} ngày trống trong ${VOLUME_DAYS} ngày gần nhất không bị xoá hay phạt — ` +
+    'những ngày nằm giữa hai lần học được hàn lại bằng một đường chỉ vàng trên bản đồ bên dưới. ' +
+    'Sự gián đoạn là một phần lịch sử học tập.'
+  );
+}
+
+/** The 35-day density map. Five rows of seven, oldest cell first. */
+function Heatmap({ stats }: { stats: StatsView }) {
+  const cells = buildHeatmap(stats.volume, HEATMAP_DAYS);
+  const total = cells.reduce((sum, cell) => sum + cell.ratings, 0);
+
+  return (
+    <section className="space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-xs sm:p-5">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="font-semibold text-[var(--text-primary)]">
+          Mật độ ôn tập {HEATMAP_DAYS} ngày qua
+        </span>
+        <span className="shrink-0 text-[11px] text-[var(--text-muted)] tabular-nums">
+          {total} lượt chấm
+        </span>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1.5 pt-1">
+        {cells.map((cell) => (
+          <div
+            key={cell.day}
+            title={
+              cell.repaired
+                ? `${formatDayLabel(cell.day)} — ngày gián đoạn, đã hàn gắn kintsugi`
+                : `${formatDayLabel(cell.day)} — ${cell.ratings} lượt chấm`
+            }
+            className={`flex h-7 items-center justify-center rounded-md text-[10px] font-medium ${cellClass(cell)}`}
+          >
+            {cell.repaired ? '金' : ''}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between pt-1 text-[11px] text-[var(--text-muted)]">
+        <span>Ít</span>
+        <div className="flex items-center gap-1">
+          <span className="h-2.5 w-2.5 rounded-xs bg-[var(--bg-muted)]" />
+          <span className="h-2.5 w-2.5 rounded-xs bg-[var(--chart-seq-1)]" />
+          <span className="h-2.5 w-2.5 rounded-xs bg-[var(--chart-seq-3)]" />
+          <span className="h-2.5 w-2.5 rounded-xs bg-[var(--chart-seq-5)]" />
+          <span className="h-2.5 w-2.5 rounded-xs border border-[var(--warning)] bg-[var(--warning-subtle)]" />
+        </div>
+        <span>Nhiều</span>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The ramp is the sequential one /stats already validated for these surfaces,
+ * not the bamboo scale — the bamboo greens were picked to sit against washi as
+ * UI chrome, and four of them in a row do not read as ordered.
+ */
+function cellClass(cell: HeatCell): string {
+  if (cell.repaired) {
+    return 'border border-[var(--warning)] bg-[var(--warning-subtle)] font-bold text-[var(--warning)]';
+  }
+  switch (cell.level) {
+    case 4:
+      return 'bg-[var(--chart-seq-5)] text-white';
+    case 3:
+      return 'bg-[var(--chart-seq-4)] text-white';
+    case 2:
+      return 'bg-[var(--chart-seq-3)] text-white';
+    case 1:
+      return 'bg-[var(--chart-seq-1)] text-[var(--text-primary)]';
+    default:
+      return 'bg-[var(--bg-muted)] text-[var(--text-muted)]';
+  }
 }
 
 function Tile({ label, value }: { label: string; value: number }) {

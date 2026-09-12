@@ -1,8 +1,11 @@
 import type { Metadata, Viewport } from 'next';
 
-import { AppNav } from '@/components/AppNav';
+import { AppHeader } from '@/components/AppHeader';
+import { AppShell } from '@/components/AppShell';
 import { ServiceWorkerRegistrar } from '@/components/ServiceWorkerRegistrar';
 import { ThemeScript } from '@/components/ThemeScript';
+import { auth } from '@/lib/auth';
+import { countDueToday } from '@/lib/db/review';
 
 import './globals.css';
 
@@ -56,7 +59,26 @@ const FONTS =
   '&family=Plus+Jakarta+Sans:wght@400;500;600;700' +
   '&family=Shippori+Mincho:wght@400;500;600;700;800&display=swap';
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/**
+ * The badge on the Ôn tập tab, for a signed-in visitor only.
+ *
+ * The layout renders for /signin too, where there is no session and the
+ * database must not be touched; a failed count is also not worth failing a
+ * page render over, so both roads lead to no badge rather than an error.
+ */
+async function dueBadge(): Promise<number> {
+  try {
+    const session = await auth();
+    if (!session?.user?.email) return 0;
+    return await countDueToday();
+  } catch {
+    return 0;
+  }
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const dueCount = await dueBadge();
+
   return (
     <html lang="vi" suppressHydrationWarning>
       <head>
@@ -65,11 +87,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="stylesheet" href={FONTS} />
         <ThemeScript />
       </head>
-      <body className="min-h-dvh bg-[var(--bg-page)] text-[var(--text-primary)] antialiased">
-        <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col">
-          <main className="flex-1 px-4 pb-24 pt-4 sm:px-6">{children}</main>
-          <AppNav />
-        </div>
+      {/*
+        The page itself does not scroll: it is exactly one viewport tall and
+        the phone screen inside it scrolls its own content, the way the design
+        frames it. `h-dvh` rather than `min-h-dvh` so the frame below can take
+        its height from this one instead of guessing at it.
+      */}
+      <body className="flex h-dvh flex-col overflow-hidden bg-[var(--bg-page)] text-[var(--text-primary)] antialiased">
+        <AppHeader />
+        <main className="flex min-h-0 flex-1 items-center justify-center p-4 sm:p-6 md:p-8">
+          <AppShell dueCount={dueCount}>{children}</AppShell>
+        </main>
         <ServiceWorkerRegistrar />
       </body>
     </html>

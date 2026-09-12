@@ -18,13 +18,13 @@ const TABS = [
   { href: '/settings', label: 'Cài đặt', icon: Settings },
 ] as const;
 
-export function AppNav() {
+export function AppNav({ dueCount = 0 }: { dueCount?: number }) {
   const pathname = usePathname();
   if (pathname === '/signin') return null;
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-40 w-full max-w-2xl -translate-x-1/2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-2 py-1.5 backdrop-blur-md sm:py-2">
-      <div className="mx-auto flex items-center justify-around">
+    <nav className="w-full rounded-2xl border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-1 py-1.5 backdrop-blur-md sm:py-2">
+      <div className="mx-auto flex items-center justify-between">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive =
@@ -35,7 +35,7 @@ export function AppNav() {
               <Link
                 href={tab.href}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative flex select-none flex-col items-center rounded-xl px-2.5 py-1.5 transition-colors sm:px-3 ${
+                className={`relative flex select-none flex-col items-center rounded-xl px-1.5 py-1.5 transition-colors sm:px-2 ${
                   isActive
                     ? 'font-bold text-[var(--bamboo)]'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
@@ -48,12 +48,21 @@ export function AppNav() {
                     transition={{ type: 'spring', stiffness: 450, damping: 32 }}
                   />
                 )}
-                <Icon
-                  className={`z-10 h-5 w-5 transition-transform ${
-                    isActive ? 'scale-105 stroke-[2.5]' : 'stroke-[1.75]'
-                  }`}
-                />
-                <span className="z-10 mt-1 text-[11px] tracking-tight">{tab.label}</span>
+                <div className="relative z-10">
+                  <Icon
+                    className={`h-5 w-5 transition-transform ${
+                      isActive ? 'scale-105 stroke-[2.5]' : 'stroke-[1.75]'
+                    }`}
+                  />
+                  {tab.href === '/' && dueCount > 0 && (
+                    <span className="absolute -right-2 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--bamboo)] px-1 text-[9px] font-bold leading-none text-white shadow-xs">
+                      {dueCount}
+                    </span>
+                  )}
+                </div>
+                <span className="z-10 mt-1 whitespace-nowrap text-[10px] tracking-tight sm:text-[11px]">
+                    {tab.label}
+                  </span>
               </Link>
             </motion.div>
           );
