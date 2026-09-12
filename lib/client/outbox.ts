@@ -1,5 +1,10 @@
 import { openLocalDb, type OutboxEntry } from '@/lib/client/db';
-import { UNDO_WINDOW_MS, type PendingReview, type SyncResult } from '@/lib/types';
+import {
+  UNDO_WINDOW_MS,
+  type PendingConfusion,
+  type PendingReview,
+  type SyncResult,
+} from '@/lib/types';
 
 /**
  * §8's outbox: ratings that have happened, waiting to reach the server.
@@ -24,6 +29,25 @@ export async function enqueue(pending: PendingReview, queuedAt = Date.now()): Pr
     // will be lost if the tab closes before the next flush, which is the cost
     // of a browser that will not give us a store.
     console.error('[outbox] could not queue', error);
+  }
+}
+
+/**
+ * §13 — a wrong answer that might name another word, queued for the server
+ * to resolve.
+ *
+ * Not held back for the undo window the way a rating is. Undo takes back a
+ * *rating*; the attempt still happened, and the pair it might name is true
+ * whether or not the grade was kept. It is also not worth failing anything
+ * over — the miss itself is already in `review_logs`.
+ */
+export async function noteConfusion(entry: PendingConfusion): Promise<void> {
+  const db = openLocalDb();
+  if (!db) return;
+  try {
+    await (await db).put('confusions', entry);
+  } catch (error) {
+    console.error('[outbox] could not queue confusion', error);
   }
 }
 
@@ -98,7 +122,8 @@ async function run(now: number): Promise<SyncResult | null> {
 
   const all = await pending();
   const ready = all.filter((entry) => now - entry.queuedAt >= UNDO_WINDOW_MS);
-  if (ready.length === 0) return null;
+  const confusions = await pendingConfusions();
+  if (ready.length === 0 && confusions.length === 0) return null;
 
   const reviews: PendingReview[] = ready.map(({ id, cardId, rating, reviewedAt }) => ({
     id,
@@ -112,7 +137,7 @@ async function run(now: number): Promise<SyncResult | null> {
     const response = await fetch('/api/sync', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reviews }),
+      body: JSON.stringify({ reviews, confusions }),
     });
     // 401 included: signed out mid-session, so keep the batch and let the next
     // flush try once the session is back. Nothing here is lossy on a retry.
@@ -127,7 +152,35 @@ async function run(now: number): Promise<SyncResult | null> {
   // be retried on every flush for the rest of the collection's life, and would
   // hold up every review queued behind it.
   await drop([...result.applied, ...result.rejected.map((r) => r.id)]);
+  // The server has seen every confusion in the batch, whether it resolved to a
+  // word or to nothing. Keeping the unresolved ones would mean re-asking the
+  // same question of the same collection on every flush, forever.
+  await dropConfusions(confusions.map((c) => c.id));
   return result;
+}
+
+async function pendingConfusions(): Promise<PendingConfusion[]> {
+  const db = openLocalDb();
+  if (!db) return [];
+  try {
+    return await (await db).getAll('confusions');
+  } catch (error) {
+    console.error('[outbox] could not read confusions', error);
+    return [];
+  }
+}
+
+async function dropConfusions(ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = openLocalDb();
+  if (!db) return;
+  try {
+    const handle = await db;
+    const tx = handle.transaction('confusions', 'readwrite');
+    await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done]);
+  } catch (error) {
+    console.error('[outbox] could not drop synced confusions', error);
+  }
 }
 
 async function drop(ids: readonly string[]): Promise<void> {

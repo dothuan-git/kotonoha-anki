@@ -15,15 +15,17 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 
 import { AnswerInput } from '@/components/AnswerInput';
+import { LeechPanel } from '@/components/LeechPanel';
 import { ReviewEditPanel, type ReviewEdit } from '@/components/ReviewEditPanel';
 import { Ruby } from '@/components/Ruby';
 import { SyncStatus } from '@/components/SyncStatus';
 import { UndoToast } from '@/components/UndoToast';
+import { acknowledgeLeech } from '@/lib/actions/leech';
 import { undoReview } from '@/lib/actions/review';
 import { updateWord } from '@/lib/actions/words';
 import { playJapaneseAudio } from '@/lib/client/audio';
 import { useOnline } from '@/lib/client/online';
-import { enqueue, flush, pendingCount, takeBack } from '@/lib/client/outbox';
+import { enqueue, flush, noteConfusion, pendingCount, takeBack } from '@/lib/client/outbox';
 import { chooseSession, loadSession, saveSession } from '@/lib/client/session';
 import { STUDY_TIME_ZONE } from '@/lib/fsrs/day';
 import { formatDueIn } from '@/lib/fsrs/format';
@@ -121,6 +123,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const [attemptSeq, setAttemptSeq] = useState(0);
   const [undoable, setUndoable] = useState<Undoable | null>(null);
   const [editing, setEditing] = useState(false);
+  /** §4's leech prompt, shown once for the card that just crossed six lapses. */
+  const [leeched, setLeeched] = useState<ReviewItem | null>(null);
   const [fontStyle, setFontStyle] = useState<'mincho' | 'gothic'>('mincho');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -162,6 +166,18 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     if (result.unlocked.length > 0) {
       setNotice(`Đã mở ${result.unlocked.length} thẻ gõ mới — sẽ xuất hiện ở phiên sau.`);
     }
+
+    // §4's prompt for a card whose sixth lapse was rated somewhere else. The
+    // one in front of you raised its own prompt at the rating, without waiting
+    // for a round trip, so this only fires for the other device's card — and
+    // only if that card is in today's queue, where there is a word to edit.
+    if (result.leeches.length > 0) {
+      setLeeched((current) => {
+        if (current) return current;
+        const cardId = result.leeches[0];
+        return queueRef.current.find((item) => item.cardId === cardId) ?? null;
+      });
+    }
     if (result.rejected.length > 0) {
       // Permanently refused: the card was deleted or suspended between the
       // rating and the sync. Saying so is the honest option — the alternative
@@ -183,6 +199,11 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
   const syncRef = useRef(sync);
   syncRef.current = sync;
+
+  // Read by `applySync`, which must not take the queue as a dependency: it is
+  // handed to every flush interval and would rebuild them on every rating.
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
 
   /**
    * §8's prefetch, and the resume decision.
@@ -315,6 +336,10 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       setIsRevealed(false);
       setAttempt(null);
       setEditing(false);
+      // §4 asks for the prompt once, at six lapses. It is raised here rather
+      // than waiting for the sync because the device already knows both halves
+      // — see `rateLocally`.
+      setLeeched(result.leech ? { ...item, state: result.state } : null);
       setAnswered((a) => [...a, { logId, item, rating }]);
       setCountedCards((c) => countCard(c, item));
       setQueue((q) => {
@@ -339,6 +364,19 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       });
 
       void enqueue(entry, now.getTime()).then(async () => setPending(await pendingCount()));
+
+      // §13 — a wrong answer worth a second look, but only if it was typed.
+      // "Chưa nhớ ra" submits an empty attempt and is a miss, not a mix-up.
+      // Whether it names another word is the server's question: the device has
+      // the day's queue, not the collection.
+      if (item.cardType === 'production' && attempt && !attempt.correct && attempt.input.trim()) {
+        void noteConfusion({
+          id: crypto.randomUUID(),
+          cardId: item.cardId,
+          typed: attempt.input,
+          observedAt: now.toISOString(),
+        });
+      }
     },
     [queue, attempt, ready, session.requestRetention, countedCards],
   );
@@ -365,6 +403,10 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     setUndoable(null);
     setError(null);
     setNotice(null);
+    // The lapse that raised §4's prompt is the one being taken back, so the
+    // prompt goes with it. Nothing was acknowledged, so it returns if the card
+    // is failed again.
+    setLeeched(null);
 
     const restore = (state: ReviewItem['state'], previews: ReviewItem['previews']) => {
       setAnswered((a) => a.filter((x) => x.logId !== last.logId));
@@ -420,6 +462,59 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       });
     },
     [queue],
+  );
+
+  /**
+   * §4's prompt, answered.
+   *
+   * Both ways out of it — saving a rewrite, or deciding the word is fine as
+   * written — count as having read it, so both acknowledge. That is what turns
+   * off the flag and takes the word's production card out of rotation; §4 puts
+   * the rewrite first for a reason, and a card retired before you had the
+   * chance to fix its meaning is a card you never fixed.
+   *
+   * The acknowledgement is a server write and there is no offline path for it.
+   * A dismissal with no signal closes the panel and changes nothing, so the
+   * card is flagged again next session — which is the honest outcome: §4 wants
+   * the prompt shown once, and "once" is something only the server can hold.
+   */
+  const handleLeechDone = useCallback(
+    (patch?: ReviewEdit) => {
+      const item = leeched;
+      if (!item) return;
+      setLeeched(null);
+
+      startTransition(async () => {
+        if (patch) {
+          const saved = await updateWord({ id: item.word.id, ...patch });
+          if (!saved.ok) {
+            setError(saved.error);
+            // The rewrite failed, so the prompt has not done its job. Put it
+            // back rather than acknowledging a rewrite that did not happen.
+            setLeeched(item);
+            return;
+          }
+          const apply = (w: WordView): WordView =>
+            w.id === item.word.id ? { ...w, ...patch } : w;
+          setQueue((q) => q.map((i) => ({ ...i, word: apply(i.word) })));
+          setAnswered((a) =>
+            a.map((x) => ({ ...x, item: { ...x.item, word: apply(x.item.word) } })),
+          );
+        }
+
+        const result = await acknowledgeLeech(item.cardId);
+        if (!result.ok) {
+          setNotice('Chưa lưu được dấu thẻ khó — sẽ nhắc lại ở phiên sau.');
+          return;
+        }
+        setNotice(
+          result.data.deactivatedProduction
+            ? 'Thẻ gõ của từ này đã tạm nghỉ. Thẻ lật vẫn chạy tiếp.'
+            : 'Đã ghi nhận thẻ khó.',
+        );
+      });
+    },
+    [leeched],
   );
 
   // Keyboard shortcut support
@@ -557,6 +652,16 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             busy={saving}
             onUndo={handleUndo}
             onExpire={() => setUndoable(null)}
+          />
+        )}
+        {leeched && (
+          <LeechPanel
+            key={`leech-${leeched.cardId}`}
+            word={leeched.word}
+            lapses={leeched.state.lapses}
+            saving={saving}
+            onSave={(patch) => handleLeechDone(patch)}
+            onDismiss={() => handleLeechDone()}
           />
         )}
         {notice && (

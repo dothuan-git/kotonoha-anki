@@ -1,9 +1,9 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 
-import type { PendingReview, SessionView } from '@/lib/types';
+import type { PendingConfusion, PendingReview, SessionView } from '@/lib/types';
 
 /**
- * §8's local store. Two things live here and nothing else.
+ * §8's local store. Three things live here and nothing else.
  *
  * `outbox` is the one that matters. It holds ratings that have happened but
  * have not reached the server, and it is the reason a review taken in a tunnel
@@ -14,6 +14,12 @@ import type { PendingReview, SessionView } from '@/lib/types';
  *
  * `session` is a convenience — the day's queue, so the reviewer opens offline
  * instead of showing an error. Losing it costs a reload, not a review.
+ *
+ * `confusions` is §13's, added in Phase 5. It takes the same route as the
+ * outbox for the same reason — a wrong answer typed in a tunnel is still
+ * worth knowing about — but it is kept in its own store because losing one
+ * costs a note, and losing a rating costs a review. They must never be able to
+ * hold each other up.
  */
 interface KotonohaDB extends DBSchema {
   outbox: {
@@ -24,6 +30,10 @@ interface KotonohaDB extends DBSchema {
   session: {
     key: string;
     value: StoredSession;
+  };
+  confusions: {
+    key: string;
+    value: PendingConfusion;
   };
 }
 
@@ -48,7 +58,8 @@ export interface StoredSession {
 }
 
 const DB_NAME = 'kotonoha';
-const DB_VERSION = 1;
+/** 2 added `confusions` (§13). Upgrades are additive; nothing existing moves. */
+const DB_VERSION = 2;
 
 /** The only session row. One person, one device-local queue at a time (§1). */
 export const SESSION_KEY = 'current';
@@ -66,10 +77,15 @@ export function openLocalDb(): Promise<IDBPDatabase<KotonohaDB>> | null {
   if (typeof indexedDB === 'undefined') return null;
 
   handle ??= openDB<KotonohaDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      const outbox = db.createObjectStore('outbox', { keyPath: 'id' });
-      outbox.createIndex('by-reviewed-at', 'reviewedAt');
-      db.createObjectStore('session');
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        const outbox = db.createObjectStore('outbox', { keyPath: 'id' });
+        outbox.createIndex('by-reviewed-at', 'reviewedAt');
+        db.createObjectStore('session');
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore('confusions', { keyPath: 'id' });
+      }
     },
     // Another tab opened a newer version. Close so it is not blocked; this
     // tab falls back to online-only until it is reloaded.

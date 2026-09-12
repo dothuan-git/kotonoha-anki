@@ -1,6 +1,7 @@
 import { schedulerParams } from '@/lib/fsrs/params';
 import { applyRating, type RatingValue } from '@/lib/fsrs/replay';
 import { staysInSession, toCard, toPreviews, toStateView } from '@/lib/fsrs/state';
+import { isLeech } from '@/lib/types';
 import type { CountedCards, PendingReview, RateResult, ReviewItem } from '@/lib/types';
 
 /**
@@ -52,6 +53,11 @@ export function rateLocally(input: {
       // Only the server can see the word's other cards, so an unlock is
       // discovered at sync. Offline it simply has not happened yet.
       unlockedProduction: false,
+      // §4's leech flag, unlike the unlock, needs nothing the device does not
+      // already have: the lapse count comes off the fold that just ran, and
+      // whether the prompt has been shown arrived with the card. So the
+      // prompt appears on the train, at the review that earned it.
+      leech: isLeech({ state: toStateView(next.card), leechAcked: input.item.leechAcked }),
     },
     pending: {
       id: input.logId,

@@ -1,4 +1,5 @@
 import { JLPT_VALUES, POS_VALUES, TRANSITIVITY_VALUES } from '@/lib/db/schema';
+import { LEECH_LAPSES } from '@/lib/fsrs/params';
 
 export type Pos = (typeof POS_VALUES)[number];
 export type Jlpt = (typeof JLPT_VALUES)[number];
@@ -133,6 +134,20 @@ export interface ReviewItem {
   word: WordView;
   state: CardStateView;
   previews: RatingPreviews;
+  /**
+   * §4's leech prompt has already been shown for this card. The count itself
+   * is `state.lapses`, folded from the log like everything else; this is the
+   * one bit the log cannot supply, which is why it rides along.
+   */
+  leechAcked: boolean;
+}
+
+/** §4: six lapses, and the prompt has not been shown yet. */
+export function isLeech(item: {
+  state: { lapses: number };
+  leechAcked: boolean;
+}): boolean {
+  return !item.leechAcked && item.state.lapses >= LEECH_LAPSES;
 }
 
 /** Distinct cards studied since the study day began, split by §4's two caps. */
@@ -198,6 +213,13 @@ export interface RateResult {
    * no view of the word's other cards. Offline it is `false` until sync.
    */
   unlockedProduction: boolean;
+  /**
+   * This review took the card to §4's six lapses and the prompt has not been
+   * shown. Computed on the device as well as on the server — unlike an
+   * unlock, it needs nothing but the card's own fold and the flag it arrived
+   * with, so the prompt appears on the train too.
+   */
+  leech: boolean;
 }
 
 /**
@@ -214,6 +236,24 @@ export interface PendingReview {
   cardId: string;
   rating: 1 | 2 | 3 | 4;
   reviewedAt: string;
+}
+
+/**
+ * One confusion waiting in the outbox (§13).
+ *
+ * Rides the same route as a rating and for the same reasons: a wrong answer
+ * typed in a tunnel is still worth knowing about, and a client-generated `id`
+ * makes the replay idempotent.
+ *
+ * `typed` is the raw attempt because only the server can resolve it — the
+ * device holds the day's queue, not the collection. The server matches it
+ * against every word, stores the pair of ids, and throws the text away.
+ */
+export interface PendingConfusion {
+  id: string;
+  cardId: string;
+  typed: string;
+  observedAt: string;
 }
 
 /**
@@ -238,6 +278,12 @@ export interface SyncResult {
    * it is simply news that arrives late.
    */
   unlocked: string[];
+  /**
+   * Cards the replay left at §4's six lapses with the prompt unshown. The
+   * device works this out for itself during the session; this covers the card
+   * whose sixth lapse was rated on another device.
+   */
+  leeches: string[];
   countedCards: CountedCards;
 }
 

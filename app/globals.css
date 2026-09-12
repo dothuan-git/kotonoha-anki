@@ -50,6 +50,20 @@
     --warning-subtle: #FDF3E3;
     --danger: #BD3C35;
     --danger-subtle: #FBECEB;
+
+    /* /stats. Two categorical hues and one ordered ramp, each validated
+       against this surface for lightness, chroma, colour-vision separation
+       and contrast — which is why the ramp is not the bamboo scale above and
+       why "mới" is blue rather than the amber the warning token would have
+       given: green and amber are the same colour to a deuteranope. */
+    --chart-review: #3E7534;
+    --chart-new: #1E5F94;
+    --chart-grid: #E3DDD1;
+    --chart-seq-1: #81B883;
+    --chart-seq-2: #6EA36F;
+    --chart-seq-3: #5A8F5C;
+    --chart-seq-4: #487C4A;
+    --chart-seq-5: #356938;
   }
 
   .dark {
@@ -80,6 +94,17 @@
     --warning-subtle: #3D280B;
     --danger: #E0564E;
     --danger-subtle: #3D1816;
+
+    /* Chosen for the dark surface rather than lightened from the light set:
+       the same checks, run again, land on different steps. */
+    --chart-review: #5FA554;
+    --chart-new: #4E93CE;
+    --chart-grid: #2A362A;
+    --chart-seq-1: #326635;
+    --chart-seq-2: #467A48;
+    --chart-seq-3: #5A8F5C;
+    --chart-seq-4: #6FA571;
+    --chart-seq-5: #85BB86;
   }
 
   body {
