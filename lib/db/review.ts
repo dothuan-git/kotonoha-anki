@@ -459,6 +459,7 @@ export async function syncReviews(
   const applied: string[] = [];
   const rejected: SyncResult['rejected'] = [];
   const states: SyncResult['states'] = {};
+  const unlocked: string[] = [];
 
   for (const entry of ordered) {
     // A device clock that runs fast would otherwise schedule from the future
@@ -475,6 +476,7 @@ export async function syncReviews(
       });
       applied.push(entry.id);
       states[entry.cardId] = { state: result.state, previews: result.previews };
+      if (result.unlockedProduction) unlocked.push(entry.cardId);
     } catch (error) {
       if (error instanceof ReviewError && PERMANENT.has(error.reason)) {
         rejected.push({ id: entry.id, reason: error.reason });
@@ -489,7 +491,7 @@ export async function syncReviews(
 
   // Recomputed against the server's own clock rather than the batch's, because
   // §4's caps are spent against the study day that is running now.
-  return { applied, rejected, states, countedCards: await getCountedCards(now) };
+  return { applied, rejected, states, unlocked, countedCards: await getCountedCards(now) };
 }
 
 /** §5 — recomputes one card from its log and stores the result. */

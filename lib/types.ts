@@ -231,6 +231,13 @@ export interface SyncResult {
   rejected: { id: string; reason: string }[];
   /** Authoritative state per affected card, after the replay. */
   states: Record<string, { state: CardStateView; previews: RatingPreviews }>;
+  /**
+   * Recognition cards whose replayed review took them past §4's stability
+   * threshold and created the word's production card. Only the server can see
+   * this — the unlock is a write against the word's other cards — so offline
+   * it is simply news that arrives late.
+   */
+  unlocked: string[];
   countedCards: CountedCards;
 }
 
