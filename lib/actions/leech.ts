@@ -18,7 +18,7 @@ import type { ActionResult } from '@/lib/actions/words';
  */
 export async function acknowledgeLeech(
   cardId: string,
-): Promise<ActionResult<{ deactivatedProduction: boolean }>> {
+): Promise<ActionResult<null>> {
   try {
     await requireSession();
   } catch {
@@ -30,9 +30,9 @@ export async function acknowledgeLeech(
   }
 
   try {
-    const result = await ackLeech(cardId);
-    if (!result) return { ok: false, error: 'Không tìm thấy thẻ' };
-    return { ok: true, data: result };
+    const acknowledged = await ackLeech(cardId);
+    if (!acknowledged) return { ok: false, error: 'Không tìm thấy thẻ' };
+    return { ok: true, data: null };
   } catch (error) {
     console.error('[acknowledgeLeech] failed', error);
     return { ok: false, error: 'Không ghi được ghi chú thẻ khó' };

@@ -173,9 +173,9 @@ export const reviewLogs = pgTable(
  * reason: it is an observation of something that happened, not a tally that
  * gets edited. The counts on /stats are a fold over these rows.
  *
- * One row per wrong production answer that turned out to be another word in
- * the collection. `id` is generated on the device so the offline outbox can
- * replay a batch twice with no effect, exactly as a review does.
+ * One row per wrong answer, typed from the meaning, that turned out to name
+ * another word in the collection. `id` is generated on the device so the
+ * offline outbox can replay a batch twice with no effect, as a review does.
  *
  * What was typed is deliberately not stored. A confusion is between two words
  * the user owns; a wrong answer that resolves to nothing is just a wrong

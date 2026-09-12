@@ -45,7 +45,7 @@ function item(
 ): ReviewItem {
   return {
     cardId: CARD_ID,
-    cardType: 'recognition',
+    face: 'word',
     isNew,
     word,
     state,
@@ -210,16 +210,6 @@ describe('rateLocally', () => {
     expect(easy.result.repeat).toBe(false);
   });
 
-  it('cannot know about a production unlock, which is the server’s to see', () => {
-    const one = rateLocally({
-      logId: 'a1000000-0000-4000-8000-0000000000ff',
-      item: item(),
-      rating: 4,
-      now: new Date('2026-02-01T09:00:00Z'),
-      requestRetention: RETENTION,
-    });
-    expect(one.result.unlockedProduction).toBe(false);
-  });
 });
 
 describe('countCard', () => {

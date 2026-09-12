@@ -30,6 +30,7 @@ import { chooseSession, loadSession, saveSession } from '@/lib/client/session';
 import { STUDY_TIME_ZONE } from '@/lib/fsrs/day';
 import { formatDueIn } from '@/lib/fsrs/format';
 import { countCard, rateLocally } from '@/lib/fsrs/local';
+import { resolvePair, revises, type PriorGrade } from '@/lib/fsrs/pair';
 import {
   RATING_LABELS,
   UNDO_WINDOW_MS,
@@ -60,7 +61,10 @@ const RATING_STYLES: Record<Rating, string> = {
 const ALL_RATINGS = [1, 2, 3, 4] as const;
 
 interface Answered {
-  /** `review_logs.id` — what undo deletes. */
+  /**
+   * `review_logs.id` — what undo deletes. Both faces of a word point at the
+   * same row, because the pair is one review.
+   */
   logId: string;
   item: ReviewItem;
   rating: Rating;
@@ -70,6 +74,8 @@ interface Answered {
 interface Attempt {
   input: string;
   correct: boolean;
+  /** Tries spent getting here, out of `MAX_ANSWER_ATTEMPTS`. */
+  attempts: number;
 }
 
 /** The rating still inside the undo window. At most one; a new rating replaces it. */
@@ -84,6 +90,13 @@ interface Undoable {
    * not, and must leave the count alone.
    */
   counted: boolean;
+  /**
+   * This rating replaced a better one from the word's other face, so undoing
+   * it does not mean "no review": it means the grade the word had before this
+   * showing revised it. Absent on an ordinary first-face rating, which has
+   * nothing behind it.
+   */
+  reinstate?: PriorGrade & { item: ReviewItem };
 }
 
 /** How often the outbox is checked while anything is waiting in it. */
@@ -99,9 +112,17 @@ const FLUSH_INTERVAL_MS = 5_000;
  * put back by a learning step re-enters the queue a couple of cards later
  * rather than advancing an index that only moves forward.
  *
- * A `production` card hides the headword and asks you to type it; the answer
- * goes through the exact answer matcher, a wrong one can only be graded
- * Quên, and "gõ nhầm" throws the attempt away without writing a log at all.
+ * A word is asked twice in a session and graded once. The queue deals each
+ * card from both sides — the Japanese word, and its meaning — shuffled and
+ * kept apart; the first side answered writes the review, and if the second
+ * comes back worse it replaces that grade rather than adding a second review.
+ * See `lib/fsrs/pair.ts`.
+ *
+ * Either side can be typed instead of turned over. A typed answer goes through
+ * the exact answer matcher and gets three tries before the card gives it up;
+ * every grade is then on offer, because only the person typing knows whether
+ * the third miss was a slip or a word they have lost. "Gõ nhầm" is there for
+ * when it was a slip, and writes nothing at all.
  *
  * The server is cut out of the review loop itself. A rating is scheduled
  * here, on the device, and goes into an outbox; `/api/sync` replays the
@@ -121,12 +142,24 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   /** Bumped by "gõ nhầm" to remount the answer field with an empty value. */
   const [attemptSeq, setAttemptSeq] = useState(0);
   /**
-   * How this one card is being asked, when that is not how the queue asked
-   * for it. The queue still decides which card is in front of you and which
-   * card the rating is written to; this decides only whether you type the
-   * answer or turn the card over, and it lasts one card.
+   * Typing this one card instead of turning it over.
+   *
+   * Both faces are flashcards by default — look, recall, turn over, grade
+   * yourself — and this is the per-card opt-in to typing the answer instead.
+   * It lasts one card. The queue still decides which card is in front of you,
+   * which way round it is asked, and which card the rating is written to.
    */
-  const [modeOverride, setModeOverride] = useState<ReviewItem['cardType'] | null>(null);
+  const [typedOverride, setTypedOverride] = useState<boolean | null>(null);
+  /**
+   * What each word has already been graded this session, by card.
+   *
+   * A word is asked twice and graded once, so the second face has to know what
+   * the first one wrote: the row's id, the rating, and the item as it stood
+   * *before* that rating — which is what a replacement is applied to, since
+   * the point is to schedule the card as though the worse grade had been the
+   * only one. See `lib/fsrs/pair.ts`.
+   */
+  const [graded, setGraded] = useState<Record<string, PriorGrade & { item: ReviewItem }>>({});
   const [undoable, setUndoable] = useState<Undoable | null>(null);
   const [editing, setEditing] = useState(false);
   /** The leech prompt, shown once for the card that just crossed six lapses. */
@@ -150,17 +183,21 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const counts = tallyCounts(countedCards);
   const currentWord = queue[0];
   /**
-   * How the card is being asked — the queue's answer, unless overridden — and
-   * what that means on screen.
+   * Which way round this showing is asked, and what it wants typed.
    *
-   * Three arrangements, not two, because typing means a different question on
-   * each card. A production card typed is the whole point of it: the meaning
-   * alone, and you produce the word. A recognition card typed keeps its
-   * headword on screen and asks only for the reading, which is a self-imposed
-   * check on the card you were already being shown.
+   * The face comes from the queue and is not negotiable — it is half of what
+   * makes the session twenty cards rather than ten. What *is* negotiable is
+   * how you answer: turn it over, or type it.
+   *
+   * Typing means a different question on each face, which is why `expecting`
+   * is derived from the face rather than chosen. With the meaning on screen
+   * the answer is the word, and the kanji or the kana will both do. With the
+   * word on screen the only thing left to ask is its reading — accepting the
+   * headword there would be marking the card's own prompt correct.
    */
-  const typing = (modeOverride ?? currentWord?.cardType) === 'production';
-  const produceWord = typing && currentWord?.cardType === 'production';
+  const face = currentWord?.face ?? 'word';
+  const typing = typedOverride ?? false;
+  const expecting: 'word' | 'reading' = face === 'meaning' ? 'word' : 'reading';
 
   /**
    * Applying what came back from /api/sync: the server folded each card's
@@ -179,10 +216,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           : item;
       }),
     );
-
-    if (result.unlocked.length > 0) {
-      setNotice(`Đã mở ${result.unlocked.length} thẻ gõ mới — sẽ xuất hiện ở phiên sau.`);
-    }
 
     // The leech prompt, for a card whose sixth lapse was rated somewhere
     // else. The one in front of you raised its own prompt at the rating,
@@ -207,7 +240,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const sync = useCallback(async () => {
     setSyncing(true);
     try {
-      const result = await flush();
+      // Every card still in the queue may yet be revised by its other face.
+      const result = await flush(new Set(queueRef.current.map((item) => item.cardId)));
       if (result) applySync(result);
     } finally {
       setSyncing(false);
@@ -240,18 +274,26 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
       const chosen = chooseSession({
         server: serverSession,
-        stored,
+        stored: stored?.session ?? null,
         pendingCount: waiting,
         online: typeof navigator === 'undefined' ? true : navigator.onLine,
         now,
       });
 
+      // Half-graded words belong to the queue they were graded in. Resuming
+      // keeps them, so a word's second face still revises the review its first
+      // one wrote. Taking the server's queue instead means every rating had
+      // already been flushed — which it cannot have been with a pair
+      // outstanding, since those are held back — so there is nothing to carry.
+      const resumed = chosen.source === 'resumed' ? (stored?.graded ?? {}) : {};
+
       setSession(chosen.session);
       setQueue(chosen.session.items);
       setCountedCards(chosen.session.countedCards);
+      setGraded(resumed);
       setPending(waiting);
       setReady(true);
-      await saveSession(chosen.session, now);
+      await saveSession(chosen.session, resumed, now);
       if (!cancelled) await syncRef.current();
     })();
 
@@ -266,8 +308,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    */
   useEffect(() => {
     if (!ready) return;
-    void saveSession({ ...session, items: queue, countedCards });
-  }, [ready, session, queue, countedCards]);
+    void saveSession({ ...session, items: queue, countedCards }, graded);
+  }, [ready, session, queue, countedCards, graded]);
 
   /**
    * Drain the outbox. Entries are held back for the undo window, so a flush
@@ -301,8 +343,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    * second showing is a new question, not the one you overrode.
    */
   useEffect(() => {
-    setModeOverride(null);
-  }, [currentWord?.cardId, answered.length]);
+    setTypedOverride(null);
+  }, [currentWord?.cardId, currentWord?.face, answered.length]);
 
   /**
    * Ask this card the other way: type the answer instead of turning the card
@@ -312,7 +354,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const toggleMode = useCallback(() => {
     if (isRevealed) return;
     setAttempt(null);
-    setModeOverride(typing ? 'recognition' : 'production');
+    setAttemptSeq((n) => n + 1);
+    setTypedOverride(!typing);
   }, [isRevealed, typing]);
 
   const handleReveal = useCallback(() => {
@@ -321,7 +364,10 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     playJapaneseAudio(currentWord.word.headword);
   }, [currentWord, typing]);
 
-  /** A production card's answer arrives already judged; revealing is what follows. */
+  /**
+   * The card is done being typed at — right, out of tries, or given up on.
+   * A wrong answer with tries left never reaches here: the field keeps it.
+   */
   const handleAnswer = useCallback(
     (result: Attempt) => {
       setAttempt(result);
@@ -349,19 +395,140 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    * because a round trip came back — which is what makes the session work in
    * a tunnel, and incidentally what makes it feel immediate on a good
    * connection. What the server eventually says replaces this.
+   *
+   * A word is asked twice and graded once, so this has two shapes. The first
+   * face of a card writes the review, exactly as a single-card session always
+   * did. The second face grades the same word again, and what happens then is
+   * `resolvePair`: a grade as good or better leaves the review alone, and a
+   * worse one takes it back and writes itself in its place. The second is only
+   * cheap because `flush` held the first rating back while this showing was
+   * still outstanding — nothing was sent, so nothing has to be deleted.
    */
   const handleRate = useCallback(
     (rating: Rating) => {
       const item = queue[0];
       if (!item || !ready) return;
-      // A wrong production answer is a miss; the buttons that would grade it
-      // as anything else are not rendered, and not reachable by key.
-      if (item.cardType === 'production' && attempt && !attempt.correct && rating !== 1) return;
 
-      // Generated here so a retried send lands on the same row instead of
-      // logging the review twice — and so undo knows which row to drop.
-      const logId = crypto.randomUUID();
       const now = new Date();
+      // The review standing for this word, if this showing revises it rather
+      // than adding to it — a learning-step repeat wears the same face and is
+      // an ordinary second review.
+      const standing = graded[item.cardId];
+      const prior = standing && revises(standing, item.face) ? standing : undefined;
+
+      setError(null);
+      setNotice(null);
+      setIsRevealed(false);
+      setAttempt(null);
+      setEditing(false);
+
+      /** Drop the showing that was just answered, and put it back if it repeats. */
+      const advance = (repeat: ReviewItem | null) => {
+        setQueue((q) => {
+          const rest = q.slice(1);
+          if (!repeat) return rest;
+          // A learning step puts the card back a couple of cards later rather
+          // than at the end: 1m and 10m are inside the session, not after it.
+          return [...rest.slice(0, LEARNING_GAP), repeat, ...rest.slice(LEARNING_GAP)];
+        });
+      };
+
+      // A wrong typed answer worth a second look. "Chưa nhớ ra" submits an
+      // empty attempt and is a miss, not a mix-up. Whether it names another
+      // word is the server's question: the device has the day's queue, not the
+      // collection. Asked from the meaning only — a wrong *reading* typed with
+      // the word on screen is not a word you confused this one with.
+      if (item.face === 'meaning' && attempt && !attempt.correct && attempt.input.trim()) {
+        void noteConfusion({
+          id: crypto.randomUUID(),
+          cardId: item.cardId,
+          typed: attempt.input,
+          observedAt: now.toISOString(),
+        });
+      }
+
+      if (prior) {
+        const outcome = resolvePair(prior, rating);
+        setAnswered((a) => [...a, { logId: prior.logId, item, rating }]);
+
+        if (outcome.action === 'keep') {
+          // Nothing is written: the word has already had its review today, and
+          // this answer was no worse. Said out loud, because pressing Dễ and
+          // watching nothing happen to the schedule deserves an explanation.
+          if (rating !== prior.rating) {
+            setNotice(
+              `Đã giữ điểm "${RATING_LABELS[prior.rating - 1]}" của mặt trước — mỗi từ tính một lần mỗi ngày.`,
+            );
+          }
+          // Nothing was written, so there is nothing to take back. Any prompt
+          // left over from the card before goes, the way every rating clears it.
+          setLeeched(null);
+          setUndoable(null);
+          advance(null);
+          return;
+        }
+
+        // Worse, so it becomes the word's grade. Applied to the state the card
+        // had *before* its first face, because the point is to schedule it as
+        // though this had been the only review.
+        const { result, pending: entry } = rateLocally({
+          logId: prior.logId,
+          item: prior.item,
+          rating: outcome.rating,
+          now,
+          requestRetention: session.requestRetention,
+        });
+
+        setLeeched(result.leech ? { ...item, state: result.state } : null);
+        setGraded((g) => ({
+          ...g,
+          [item.cardId]: {
+            logId: prior.logId,
+            rating: outcome.rating,
+            item: prior.item,
+            face: item.face,
+          },
+        }));
+        advance(
+          result.repeat
+            ? { ...item, isNew: false, state: result.state, previews: result.previews }
+            : null,
+        );
+        setUndoable({
+          logId: prior.logId,
+          item,
+          rating: outcome.rating,
+          expiresAt: now.getTime() + UNDO_WINDOW_MS,
+          // The first face already spent the card's slot for today.
+          counted: false,
+          reinstate: prior,
+        });
+
+        void (async () => {
+          const tookBack = await takeBack(prior.logId);
+          // Almost always true — the hold is there precisely for this. If it
+          // is not, the rating reached the server while this card was still in
+          // the queue (another tab, another device), and the honest repair is
+          // a second review rather than a silent no-op: the id has to be new,
+          // or the server's insert would collide and keep the better grade.
+          const id = tookBack ? prior.logId : crypto.randomUUID();
+          await enqueue({ ...entry, id }, now.getTime());
+          // Undo has to point at the row that exists, not the one this
+          // correction expected to reuse.
+          if (id !== prior.logId) {
+            setUndoable((u) => (u && u.logId === prior.logId ? { ...u, logId: id } : u));
+          }
+          setPending(await pendingCount());
+        })();
+        return;
+      }
+
+      // The first face of this card today: an ordinary review.
+      //
+      // The id is generated here so a retried send lands on the same row
+      // instead of logging the review twice — and so undo, and the pair
+      // correction above, know which row they are talking about.
+      const logId = crypto.randomUUID();
       const { result, pending: entry } = rateLocally({
         logId,
         item,
@@ -370,30 +537,18 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         requestRetention: session.requestRetention,
       });
 
-      setError(null);
-      setNotice(null);
-      setIsRevealed(false);
-      setAttempt(null);
-      setEditing(false);
       // The leech prompt appears once, at six lapses. It is raised here
       // rather than waiting for the sync because the device already knows
       // both halves — see `rateLocally`.
       setLeeched(result.leech ? { ...item, state: result.state } : null);
       setAnswered((a) => [...a, { logId, item, rating }]);
       setCountedCards((c) => countCard(c, item));
-      setQueue((q) => {
-        const rest = q.slice(1);
-        if (!result.repeat) return rest;
-        // A learning step puts the card back a couple of cards later rather
-        // than at the end: 1m and 10m are inside the session, not after it.
-        const updated: ReviewItem = {
-          ...item,
-          isNew: false,
-          state: result.state,
-          previews: result.previews,
-        };
-        return [...rest.slice(0, LEARNING_GAP), updated, ...rest.slice(LEARNING_GAP)];
-      });
+      setGraded((g) => ({ ...g, [item.cardId]: { logId, rating, item, face: item.face } }));
+      advance(
+        result.repeat
+          ? { ...item, isNew: false, state: result.state, previews: result.previews }
+          : null,
+      );
       setUndoable({
         logId,
         item,
@@ -403,21 +558,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       });
 
       void enqueue(entry, now.getTime()).then(async () => setPending(await pendingCount()));
-
-      // A wrong answer worth a second look, but only if it was typed.
-      // "Chưa nhớ ra" submits an empty attempt and is a miss, not a mix-up.
-      // Whether it names another word is the server's question: the device has
-      // the day's queue, not the collection.
-      if (item.cardType === 'production' && attempt && !attempt.correct && attempt.input.trim()) {
-        void noteConfusion({
-          id: crypto.randomUUID(),
-          cardId: item.cardId,
-          typed: attempt.input,
-          observedAt: now.toISOString(),
-        });
-      }
     },
-    [queue, attempt, ready, session.requestRetention, countedCards],
+    [queue, attempt, graded, ready, session.requestRetention, countedCards],
   );
 
   /**
@@ -447,22 +589,47 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     // card is failed again.
     setLeeched(null);
 
+    const sameShowing = (i: { cardId: string; face: ReviewItem['face'] }) =>
+      i.cardId === last.item.cardId && i.face === last.item.face;
+
     const restore = (state: ReviewItem['state'], previews: ReviewItem['previews']) => {
-      setAnswered((a) => a.filter((x) => x.logId !== last.logId));
+      setAnswered((a) => a.filter((x) => !(x.logId === last.logId && sameShowing(x.item))));
       setIsRevealed(false);
       setAttempt(null);
       setEditing(false);
       setQueue((q) => [
         { ...last.item, state, previews },
-        // A learning step may have put this card back further down; the undone
-        // review is the reason it is there, so that copy goes too.
-        ...q.filter((i) => i.cardId !== last.item.cardId),
+        // A learning step may have put this showing back further down; the
+        // undone review is the reason it is there, so that copy goes too. The
+        // word's *other* face is a different question and stays where it is.
+        ...q.filter((i) => !sameShowing(i)),
       ]);
     };
 
     startTransition(async () => {
       if (await takeBack(last.logId)) {
+        const reinstate = last.reinstate;
+        if (reinstate) {
+          // This rating replaced the one the word's other face gave it. Taking
+          // it back means that grade stands again — not that the word went
+          // unreviewed — so it is queued afresh under its own id and the card
+          // goes back to the state it implies.
+          const { result, pending: entry } = rateLocally({
+            logId: reinstate.logId,
+            item: reinstate.item,
+            rating: reinstate.rating,
+            now: new Date(),
+            requestRetention: session.requestRetention,
+          });
+          await enqueue(entry, Date.now());
+          setGraded((g) => ({ ...g, [last.item.cardId]: reinstate }));
+          setPending(await pendingCount());
+          restore(result.state, result.previews);
+          return;
+        }
+
         setPending(await pendingCount());
+        setGraded(({ [last.item.cardId]: _ungraded, ...rest }) => rest);
         if (last.counted) {
           setCountedCards(({ [last.item.cardId]: _undone, ...rest }) => rest);
         }
@@ -478,7 +645,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       setCountedCards(result.data.countedCards);
       restore(result.data.state, result.data.previews);
     });
-  }, [undoable]);
+  }, [undoable, session.requestRetention]);
 
   /** Edit mid-review. Server first: a failed save must not leave a lie on screen. */
   const handleEditSave = useCallback(
@@ -508,9 +675,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    *
    * Both ways out of it — saving a rewrite, or deciding the word is fine as
    * written — count as having read it, so both acknowledge. That is what turns
-   * off the flag and takes the word's production card out of rotation; the
-   * rewrite comes first for a reason, and a card retired before you had the
-   * chance to fix its meaning is a card you never fixed.
+   * off the flag; the rewrite comes first for a reason, and a prompt that
+   * closed before you had the chance to fix the meaning is a meaning you never
+   * fixed.
    *
    * The acknowledgement is a server write and there is no offline path for it.
    * A dismissal with no signal closes the panel and changes nothing, so the
@@ -546,11 +713,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           setNotice('Chưa lưu được dấu thẻ khó — sẽ nhắc lại ở phiên sau.');
           return;
         }
-        setNotice(
-          result.data.deactivatedProduction
-            ? 'Thẻ gõ của từ này đã tạm nghỉ. Thẻ lật vẫn chạy tiếp.'
-            : 'Đã ghi nhận thẻ khó.',
-        );
+        setNotice('Đã ghi nhận thẻ khó.');
       });
     },
     [leeched],
@@ -604,15 +767,46 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const total = answered.length + queue.length;
   const done = answered.length;
   const hanViet = formatHanViet(word.kanji);
-  // Only the card being asked to produce the word withholds it; a recognition
-  // card typed for its reading shows the headword all along, which is what
-  // makes it a reading test rather than a second production card.
-  const showAnswerSide = !produceWord || isRevealed;
-  // Quên-only belongs to the production card, not to the typing. Typing a
-  // recognition card is a test you set yourself, and failing a harder test than
-  // the card measures should not cost the card: the verdict is shown and all
-  // four grades stay open.
-  const wrongAnswer = currentWord.cardType === 'production' && attempt !== null && !attempt.correct;
+  // The prompt side never changes once the card is on screen: the face decides
+  // it, and revealing adds the answer underneath rather than turning the card
+  // over. So a meaning card still reads as the meaning after you have answered
+  // it, with the word it was asking for below.
+  const asking = face === 'meaning';
+  // Hearing the word before you have recalled it is the answer, out loud.
+  const canHearWord = !asking || isRevealed;
+  // A typed attempt that ran out of tries. Every grade stays on offer — the
+  // grading is yours, here as everywhere — but "gõ nhầm" is offered alongside
+  // them, because three wrong spellings of a word you knew is the one case
+  // where the honest answer is that no review happened at all.
+  const missedAnswer = attempt !== null && !attempt.correct;
+  /**
+   * The answer, in rows, ordered so the thing the card actually asked for
+   * comes first and the half already on the prompt side never repeats.
+   *
+   * Hán Việt is not a row. The word card already wears it as a tag above its
+   * headword, so a row would be the same fact twice; the meaning card has no
+   * headword up there to hang it on, so it goes under the rows instead.
+   */
+  const revealedRows: RevealedRow[] = asking
+    ? [
+        { label: 'Từ tiếng Nhật', value: word.headword, kind: 'headword', speak: word.headword },
+        // A kana-only word is its own reading. Printing it twice under two
+        // labels reads as a mistake rather than as a fact about the word.
+        ...(word.reading === word.headword
+          ? []
+          : [
+              {
+                label: 'Cách đọc',
+                value: word.reading,
+                kind: 'reading' as const,
+                speak: word.reading,
+              },
+            ]),
+      ]
+    : [
+        { label: 'Cách đọc', value: word.reading, kind: 'reading', speak: word.reading },
+        { label: 'Nghĩa tiếng Việt', value: word.meaning, kind: 'vietnamese' },
+      ];
 
   return (
     /*
@@ -643,29 +837,31 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           <SyncStatus online={online} pending={pending} syncing={syncing} />
 
           {/*
-            The prototype's mode toggle, kept, but narrowed to what it can
-            honestly mean here: recognition and production are two cards on the
-            same word and the queue decides which one is in front of you, so
-            this changes how the card is asked, never which card the rating
-            lands on. Highlighted while the override is on, because then the
-            label is no longer the queue's word for this card.
+            The prototype's mode toggle, kept, and now saying one thing only:
+            turn this card over, or type the answer. Which way round the card
+            is asked belongs to the queue — a word is asked both ways in the
+            same session — so this cannot change the question, only how you
+            answer it. Highlighted while the override is on.
           */}
           <button
             type="button"
             onClick={toggleMode}
             disabled={isRevealed}
+            aria-pressed={typing}
             className={`px-2.5 py-1 min-w-[6.5rem] justify-center rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:cursor-default disabled:opacity-60 ${
-              modeOverride
+              typing
                 ? 'bg-[var(--bamboo-subtle)] border-[var(--bamboo-border)] text-[var(--bamboo)] font-semibold'
                 : 'border-[var(--border-subtle)] text-[var(--text-secondary)] enabled:hover:border-[var(--border-strong)]'
             } ${isRevealed ? '' : 'cursor-pointer'}`}
             title={
               isRevealed
-                ? 'Đáp án đã hiện — đổi cách hỏi ở thẻ sau'
-                : produceWord
-                  ? 'Thẻ gõ — nhớ lại từ tiếng Nhật từ nghĩa tiếng Việt. Bấm để lật thẻ này thay vì gõ.'
-                  : typing
-                    ? 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm để quay lại thẻ lật.'
+                ? 'Đáp án đã hiện — đổi cách trả lời ở thẻ sau'
+                : typing
+                  ? asking
+                    ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm để quay lại thẻ lật.'
+                    : 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm để quay lại thẻ lật.'
+                  : asking
+                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm để gõ đáp án cho thẻ này.'
                     : 'Thẻ lật — nhận mặt từ. Bấm để gõ cách đọc cho thẻ này.'
             }
           >
@@ -674,10 +870,10 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             ) : (
               <RotateCcw className="w-3.5 h-3.5" />
             )}
-            <span>{produceWord ? 'Thẻ gõ' : typing ? 'Chế độ gõ' : 'Thẻ lật'}</span>
+            <span>{typing ? 'Chế độ gõ' : 'Thẻ lật'}</span>
           </button>
 
-          {/* Editing before the answer is on screen would give a production card away. */}
+          {/* Editing before the answer is on screen would give the card away. */}
           {isRevealed && (
             <button
               type="button"
@@ -696,9 +892,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           <button
             type="button"
             onClick={() => playJapaneseAudio(word.headword)}
-            disabled={!showAnswerSide}
+            disabled={!canHearWord}
             className="p-1.5 rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)] cursor-pointer transition-[color,border-color,opacity] duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={showAnswerSide ? 'Nghe phát âm' : 'Nghe phát âm sau khi trả lời'}
+            title={canHearWord ? 'Nghe phát âm' : 'Nghe phát âm sau khi trả lời'}
           >
             <Volume2 className="w-3.5 h-3.5" />
           </button>
@@ -825,13 +1021,29 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             >
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div
-                  key={showAnswerSide ? 'word' : 'meaning'}
+                  key={asking ? 'meaning' : 'word'}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.14 }}
                 >
-                  {showAnswerSide ? (
+                  {asking ? (
+                    <>
+                      <span className="text-[11px] text-[var(--text-muted)] block font-medium">
+                        Nghĩa tiếng Việt
+                      </span>
+                      <p className="mt-1.5 text-3xl sm:text-4xl font-bold leading-snug text-[var(--text-primary)]">
+                        {word.meaning}
+                      </p>
+                      {!isRevealed && (
+                        <p className="mt-2 text-xs text-[var(--text-muted)]">
+                          {typing
+                            ? 'Gõ từ tiếng Nhật — kanji hoặc hiragana đều được'
+                            : 'Nhớ lại từ tiếng Nhật'}
+                        </p>
+                      )}
+                    </>
+                  ) : (
                     <>
                       <h1
                         className={`text-5xl sm:text-6xl text-[var(--text-primary)] select-all transition-all ${
@@ -846,23 +1058,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
                       {/* Hán Việt reading tag */}
                       {hanViet !== '—' && (
                         <div className="mt-3">
-                          <span className="inline-block px-3 py-1 rounded-full bg-[var(--bg-muted)] text-[var(--text-secondary)] text-xs font-semibold tracking-wide border border-[var(--border-subtle)]">
-                            Hán Việt: {hanViet}
-                          </span>
+                          <HanVietTag hanViet={hanViet} />
                         </div>
                       )}
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-[11px] text-[var(--text-muted)] block font-medium">
-                        Nghĩa tiếng Việt
-                      </span>
-                      <p className="mt-1.5 text-3xl sm:text-4xl font-bold leading-snug text-[var(--text-primary)]">
-                        {word.meaning}
-                      </p>
-                      <p className="mt-2 text-xs text-[var(--text-muted)]">
-                        Gõ từ tiếng Nhật tương ứng
-                      </p>
                     </>
                   )}
                 </motion.div>
@@ -882,13 +1080,13 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
                   >
                     <AnswerInput
                       // The input is uncontrolled, so it has to be remounted
-                      // rather than cleared. `done` matters as much as the card
-                      // id: on a short queue a learning step can put the same
-                      // card straight back, and without it React would reuse the
-                      // node with the previous attempt still typed in.
-                      key={`${currentWord.cardId}-${done}-${attemptSeq}`}
+                      // rather than cleared — and the tries spent live inside
+                      // it, so a reused node would carry them to the next card.
+                      // `done` matters as much as the card id: on a short queue
+                      // a learning step can put the same showing straight back.
+                      key={`${currentWord.cardId}-${currentWord.face}-${done}-${attemptSeq}`}
                       word={word}
-                      expect={produceWord ? 'word' : 'reading'}
+                      expect={expecting}
                       disabled={saving}
                       onAnswer={handleAnswer}
                     />
@@ -921,38 +1119,18 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
               >
                 {attempt && <Verdict attempt={attempt} />}
 
-                {/* Reading + Sound */}
-                <div className="flex items-center justify-between">
+                {/*
+                  What the card was asking for, which is the half that is not
+                  already above. Both faces go through the same rows in a
+                  different order — see `RevealedRows`, which is what keeps
+                  them from drifting into two layouts again.
+                */}
+                <RevealedRows rows={revealedRows} fontStyle={fontStyle} />
+                {asking && hanViet !== '—' && (
                   <div>
-                    <span className="text-[11px] text-[var(--text-muted)] block font-medium">
-                      Cách đọc
-                    </span>
-                    <span className="font-jp-serif text-xl sm:text-2xl font-semibold text-[var(--bamboo)] tracking-wide">
-                      {word.reading}
-                    </span>
+                    <HanVietTag hanViet={hanViet} />
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      playJapaneseAudio(word.reading);
-                    }}
-                    className="p-2 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bamboo-subtle)] hover:text-[var(--bamboo)] text-[var(--text-secondary)] cursor-pointer transition-colors"
-                    title="Nghe cách đọc"
-                  >
-                    <Volume2 className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Vietnamese Meaning */}
-                <div>
-                  <span className="text-[11px] text-[var(--text-muted)] block font-medium">
-                    Nghĩa tiếng Việt
-                  </span>
-                  <p className="text-base font-semibold text-[var(--text-primary)] mt-0.5 leading-snug">
-                    {word.meaning}
-                  </p>
-                </div>
+                )}
 
                 {word.note && (
                   <div>
@@ -1017,7 +1195,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         */}
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
-            key={isRevealed ? (wrongAnswer ? 'miss' : 'ratings') : typing ? 'typing' : 'reveal'}
+            key={isRevealed ? 'ratings' : typing ? 'typing' : 'reveal'}
             initial={{ opacity: 0, clipPath: 'inset(0% 44% 0% 44%)' }}
             animate={{ opacity: 1, clipPath: 'inset(0% 0% 0% 0%)' }}
             exit={{ opacity: 0, clipPath: 'inset(0% 44% 0% 44%)' }}
@@ -1045,58 +1223,151 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
                   Hiện đáp án (Phím cách)
                 </motion.button>
               )
-            ) : wrongAnswer ? (
-              /* A near miss is a miss, so Quên is the only grade on offer.
-                 The other button writes nothing at all. */
-              <div className="grid grid-cols-2 gap-2">
-                <motion.button
-                  type="button"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => handleRate(1)}
-                  className={`py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer flex flex-col items-center ${RATING_STYLES[1]}`}
-                >
-                  <span>{RATING_LABELS[0]}</span>
-                  <span className="text-[10px] opacity-70 font-normal mt-0.5">
-                    {currentWord.previews[1]}
-                  </span>
-                </motion.button>
-                <motion.button
-                  type="button"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleMistype}
-                  title="Bỏ qua lần gõ này, không ghi vào lịch sử ôn tập"
-                  className="py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-muted)] transition-colors cursor-pointer flex flex-col items-center"
-                >
-                  <span>Gõ nhầm</span>
-                  <span className="text-[10px] opacity-70 font-normal mt-0.5">không tính</span>
-                </motion.button>
-              </div>
             ) : (
-              <div className="grid grid-cols-4 gap-2">
-                {ALL_RATINGS.map((rating) => (
-                  <motion.button
-                    key={rating}
+              /*
+                Every grade, every time. The card does not decide what a review
+                was worth — three wrong tries and a right one on the first go
+                both end here, with the same four buttons, because only the
+                person who typed knows which of those was a slip and which was
+                a word they have lost.
+              */
+              <div className="space-y-2">
+                <div className="grid grid-cols-4 gap-2">
+                  {ALL_RATINGS.map((rating) => (
+                    <motion.button
+                      key={rating}
+                      type="button"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleRate(rating)}
+                      className={`py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer flex flex-col items-center ${RATING_STYLES[rating]}`}
+                    >
+                      <span>{RATING_LABELS[rating - 1]}</span>
+                      {/* The prototype's caption. `currentWord.previews[rating]` holds
+                          what this rating actually schedules ("10 phút", "2 ngày") if
+                          that is ever worth more than the keyboard hint. */}
+                      <span className="text-[10px] opacity-70 font-normal mt-0.5">
+                        Phím {rating}
+                      </span>
+                    </motion.button>
+                  ))}
+                </div>
+
+                {/*
+                  The escape hatch, and the only button here that writes
+                  nothing at all: no rating, no log row, no state change. For
+                  the answer you had and mistyped three times.
+                */}
+                {missedAnswer && (
+                  <button
                     type="button"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleRate(rating)}
-                    className={`py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer flex flex-col items-center ${RATING_STYLES[rating]}`}
+                    onClick={handleMistype}
+                    title="Bỏ qua lần gõ này, không ghi vào lịch sử ôn tập"
+                    className="w-full rounded-xl border border-[var(--border-subtle)] py-2 text-xs font-medium text-[var(--text-secondary)] transition-colors cursor-pointer hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
                   >
-                    <span>{RATING_LABELS[rating - 1]}</span>
-                    {/* The prototype's caption. `currentWord.previews[rating]` holds
-                        what this rating actually schedules ("10 phút", "2 ngày") if
-                        that is ever worth more than the keyboard hint. */}
-                    <span className="text-[10px] opacity-70 font-normal mt-0.5">Phím {rating}</span>
-                  </motion.button>
-                ))}
+                    Gõ nhầm — gõ lại, không tính
+                  </button>
+                )}
               </div>
             )}
           </motion.div>
         </AnimatePresence>
       </div>
     </div>
+  );
+}
+
+/**
+ * One line of the answer: what it is called, and what it says.
+ *
+ * `kind` rather than a className, because the whole point of routing both
+ * faces through one component is that neither of them can restyle its own
+ * copy. A reading looks like a reading whichever side of the card asked for it.
+ */
+interface RevealedRow {
+  label: string;
+  value: string;
+  kind: 'headword' | 'reading' | 'vietnamese';
+  /** Japanese to speak. Absent on a row there is nothing to hear. */
+  speak?: string;
+}
+
+/**
+ * The size a Japanese value is set at — a headword or a reading, on either
+ * face. One constant rather than the same two classes written twice, because
+ * two strings that happen to agree are two chances to disagree later.
+ *
+ * The Vietnamese gloss keeps its own smaller size below. That is the word
+ * card's scale, unchanged; what moved is the meaning card, which had been
+ * setting its headword a step larger than anything the word card ever used.
+ */
+const JP_ROW_SIZE = 'text-xl sm:text-2xl';
+
+const ROW_STYLES: Record<RevealedRow['kind'], string> = {
+  headword: `${JP_ROW_SIZE} text-[var(--text-primary)] select-all`,
+  reading: `font-jp-serif ${JP_ROW_SIZE} font-semibold tracking-wide text-[var(--bamboo)]`,
+  vietnamese: 'text-base font-semibold leading-snug text-[var(--text-primary)]',
+};
+
+/**
+ * The answer, once the card has given it up.
+ *
+ * Both faces render through here and differ only in which rows they pass and
+ * in what order: the word card asks for a reading and shows the meaning under
+ * it, the meaning card asks for the word and shows its reading under that.
+ *
+ * They used to be two hand-written blocks, and had drifted into two layouts
+ * with two sets of sizes for the same three facts — a grouped stack with one
+ * speaker on one side, labelled rows with their own speakers on the other.
+ * Which rows appear is the caller's business; how a row looks is not.
+ */
+function RevealedRows({
+  rows,
+  fontStyle,
+}: {
+  rows: readonly RevealedRow[];
+  fontStyle: 'mincho' | 'gothic';
+}) {
+  const jpWeight =
+    fontStyle === 'mincho'
+      ? 'font-jp-serif font-medium tracking-wide'
+      : 'font-jp-sans font-bold tracking-tight';
+
+  return (
+    <>
+      {rows.map(({ label, value, kind, speak }) => (
+        <div key={label} className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <span className="block text-[11px] font-medium text-[var(--text-muted)]">{label}</span>
+            <p className={`mt-0.5 ${ROW_STYLES[kind]} ${kind === 'headword' ? jpWeight : ''}`}>
+              {value}
+            </p>
+          </div>
+          {speak && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                playJapaneseAudio(speak);
+              }}
+              className="shrink-0 cursor-pointer rounded-xl bg-[var(--bg-muted)] p-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bamboo-subtle)] hover:text-[var(--bamboo)]"
+              title="Nghe phát âm"
+            >
+              <Volume2 className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** `開 KHAI · 始 THỦY`, in the one shape both faces use for it. */
+function HanVietTag({ hanViet }: { hanViet: string }) {
+  return (
+    <span className="inline-block rounded-full border border-[var(--border-subtle)] bg-[var(--bg-muted)] px-3 py-1 text-xs font-semibold tracking-wide text-[var(--text-secondary)]">
+      Hán Việt: {hanViet}
+    </span>
   );
 }
 
@@ -1113,6 +1384,11 @@ function Verdict({ attempt }: { attempt: Attempt }) {
       <div className="flex items-center gap-2 rounded-xl border border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] px-3 py-2 text-sm font-semibold text-[var(--bamboo)]">
         <Check className="h-4 w-4 shrink-0" />
         <span>Chính xác</span>
+        {/* Which try it took, because it is the thing the grade should turn
+            on and the only record of it is about to disappear. */}
+        {attempt.attempts > 1 && (
+          <span className="font-normal opacity-80">— lượt thứ {attempt.attempts}</span>
+        )}
       </div>
     );
   }
@@ -1180,11 +1456,13 @@ function Finished({
 }
 
 function summarise(answered: Answered[], counts: DailyCounts, session: SessionView): string {
+  // Words, not showings: each was asked twice and graded once, so counting
+  // the answers would report a session twice the size of the work done.
   const cards = new Set(answered.map((a) => a.item.cardId)).size;
   const forgotten = answered.filter((a) => a.rating === 1).length;
   const forgot = forgotten > 0 ? `, ${forgotten} lượt quên` : '';
   return (
-    `${cards} thẻ, ${answered.length} lượt chấm${forgot}. ` +
+    `${cards} từ, ${answered.length} lượt chấm${forgot}. ` +
     `Hôm nay đã học ${counts.newCards}/${session.limits.newPerDay} từ mới và ` +
     `${counts.reviewCards}/${session.limits.reviewsPerDay} lượt ôn.`
   );

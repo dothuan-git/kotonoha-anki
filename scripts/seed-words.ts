@@ -75,7 +75,7 @@ for (const seed of N5_WORDS) {
 
   // No match means the reading in the seed file disagrees with the dictionary,
   // which is worth seeing rather than papering over: a wrong reading is a
-  // production card that marks a correct answer wrong.
+  // typed card that marks a correct answer wrong.
   if (!candidate) {
     problems.push(`${label}: Jotoba returned no candidate with this reading`);
     console.log(`  ✗ ${label} — no matching dictionary entry`);

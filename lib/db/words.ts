@@ -22,9 +22,12 @@ export interface WordInsert {
 }
 
 /**
- * Writes a word, its kanji links, an optional first sentence, and its
- * `recognition` card — a new word gets that card only; `production` is
- * unlocked at stability >= 21, `cloze` is opt-in.
+ * Writes a word, its kanji links, an optional first sentence, and its card.
+ *
+ * One card, always. The word is asked from both sides in a session — the
+ * Japanese and the meaning — but those are two showings of one schedule, not
+ * two cards, so there is nothing here to unlock later and nothing to wait for:
+ * a word added this morning is asked both ways this evening.
  *
  * Lives here rather than inside the server action so that a seed script
  * creates rows through exactly this path. The subtle part is not the insert —

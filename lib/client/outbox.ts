@@ -73,12 +73,17 @@ export async function pendingCount(): Promise<number> {
 }
 
 /**
- * Undo, taken at the only point where it costs nothing.
+ * Take a rating back before it is sent — the point at which it costs nothing.
+ *
+ * Two callers. Undo, which is the obvious one. And the pair rule: when a
+ * word's second face is graded worse than its first, the first rating is
+ * pulled back and the worse one queued in its place, which works precisely
+ * because `flush` held it while the twin was outstanding.
  *
  * Returns true if the row was still here — in which case nothing was ever
  * written, there is no log to delete, and `review_logs` keeps its append-only
- * property. Returns false once the entry has been flushed, and the caller
- * has to go to the server and spend the one deletion the table permits.
+ * property. Returns false once the entry has been flushed, and the caller has
+ * to decide what to do about a review the server already holds.
  *
  * An undone review must never reach /api/sync at all — this is the guard
  * that makes that true.
@@ -102,26 +107,38 @@ export async function takeBack(logId: string): Promise<boolean> {
 /**
  * POST what is ready to /api/sync and drop what the server took.
  *
- * Entries younger than the undo window are held back. The window is a client
- * concern — the toast is still up, the rating can still be taken back — and
- * not sending them means the common undo deletes a local row instead of a
- * committed one. An entry held back is not at risk: it is already durable in
- * IndexedDB, and the next flush sends it.
+ * Two reasons an entry is held back, and neither puts it at risk: it is
+ * already durable in IndexedDB, and the next flush sends it.
+ *
+ * The first is the undo window. The toast is still up and the rating can still
+ * be taken back, so not sending it means the common undo deletes a local row
+ * instead of a committed one.
+ *
+ * The second is the pair. A word is asked twice in a session and graded once,
+ * so while the other face is still somewhere in the queue this rating is not
+ * final — its twin may come back worse and replace it. Held here, that
+ * replacement is a local swap; sent, it would cost a deletion from a table
+ * that only permits one. `hold` is the set of cards still to be asked.
  *
  * Returns null when there was nothing to do.
  */
-export function flush(now = Date.now()): Promise<SyncResult | null> {
-  inFlight ??= run(now).finally(() => {
+export function flush(
+  hold: ReadonlySet<string> = new Set(),
+  now = Date.now(),
+): Promise<SyncResult | null> {
+  inFlight ??= run(hold, now).finally(() => {
     inFlight = null;
   });
   return inFlight;
 }
 
-async function run(now: number): Promise<SyncResult | null> {
+async function run(hold: ReadonlySet<string>, now: number): Promise<SyncResult | null> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
 
   const all = await pending();
-  const ready = all.filter((entry) => now - entry.queuedAt >= UNDO_WINDOW_MS);
+  const ready = all.filter(
+    (entry) => now - entry.queuedAt >= UNDO_WINDOW_MS && !hold.has(entry.cardId),
+  );
   const confusions = await pendingConfusions();
   if (ready.length === 0 && confusions.length === 0) return null;
 

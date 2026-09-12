@@ -7,7 +7,12 @@ import { getSettings, hydrateWords } from '@/lib/db/queries';
 import { cardStates, cards, reviewLogs, words } from '@/lib/db/schema';
 import { startOfNextStudyDay, startOfStudyDay } from '@/lib/fsrs/day';
 import { LEARN_AHEAD_MINUTES, LEECH_LAPSES, schedulerParams } from '@/lib/fsrs/params';
-import { buildQueue, type QueueCandidate, type QueueEntry } from '@/lib/fsrs/queue';
+import {
+  buildQueue,
+  expandFaces,
+  type QueueCandidate,
+  type QueueShowing,
+} from '@/lib/fsrs/queue';
 import {
   State,
   applyRating,
@@ -37,6 +42,20 @@ import type {
  */
 
 type FsrsParams = ReturnType<typeof schedulerParams>;
+
+/**
+ * A word is one card, asked from both sides, so `recognition` is the only card
+ * type a session deals in.
+ *
+ * `production` rows still exist for a handful of words — they were created by
+ * an unlock rule that no longer exists, and they carry no review history. They
+ * are filtered out here rather than deleted: dropping rows to tidy up a model
+ * change is how history gets lost, and these cost nothing where they are.
+ */
+const isAskable = eq(cards.cardType, 'recognition');
+
+/** Every card is asked from both sides, so a session is twice its cards long. */
+const FACES_PER_CARD = 2;
 type CardRow = { cardId: string; wordId: string; createdAt: Date };
 
 /**
@@ -71,12 +90,17 @@ export async function getDailyCounts(now = new Date()): Promise<DailyCounts> {
 }
 
 /**
- * How many cards today's session would actually hand you — the nav badge.
+ * How many showings today's session would actually hand you — the nav badge.
  *
  * The same scan and the same cap arithmetic as `buildSession`, stopping
  * before `hydrateQueue`. Counting raw due rows instead would be cheaper and
  * wrong: the badge would say 240 on a morning the caps release 100, and a
  * number the session then contradicts is worse than no number.
+ *
+ * Doubled for the same reason. Every card is asked from both sides, so the
+ * caps release twelve *words* and the session is twenty-four cards long — and
+ * the badge is a promise about how much work is waiting, not about how much
+ * vocabulary it covers.
  */
 export async function countDueToday(now = new Date()): Promise<number> {
   const [settings, countedCards] = await Promise.all([getSettings(), getCountedCards(now)]);
@@ -91,7 +115,7 @@ export async function countDueToday(now = new Date()): Promise<number> {
     .from(cards)
     .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
     .innerJoin(words, eq(words.id, cards.wordId))
-    .where(and(eq(cards.active, true), eq(words.suspended, false)));
+    .where(and(eq(cards.active, true), isAskable, eq(words.suspended, false)));
 
   const learnAhead = now.getTime() + LEARN_AHEAD_MINUTES * 60_000;
   let dueReviews = 0;
@@ -111,7 +135,7 @@ export async function countDueToday(now = new Date()): Promise<number> {
 
   const reviewLimit = Math.max(0, settings.reviewsPerDay - counts.reviewCards);
   const newLimit = Math.max(0, settings.newPerDay - counts.newCards);
-  return Math.min(dueReviews, reviewLimit) + Math.min(newCards, newLimit);
+  return (Math.min(dueReviews, reviewLimit) + Math.min(newCards, newLimit)) * FACES_PER_CARD;
 }
 
 /**
@@ -136,7 +160,7 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
     .from(cards)
     .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
     .innerJoin(words, eq(words.id, cards.wordId))
-    .where(and(eq(cards.active, true), eq(words.suspended, false)));
+    .where(and(eq(cards.active, true), isAskable, eq(words.suspended, false)));
 
   const dueReviews: QueueCandidate[] = [];
   const newCards: QueueCandidate[] = [];
@@ -167,8 +191,15 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
   const newLimit = Math.max(0, settings.newPerDay - counts.newCards);
   const queue = buildQueue({ reviews: dueReviews, news: newCards, reviewLimit, newLimit });
 
+  // The caps are spent on cards, and each card is then asked twice. So a
+  // `newPerDay` of 12 is twelve *words* and twenty-four showings — the number
+  // in Cài đặt still means what it says, and the session is twice as long as
+  // the number suggests. Seeded by the study day so a reload resumes the queue
+  // it built this morning rather than dealing a new one.
+  const showings = expandFaces(queue, startOfStudyDay(now).getTime());
+
   const meta = new Map(candidates.map((c) => [c.cardId, c]));
-  const items = await hydrateQueue(queue, meta, params, now);
+  const items = await hydrateQueue(showings, meta, params, now);
 
   return {
     now: now.toISOString(),
@@ -195,11 +226,8 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
  * second source of truth for something the log already determines.
  */
 async function hydrateQueue(
-  queue: readonly QueueEntry[],
-  meta: Map<
-    string,
-    { cardType: ReviewItem['cardType']; leechAckedAt: Date | null; createdAt: Date }
-  >,
+  queue: readonly QueueShowing[],
+  meta: Map<string, { leechAckedAt: Date | null; createdAt: Date }>,
   params: FsrsParams,
   now: Date,
 ): Promise<ReviewItem[]> {
@@ -216,16 +244,26 @@ async function hydrateQueue(
   const logsByCard = groupLogs(logRows);
   const wordViews = new Map((await hydrateWords(wordRows)).map((w) => [w.id, w]));
 
+  // Folded once per card, not once per showing: the two faces are the same
+  // card and must carry the same state, or the second would render previews
+  // from a different fold of the same log.
+  const folds = new Map<string, ReturnType<typeof foldLogs>>();
+
   const items: ReviewItem[] = [];
   for (const entry of queue) {
     const card = meta.get(entry.cardId);
     const word = wordViews.get(entry.wordId);
     if (!card || !word) continue;
 
-    const folded = foldLogs(card.createdAt, logsByCard.get(entry.cardId) ?? [], params);
+    let folded = folds.get(entry.cardId);
+    if (!folded) {
+      folded = foldLogs(card.createdAt, logsByCard.get(entry.cardId) ?? [], params);
+      folds.set(entry.cardId, folded);
+    }
+
     items.push({
       cardId: entry.cardId,
-      cardType: card.cardType,
+      face: entry.face,
       isNew: entry.isNew,
       word,
       state: toStateView(folded),
@@ -292,11 +330,10 @@ export async function applyReview(input: {
 
   // `active` is deliberately not part of this guard, though the queue filters
   // on it. It decides what a session *hands you*; it does not decide whether a
-  // review that has already happened may be recorded. The leech rule
-  // deactivates a production card mid-session, and the rating that triggered it
-  // is at that moment sitting in the outbox — rejecting it would throw away a
-  // review the user actually did. A suspended word still rejects: suspension
-  // takes the word out of the collection, not out of rotation.
+  // review that has already happened may be recorded — a card deactivated
+  // mid-session may have a rating sitting in the outbox, and rejecting it would
+  // throw away a review the user actually did. A suspended word still rejects:
+  // suspension takes the word out of the collection, not out of rotation.
   const [available] = await db
     .select({
       id: cards.id,
@@ -359,14 +396,7 @@ export async function applyReview(input: {
     throw new ReviewError('write-failed');
   }
 
-  // Checked after every review, on the card that just moved.
-  const unlockedProduction =
-    available.cardType === 'recognition'
-      ? await unlockProductionCard(available.wordId, available.wordCreatedAt, next.card)
-      : false;
-
   return describe(input.cardId, next.card, reviewedAt, folded.params, {
-    unlockedProduction,
     leechAcked: available.leechAckedAt !== null,
   });
 }
@@ -376,67 +406,17 @@ function describe(
   card: Card,
   now: Date,
   params: FsrsParams,
-  flags: { unlockedProduction?: boolean; leechAcked: boolean },
+  flags: { leechAcked: boolean },
 ): RateResult {
   return {
     cardId,
     state: toStateView(card),
     previews: toPreviews(card, now, params),
     repeat: staysInSession(card, now),
-    unlockedProduction: flags.unlockedProduction ?? false,
     leech: !flags.leechAcked && card.lapses >= LEECH_LAPSES,
   };
 }
 
-/** Created and activated automatically once the recognition card's stability >= 21. */
-export const PRODUCTION_UNLOCK_STABILITY = 21;
-
-/**
- * Creates the word's production card once its recognition card is solid enough.
- *
- * The new card's state row is `createEmptyCard(word.created_at)` — the same
- * seed every other fold uses — so `npm run recompute` reproduces it
- * exactly instead of moving it to whenever the rebuild happened to run. Being
- * due in the past is the point: it is a new card and belongs in the next
- * session, not this one (a word never shows two cards in one session).
- *
- * A failure here is logged and swallowed. The review it followed is already
- * written, and losing an unlock costs nothing: the next review of the same
- * card runs this check again.
- */
-async function unlockProductionCard(
-  wordId: string,
-  wordCreatedAt: Date,
-  recognition: Card,
-): Promise<boolean> {
-  if (recognition.state === State.New) return false;
-  if (!recognition.stability || recognition.stability < PRODUCTION_UNLOCK_STABILITY) return false;
-
-  try {
-    const [existing] = await db
-      .select({ id: cards.id })
-      .from(cards)
-      .where(and(eq(cards.wordId, wordId), eq(cards.cardType, 'production')))
-      .limit(1);
-    if (existing) return false;
-
-    const cardId = randomUUID();
-    await db.batch([
-      db
-        .insert(cards)
-        .values({ id: cardId, wordId, cardType: 'production', active: true })
-        .onConflictDoNothing({ target: [cards.wordId, cards.cardType] }),
-      db
-        .insert(cardStates)
-        .values({ cardId, due: wordCreatedAt, state: State.New, reps: 0, lapses: 0 })
-        .onConflictDoNothing({ target: cardStates.cardId }),
-    ]);
-    return true;
-  } catch (error) {
-    console.error('[unlockProductionCard] failed', error);
-    return false;
-  }
-}
 
 /**
  * Takes back the review that was just written: delete that one row by id, then
@@ -524,7 +504,6 @@ export async function syncReviews(
   const applied: string[] = [];
   const rejected: SyncResult['rejected'] = [];
   const states: SyncResult['states'] = {};
-  const unlocked: string[] = [];
   const leeches = new Set<string>();
 
   for (const entry of ordered) {
@@ -542,7 +521,6 @@ export async function syncReviews(
       });
       applied.push(entry.id);
       states[entry.cardId] = { state: result.state, previews: result.previews };
-      if (result.unlockedProduction) unlocked.push(entry.cardId);
       // The leech prompt, for the card whose sixth lapse happened on another
       // device. The one in front of you worked this out without a round trip.
       if (result.leech) leeches.add(entry.cardId);
@@ -577,7 +555,6 @@ export async function syncReviews(
     applied,
     rejected,
     states,
-    unlocked,
     leeches: [...leeches],
     countedCards: await getCountedCards(now),
   };

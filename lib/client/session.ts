@@ -1,4 +1,4 @@
-import { SESSION_KEY, openLocalDb, type StoredSession } from '@/lib/client/db';
+import { SESSION_KEY, openLocalDb, type GradedCard, type StoredSession } from '@/lib/client/db';
 import { startOfStudyDay } from '@/lib/fsrs/day';
 import type { SessionView } from '@/lib/types';
 
@@ -25,7 +25,11 @@ import type { SessionView } from '@/lib/types';
  */
 export const STALE_PAYLOAD_MS = 2 * 60_000;
 
-export async function saveSession(session: SessionView, now = new Date()): Promise<void> {
+export async function saveSession(
+  session: SessionView,
+  graded: Record<string, GradedCard> = {},
+  now = new Date(),
+): Promise<void> {
   const db = openLocalDb();
   if (!db) return;
   try {
@@ -33,6 +37,7 @@ export async function saveSession(session: SessionView, now = new Date()): Promi
       dayStart: startOfStudyDay(now).toISOString(),
       savedAt: now.getTime(),
       session,
+      graded,
     };
     await (await db).put('session', stored, SESSION_KEY);
   } catch (error) {
@@ -40,19 +45,58 @@ export async function saveSession(session: SessionView, now = new Date()): Promi
   }
 }
 
-/** The stored queue, if it belongs to the study day that is running now. */
-export async function loadSession(now = new Date()): Promise<SessionView | null> {
+/**
+ * The stored queue and its half-graded words, if they belong to the study day
+ * that is running now — and if they are still a session at all.
+ *
+ * The shape check is not paranoia about disk corruption. This store is written
+ * by whatever build of the app ran last, and during development that can be a
+ * build from ten minutes ago whose `SessionView` was a different shape; a dev
+ * server compiles through type errors, so the type that guards every other
+ * caller guards nothing here. Believing one of those takes the reviewer down
+ * on load, which is the one thing the stored session must never do.
+ *
+ * Discarding it is cheap and already the designed answer to every other doubt
+ * about this record: losing the stored queue costs a reload, not a review.
+ */
+export async function loadSession(
+  now = new Date(),
+): Promise<{ session: SessionView; graded: Record<string, GradedCard> } | null> {
   const db = openLocalDb();
   if (!db) return null;
   try {
     const stored = await (await db).get('session', SESSION_KEY);
     if (!stored) return null;
     if (stored.dayStart !== startOfStudyDay(now).toISOString()) return null;
-    return stored.session;
+    if (!isSessionView(stored.session)) {
+      console.warn('[session] stored queue is not a session, discarding');
+      await clearSession();
+      return null;
+    }
+    return { session: stored.session, graded: stored.graded ?? {} };
   } catch (error) {
     console.error('[session] could not read', error);
     return null;
   }
+}
+
+/**
+ * The fields the reviewer reads on its first render, before anything has had
+ * a chance to check them. Deliberately shallow: this is a sanity check against
+ * a session from another build, not a schema validator.
+ */
+export function isSessionView(value: unknown): value is SessionView {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Partial<SessionView>;
+  return (
+    Array.isArray(v.items) &&
+    typeof v.now === 'string' &&
+    typeof v.countedCards === 'object' &&
+    v.countedCards !== null &&
+    typeof v.limits === 'object' &&
+    v.limits !== null &&
+    typeof v.requestRetention === 'number'
+  );
 }
 
 export async function clearSession(): Promise<void> {

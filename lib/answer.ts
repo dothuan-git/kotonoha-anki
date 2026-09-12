@@ -1,11 +1,12 @@
 /**
- * Answer matching for production cards.
+ * Answer matching for a typed card.
  *
  * No fuzzy matching and no edit-distance tolerance: in an SRS a near miss is a
  * miss, and a matcher that forgives じ for ぢ teaches the wrong reading. The
- * escape hatch for a genuine mistype is the "gõ nhầm" button, which discards
- * the attempt without writing a review log at all — a UI affordance, never a
- * loosening of this comparison.
+ * forgiveness lives above this, in the UI, where it can be told apart from a
+ * wrong answer: three tries before the card gives up, and "gõ nhầm" to discard
+ * the attempt without writing a review log at all. Neither is a loosening of
+ * this comparison.
  */
 
 /** Katakana → hiragana. Covers ァ..ヶ; ヽヾ and ・ are handled as punctuation. */

@@ -149,9 +149,26 @@ export interface CardStateView {
   learningSteps: number;
 }
 
+/**
+ * Which way round a word is being asked.
+ *
+ * A word is one card with one schedule, shown twice in a session: `word` puts
+ * the Japanese on the prompt side, `meaning` puts the Vietnamese there and
+ * asks you to come back the other way. Both showings answer for the same
+ * card, which is why the pair is graded once — see `RateResult`.
+ */
+export type Face = 'word' | 'meaning';
+
+/** How many times a typed answer may be wrong before the card gives it up. */
+export const MAX_ANSWER_ATTEMPTS = 3;
+
 export interface ReviewItem {
   cardId: string;
-  cardType: 'recognition' | 'production' | 'cloze';
+  /**
+   * Which side is being asked. The other face of the same card is elsewhere in
+   * the same session, carrying the same `cardId` and the same `state`.
+   */
+  face: Face;
   /** First ever showing — drives the "từ mới" badge and the new-card cap. */
   isNew: boolean;
   word: WordView;
@@ -220,7 +237,15 @@ export interface SessionView {
   totalCards: number;
 }
 
-/** One rating applied — locally during the session, or on the server at sync. */
+/**
+ * One rating applied — locally during the session, or on the server at sync.
+ *
+ * One per *word* per session, not one per showing. A word is asked twice and
+ * graded once: the first face answered writes the review, and if its twin
+ * comes back worse, that grade replaces it rather than adding a second review
+ * the scheduler never expected. See `worseOf` and the pair rules in
+ * `lib/fsrs/pair.ts`.
+ */
 export interface RateResult {
   cardId: string;
   state: CardStateView;
@@ -228,19 +253,10 @@ export interface RateResult {
   /** The card comes back inside this session (a learning step), rather than leaving it. */
   repeat: boolean;
   /**
-   * This review took the recognition card past the stability threshold and
-   * created the word's production card. It joins a later session, never this
-   * one — a word never shows two cards in the same session.
-   *
-   * Only the server can know this: the unlock is a write, and the client has
-   * no view of the word's other cards. Offline it is `false` until sync.
-   */
-  unlockedProduction: boolean;
-  /**
    * This review took the card to six lapses and the prompt has not been
-   * shown. Computed on the device as well as on the server — unlike an
-   * unlock, it needs nothing but the card's own fold and the flag it arrived
-   * with, so the prompt appears on the train too.
+   * shown. Computed on the device as well as on the server: it needs nothing
+   * but the card's own fold and the flag it arrived with, so the prompt
+   * appears on the train too.
    */
   leech: boolean;
 }
@@ -294,13 +310,6 @@ export interface SyncResult {
   rejected: { id: string; reason: string }[];
   /** Authoritative state per affected card, after the replay. */
   states: Record<string, { state: CardStateView; previews: RatingPreviews }>;
-  /**
-   * Recognition cards whose replayed review took them past the stability
-   * threshold and created the word's production card. Only the server can see
-   * this — the unlock is a write against the word's other cards — so offline
-   * it is simply news that arrives late.
-   */
-  unlocked: string[];
   /**
    * Cards the replay left at six lapses with the prompt unshown. The
    * device works this out for itself during the session; this covers the card

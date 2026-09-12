@@ -50,13 +50,10 @@ export function rateLocally(input: {
       state: toStateView(next.card),
       previews: toPreviews(next.card, reviewedAt, params),
       repeat: staysInSession(next.card, reviewedAt),
-      // Only the server can see the word's other cards, so an unlock is
-      // discovered at sync. Offline it simply has not happened yet.
-      unlockedProduction: false,
-      // The leech flag, unlike the unlock, needs nothing the device does not
-      // already have: the lapse count comes off the fold that just ran, and
-      // whether the prompt has been shown arrived with the card. So the
-      // prompt appears on the train, at the review that earned it.
+      // The leech flag needs nothing the device does not already have: the
+      // lapse count comes off the fold that just ran, and whether the prompt
+      // has been shown arrived with the card. So the prompt appears on the
+      // train, at the review that earned it.
       leech: isLeech({ state: toStateView(next.card), leechAcked: input.item.leechAcked }),
     },
     pending: {

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { startOfNextStudyDay, startOfStudyDay } from '@/lib/fsrs/day';
-import { buildQueue, type QueueCandidate } from '@/lib/fsrs/queue';
+import {
+  MIN_SIBLING_GAP,
+  buildQueue,
+  expandFaces,
+  type QueueCandidate,
+  type QueueEntry,
+} from '@/lib/fsrs/queue';
 
 /** The queue order, with the caps and the same-word rule applied. */
 
@@ -131,5 +137,82 @@ describe('startOfStudyDay', () => {
     const now = new Date('2026-09-12T02:00:00Z');
     const gap = startOfNextStudyDay(now).getTime() - startOfStudyDay(now).getTime();
     expect(gap).toBe(24 * 60 * 60 * 1000);
+  });
+});
+
+/**
+ * The doubling. Ten words due is twenty showings, and the only structure the
+ * shuffle has to respect is that a word's two faces do not sit together.
+ */
+describe('expandFaces', () => {
+  const entries = (n: number): QueueEntry[] =>
+    Array.from({ length: n }, (_, i) => ({
+      cardId: `card-${i}`,
+      wordId: `word-${i}`,
+      isNew: false,
+    }));
+
+  it('asks every card from both sides', () => {
+    const showings = expandFaces(entries(10), 1);
+    expect(showings).toHaveLength(20);
+
+    for (let i = 0; i < 10; i++) {
+      const faces = showings.filter((s) => s.cardId === `card-${i}`).map((s) => s.face);
+      expect(faces.sort()).toEqual(['meaning', 'word']);
+    }
+  });
+
+  it('carries the queue entry through unchanged', () => {
+    const [showing] = expandFaces([{ cardId: 'c', wordId: 'w', isNew: true }], 7);
+    expect(showing).toMatchObject({ cardId: 'c', wordId: 'w', isNew: true });
+  });
+
+  /** Seeing 開ける and then "mở" is one question and its answer, not two. */
+  it('keeps a word’s two faces apart, at every size and seed', () => {
+    for (const words of [5, 8, 10, 12, 30, 60]) {
+      for (let seed = 1; seed <= 40; seed++) {
+        const showings = expandFaces(entries(words), seed);
+        const at = new Map<string, number>();
+        for (const [index, showing] of showings.entries()) {
+          const previous = at.get(showing.cardId);
+          if (previous !== undefined) {
+            expect(index - previous).toBeGreaterThan(MIN_SIBLING_GAP);
+          }
+          at.set(showing.cardId, index);
+        }
+      }
+    }
+  });
+
+  /**
+   * Best effort, and this is the case where the effort fails: two showings
+   * cannot be three apart. Adjacent beats hanging.
+   */
+  it('gives up rather than loops when the gap cannot exist', () => {
+    const showings = expandFaces(entries(1), 3);
+    expect(showings).toHaveLength(2);
+    expect(showings.map((s) => s.face).sort()).toEqual(['meaning', 'word']);
+  });
+
+  /**
+   * The session is stored and resumed. A queue that dealt itself again on
+   * every reload would put a card you just answered back in front of you.
+   */
+  it('is deterministic for a seed', () => {
+    const once = expandFaces(entries(8), 42);
+    const twice = expandFaces(entries(8), 42);
+    expect(once).toEqual(twice);
+  });
+
+  it('is not the same order for a different day', () => {
+    const monday = expandFaces(entries(8), 42).map((s) => `${s.cardId}:${s.face}`);
+    const tuesday = expandFaces(entries(8), 43).map((s) => `${s.cardId}:${s.face}`);
+    expect(monday).not.toEqual(tuesday);
+  });
+
+  it('shuffles rather than dealing the queue in order', () => {
+    const inOrder = entries(12).flatMap((e) => [`${e.cardId}:word`, `${e.cardId}:meaning`]);
+    const shuffled = expandFaces(entries(12), 5).map((s) => `${s.cardId}:${s.face}`);
+    expect(shuffled).not.toEqual(inOrder);
   });
 });
