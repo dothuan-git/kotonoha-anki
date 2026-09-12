@@ -4,21 +4,31 @@ A private Japanese vocabulary trainer with Vietnamese meanings, built around a
 washi-paper, wabi-sabi aesthetic. Single user, no sharing. See
 [kotonoha-technical-plan.md](kotonoha-technical-plan.md) for the full design.
 
-## Status — Phase 4 (the train)
+## Status — Phase 5 (the rest)
 
-Working: add a word (dictionary lookup, Hán Việt), the word list with search
-and inline edit, the kanji index, and the review session — FSRS scheduling,
-the daily queue, recognition **and production** cards, kana input with §6
-answer matching, "gõ nhầm", the ten-second undo, editing a word mid-review,
-and session end.
+Everything §13 lists is built. Adding a word (dictionary lookup, Hán Việt), the
+word list with search and inline edit, the kanji index, the review session —
+FSRS scheduling, the daily queue, recognition **and** production cards, kana
+input with §6 answer matching, "gõ nhầm", the ten-second undo, editing a word
+mid-review — the offline session, and now `/stats`, leech handling, confusion
+pairs and the audio check on save.
 
-Phase 4 made the session work with no signal. It installs as a PWA, the day's
+Phase 4 made the session work with no signal: it installs as a PWA, the day's
 queue is kept in IndexedDB, the scheduler runs on the device, ratings queue in
-an outbox and replay through `/api/sync`, and sharing Japanese text to
-Kotonoha from anywhere on the phone opens the add form with the word in it.
+an outbox and replay through `/api/sync`, and sharing Japanese text to Kotonoha
+from anywhere on the phone opens the add form with the word in it.
 
-Not built yet: `/stats` shows an empty state. It is four charts over
-`review_logs` and belongs to Phase 5; nothing on it is mocked.
+Phase 5 is the screens and rules that need a history to be worth anything.
+`/stats` is four charts over `review_logs`. A card that has been forgotten six
+times raises §4's leech prompt once and retires the word's production card. A
+wrong typed answer that turns out to name *another word you own* is recorded as
+a confusion pair rather than just a miss.
+
+**One thing §9 asks for was never built and still is not: `POST /api/draft`.**
+Phase 1 was meant to include the Claude drafting endpoint that fills in the
+Vietnamese meaning and an example sentence; the add form has no AI drafting and
+no `ANTHROPIC_API_KEY` is read anywhere. Everything else in §13 is done, so
+this is the outstanding item.
 
 ## Stack
 
@@ -30,7 +40,7 @@ Vitest.
 
 ```bash
 npm install
-npm run db:migrate             # apply drizzle/0000_initial_schema.sql
+npm run db:migrate             # apply everything in drizzle/
 npm run seed:unihan            # Hán Việt readings from Unihan (~10k rows)
 npm run seed:words             # optional: 50 N5 words to start from
 npm run dev
@@ -56,22 +66,26 @@ can.
 | `npm run recompute` | Rebuild every `card_states` row from `review_logs`; `-- --check` reports without writing |
 
 Layout note: `lib/answer.ts` is §6's matcher, and the only thing that decides
-whether a typed answer is right. `lib/client/outbox.ts` is the only thing that
-sends a review to the server.
+whether a typed answer is right — and, since Phase 5, the only thing that
+decides which *other* word a wrong answer named. `lib/client/outbox.ts` is the
+only thing that sends a review to the server.
 
 ## Layout
 
 ```
 app/          routes and route handlers (/api/lookup, /api/sync, /api/share, auth)
 components/   client components, one per screen
-lib/db/       Drizzle schema, queries, and the review projection
+components/stats/  the charts, built from elements and inline SVG
+lib/db/       Drizzle schema, queries, the review projection, the /stats reads
 lib/fsrs/     scheduler params, log replay, queue order, the study day,
               the card-state wire shape, the client-side scheduler
-lib/client/   IndexedDB, the offline outbox, the stored session
+lib/client/   IndexedDB, the offline outbox, the stored session, the TTS check
 lib/dict/     Jotoba client, tag→pos mapping, furigana conversion
 lib/actions/  server actions
 lib/ruby.ts   §7 ruby parser
 lib/share.ts  §10 share-target text extraction
+lib/stats.ts  §10's four charts as pure functions over rows
+lib/confusion.ts  §13's pair resolution, through §6's normaliser
 proxy.ts      auth redirect (Next 16's renamed middleware)
 public/       manifest, service worker, offline page, icons
 scripts/      Unihan seed, card-state recompute
@@ -240,21 +254,144 @@ The service worker only registers in production. In development it unregisters
 anything already there, because a worker caching dev chunks that are rebuilt on
 every keystroke costs an afternoon.
 
+## How /stats works
+
+Four charts (§10), read off `review_logs` rather than off `card_states`. The log
+is the source of truth (§5), so three of the four stay right across a
+`npm run recompute` that moves every projected row; only the forecast reads the
+projection, because "when is this due" is what the projection is for.
+
+- **Lượt ôn mỗi ngày** — distinct cards studied per day, split new vs review,
+  30 or 90 days. Counted exactly the way §4's caps count: once per card per
+  day, in the bucket of its first showing, so a new card walking `['1m','10m']`
+  is one new card and not also three reviews.
+- **Sắp đến hạn** — the next 30 days. New cards are left out: their `due` is
+  the word's creation time (§5 seeds the fold from it), so all of them are
+  "overdue" by construction and what actually releases them is the daily cap.
+  Anything genuinely past its date is a single overdue count instead.
+- **Tỉ lệ nhớ** — the share graded Được or Dễ, by week, against
+  `request_retention`. A rating on a card in `State.New` is excluded: it is the
+  first time that card has ever been seen, so it says nothing about recall, and
+  counting it would drag the line down at exactly the rate new words are added.
+  Weekly, because a day is 20–100 reviews and the noise swamps the signal.
+- **Độ chín của sổ từ** — the active cards by stability, split at 21 and 90
+  days. 21 is §4's own line: it is where a production card unlocks.
+
+**The bucketing is by study day, not by calendar day**, and that is the part
+worth being careful about. A study day starts at 04:00 `Asia/Ho_Chi_Minh`,
+which is 21:00 UTC the *previous* date — so a key taken off `toISOString()`
+would label every column a day early, consistently enough to look right.
+`studyDayKey` formats in the study zone, and `tests/stats.test.ts` pins the
+boundary at 03:59 and 04:00.
+
+The window is read as rows and bucketed in JS rather than grouped in SQL. §1
+says to optimise for one person using this for years, and 26 weeks at §4's cap
+is under 20k narrow rows; the awkward part of pushing it into SQL would be that
+same 04:00 boundary. If it ever stops being comfortable, the volume and
+retention buckets are the two to move.
+
+Every chart carries a legend where it has more than one series, a hover/tap
+readout under the plot rather than a tooltip floating over the columns it is
+meant to help compare, and the same numbers as a table behind **Xem số liệu** —
+colour is one channel and it fails for some readers and every printer.
+
+The chart colours are their own tokens in `globals.css`, chosen against each
+surface rather than lightened from one another, and checked for lightness,
+chroma, colour-vision separation and contrast. "Từ mới" is blue rather than the
+amber the `--warning` token would have given, because green and amber are the
+same colour to a deuteranope.
+
+## Leeches, confusion pairs and audio
+
+### Leeches (§4)
+
+At six lapses a card raises the prompt **once**. The count is
+`card_states.lapses`, folded from the log like everything else; what the log
+cannot say is whether the prompt has already been shown, so that one bit is
+stored as `cards.leech_acked_at`.
+
+The prompt *is* the editor. §4 asks for a rewrite of the meaning or a note, and
+an alert that only told you to go and do one somewhere else is an alert you
+dismiss. Saving and dismissing both acknowledge, because both are the decision
+§4 wanted; only then does the word's production card go `active = false`, with
+recognition left running. It never offers to suspend or delete — §4 rules both
+out as automatic, and the moment you have just failed a word six times is the
+worst moment to decide you are done with it.
+
+The device raises it without waiting for the server: unlike a production
+unlock, the leech flag needs only the card's own fold and the flag it arrived
+with, so it works on the train. The *acknowledgement* is a server write with no
+offline path — dismissing with no signal changes nothing and the card is
+flagged again next session, which is the honest outcome for a rule that is
+about showing something once.
+
+**One Phase 4 behaviour changed for this.** `applyReview` no longer requires
+`cards.active`; the queue still filters on it. `active` decides what a session
+*hands you*, not whether a review that already happened may be recorded — and
+retiring a production card mid-session, while the rating that triggered it is
+still in the outbox, would otherwise reject that rating permanently and throw
+away a review the user actually did. A suspended word still rejects.
+
+### Confusion pairs (§13)
+
+Nothing in the plan defines these beyond the name. What they are here: a wrong
+production answer that turns out to name **another word in the collection**.
+Typing あける for 開く is a confusion; typing あkえru is a typo, and `review_logs`
+has already recorded it as a miss.
+
+- The attempt rides the outbox alongside the rating, so one typed in a tunnel
+  is not lost, and a client-generated id makes the replay idempotent.
+- **The server resolves it, not the device.** The device holds the day's queue,
+  not the collection — it cannot know that あける is also a word you own.
+- Resolution runs through `normaliseAnswer` and nothing else: the same rule
+  that decided the answer was wrong decides which word it was right *about*. No
+  edit distance, because a matcher that guessed here would invent confusions
+  nobody had.
+- **An ambiguous attempt is dropped.** 上る and 登る are both のぼる; the attempt
+  cannot say which was meant, and recording one at random would put a fact on
+  /stats that nobody observed.
+- `confusions` is append-only like `review_logs`; the counts are a fold over
+  it. What was typed is never stored — a confusion is a pair of words.
+- It is directional. "asked for 開く, typed 開ける" and its mirror are different
+  mistakes, and collapsing them would hide which direction keeps failing.
+
+### Audio (§13's "TTS audio on save")
+
+No audio is generated, stored or fetched. §2 lists no speech provider, and the
+Web Speech API already reads Japanese on every platform this runs on —
+including offline, because the voice is installed on the device rather than
+streamed. A stored MP3 per word would buy identical audio across devices at the
+cost of a provider, a key, a blob store and a sync path, for one person
+listening on one phone.
+
+What the platform does not give for free is knowing whether it will work. A
+device with no Japanese voice reads 開ける in English, and discovering that
+mid-session is both too late and easy to mistake for a bad recording. So the
+add form checks at save time and says so, and carries a speaker button to hear
+the word once while adding it. `lib/client/audio.ts` also waits for
+`voiceschanged` — an early `getVoices()` returns an empty list in Chrome, which
+is why the previous version silently fell back to the default voice.
+
 ## Notes for the next phase
 
-- **`review_logs` is append-only.** Two permitted deletions now, both narrow:
-  `undoReview`'s 10-second window on the server, and the outbox entry that is
-  dropped before it is ever sent. The second one deletes nothing in Postgres at
-  all, which is the point.
-- **`/stats` is the last screen.** It reads `review_logs` directly — the log is
-  the source of truth (§5), so the charts do not need `card_states` for
-  anything but "due today".
-- **Leeches, confusion pairs and TTS are Phase 5.** §4's leech rule (flag at 6
-  lapses, deactivate the production card, never auto-suspend the word) has no
-  implementation yet; `card_states.lapses` is already correct and folded.
+- **`POST /api/draft` is the outstanding item** (§9). It is Phase 1 work that
+  was never built: Claude drafts the Vietnamese meaning and an example sentence
+  with ruby from the headword plus the dictionary result, validated with Zod,
+  retried once on a parse failure, and never blocking the save. The add form
+  has the fields; nothing fills them.
+- **`review_logs` is still append-only.** Two permitted deletions, both narrow:
+  `undoReview`'s 10-second window on the server, and the outbox entry dropped
+  before it is ever sent. `confusions` is append-only on the same terms and has
+  no deletion at all.
 - **`applyReview` is the one scheduling path.** Server action, sync replay and
-  recompute all go through it or through `foldLogs`. Anything Phase 5 adds that
-  writes a review should too.
+  recompute all go through it or through `foldLogs`. Anything that writes a
+  review should too.
+- **A constant imported from `lib/db/*` into a client component pulls the
+  database client into the browser bundle**, where it throws on a missing
+  `DATABASE_URL` before anything renders. A type-only import is fine; a number
+  is not, and the difference is invisible until it runs. That is why
+  `VOLUME_DAYS` and `StatsView` live in `lib/stats.ts` rather than next to the
+  queries that use them.
 - **Jotoba does not return raw JMdict tags.** `lib/dict/pos.ts` maps its actual
   tagged enums; §9's `v5*`/`v1`/`vt` table does not apply. Test fixtures are
   verbatim live responses so the mapping cannot drift silently.
