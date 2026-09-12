@@ -18,24 +18,64 @@ const TABS = [
   { href: '/settings', label: 'Cài đặt', icon: Settings },
 ] as const;
 
-export function AppNav({ dueCount = 0 }: { dueCount?: number }) {
+/**
+ * `bar` is the phone/tablet tab strip along the bottom of the sheet; `sidebar`
+ * is the desktop rail down the left of the window.
+ *
+ * Both variants are mounted at once and shown by breakpoint, so their
+ * indicators need different `layoutId`s — two elements sharing one would make
+ * motion treat the hidden rail and the visible strip as the same box and
+ * animate the indicator between them.
+ */
+type Variant = 'bar' | 'sidebar';
+
+export function AppNav({
+  dueCount = 0,
+  variant = 'bar',
+  className = '',
+}: {
+  dueCount?: number;
+  variant?: Variant;
+  className?: string;
+}) {
   const pathname = usePathname();
   if (pathname === '/signin') return null;
 
+  const sidebar = variant === 'sidebar';
+
   return (
-    <nav className="w-full rounded-2xl border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-1 py-1.5 backdrop-blur-md sm:py-2">
-      <div className="mx-auto flex items-center justify-between">
+    <nav
+      className={
+        sidebar
+          ? `mr-4 h-full w-[13.5rem] shrink-0 flex-col gap-1 rounded-[32px] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/70 p-3 shadow-xs ${className}`
+          : `w-full rounded-2xl border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-1 py-1.5 backdrop-blur-md sm:py-2 ${className}`
+      }
+      aria-label="Điều hướng chính"
+    >
+      <div
+        className={
+          sidebar ? 'flex flex-col gap-1' : 'mx-auto flex items-center justify-between'
+        }
+      >
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive =
             tab.href === '/' ? pathname === '/' : pathname.startsWith(tab.href);
 
           return (
-            <motion.div key={tab.href} whileTap={{ scale: 0.92 }}>
+            <motion.div
+              key={tab.href}
+              whileTap={{ scale: sidebar ? 0.98 : 0.92 }}
+              className={sidebar ? 'w-full' : undefined}
+            >
               <Link
                 href={tab.href}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative flex select-none flex-col items-center rounded-xl px-1.5 py-1.5 transition-colors sm:px-2 ${
+                className={`relative flex select-none transition-colors ${
+                  sidebar
+                    ? 'w-full items-center gap-3 rounded-xl px-3 py-2.5'
+                    : 'flex-col items-center rounded-xl px-1.5 py-1.5 sm:px-2'
+                } ${
                   isActive
                     ? 'font-bold text-[var(--bamboo)]'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
@@ -43,12 +83,12 @@ export function AppNav({ dueCount = 0 }: { dueCount?: number }) {
               >
                 {isActive && (
                   <motion.div
-                    layoutId="activeTabIndicator"
+                    layoutId={`activeTabIndicator-${variant}`}
                     className="absolute inset-0 -z-10 rounded-xl border border-[var(--bamboo-border)]/60 bg-[var(--bamboo-subtle)]"
                     transition={{ type: 'spring', stiffness: 450, damping: 32 }}
                   />
                 )}
-                <div className="relative z-10">
+                <div className="relative z-10 shrink-0">
                   <Icon
                     className={`h-5 w-5 transition-transform ${
                       isActive ? 'scale-105 stroke-[2.5]' : 'stroke-[1.75]'
@@ -60,9 +100,13 @@ export function AppNav({ dueCount = 0 }: { dueCount?: number }) {
                     </span>
                   )}
                 </div>
-                <span className="z-10 mt-1 whitespace-nowrap text-[10px] tracking-tight sm:text-[11px]">
-                    {tab.label}
-                  </span>
+                <span
+                  className={`z-10 whitespace-nowrap tracking-tight ${
+                    sidebar ? 'text-sm' : 'mt-1 text-[10px] sm:text-[11px]'
+                  }`}
+                >
+                  {tab.label}
+                </span>
               </Link>
             </motion.div>
           );

@@ -95,7 +95,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       */}
       <body className="flex h-dvh flex-col overflow-hidden bg-[var(--bg-page)] text-[var(--text-primary)] antialiased">
         <AppHeader />
-        <main className="flex min-h-0 flex-1 items-center justify-center p-4 sm:p-6 md:p-8">
+        <main className="flex min-h-0 flex-1 items-center justify-center p-0 sm:p-5 md:p-6 lg:p-6">
           <AppShell dueCount={dueCount}>{children}</AppShell>
         </main>
         <ServiceWorkerRegistrar />

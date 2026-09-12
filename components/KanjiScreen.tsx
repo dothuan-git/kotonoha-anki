@@ -33,7 +33,7 @@ export function KanjiScreen({ kanji }: { kanji: KanjiView[] }) {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
+        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {kanji.map((item) => (
             <motion.div key={item.char} whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.96 }}>
               <Link

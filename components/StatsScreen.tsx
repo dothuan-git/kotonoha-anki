@@ -112,6 +112,10 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
           />
         </ChartCard>
 
+        {/* The heatmap and the daily-volume chart are calendars — they want the
+            whole width at any size. These four are not, so past xl they pair
+            up rather than each stretching to 1100px of near-empty plot. */}
+        <div className="grid gap-4 xl:grid-cols-2">
         <ChartCard
           title="Sắp đến hạn"
           caption={`${FORECAST_DAYS} ngày tới. Từ chưa học không nằm ở đây: chúng do hạn mức mỗi ngày thả ra, không phải do lịch.`}
@@ -179,6 +183,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
         </ChartCard>
 
         <ConfusionCard confusions={stats.confusions} />
+        </div>
       </div>
     </div>
   );

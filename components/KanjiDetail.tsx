@@ -16,7 +16,7 @@ export function KanjiDetail({ kanji, words }: { kanji: KanjiView; words: WordVie
   const [pending, startTransition] = useTransition();
 
   return (
-    <div className="w-full">
+    <div className="mx-auto w-full max-w-4xl">
       <Link
         href="/kanji"
         className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)]"

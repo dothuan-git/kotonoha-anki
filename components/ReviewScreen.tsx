@@ -578,7 +578,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       control the session cannot work without. The progress bar and the ratings
       now stay put and the card scrolls between them.
     */
-    <div className="flex h-full min-h-0 w-full flex-col justify-between p-2">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col justify-between p-2">
       {/* Top Session Progress Bar & Controls */}
       <div className="w-full flex items-center justify-between pb-3 border-b border-[var(--border-subtle)] text-xs text-[var(--text-muted)]">
         {/* Progress pill */}
@@ -706,7 +706,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           exit={{ opacity: 0, y: -8, scale: 0.99 }}
           transition={{ duration: 0.18, ease: 'easeOut' }}
           onClick={!isRevealed && !isProduction ? handleReveal : undefined}
-          className={`w-full mt-3 flex-1 min-h-0 overflow-y-auto bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl p-5 sm:p-7 flex flex-col justify-between shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-colors ${
+          className={`w-full mt-3 flex-1 min-h-0 overflow-y-auto bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl p-5 sm:p-7 flex flex-col shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-colors ${
             !isRevealed && !isProduction ? 'cursor-pointer hover:border-[var(--bamboo)]/50' : ''
           }`}
         >
@@ -746,7 +746,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           </div>
 
           {/* Center: the prompt — the headword, or the meaning to produce it from */}
-          <div className="py-6 text-center">
+          <div className="flex min-h-fit flex-1 flex-col justify-center py-6 text-center">
             {showAnswerSide ? (
               <>
                 <h1

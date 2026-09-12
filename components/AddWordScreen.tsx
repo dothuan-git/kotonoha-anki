@@ -183,7 +183,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
   }
 
   return (
-    <div className="w-full">
+    <div className="mx-auto w-full max-w-3xl">
       <div className="mb-4">
         <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
           Thêm từ vựng mới
