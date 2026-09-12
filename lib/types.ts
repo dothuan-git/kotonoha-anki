@@ -149,4 +149,29 @@ export interface RateResult {
   /** The card comes back inside this session (a learning step), rather than leaving it. */
   repeat: boolean;
   counts: DailyCounts;
+  /**
+   * This review took the recognition card past §4's stability threshold and
+   * created the word's production card. It joins a later session, never this
+   * one — §4 forbids two cards from the same word in one session.
+   */
+  unlockedProduction: boolean;
+}
+
+/**
+ * §5's undo window: ten seconds, and the only deletion `review_logs` ever
+ * permits. Shared so the toast's countdown and the server's guard cannot
+ * disagree about how long you have.
+ */
+export const UNDO_WINDOW_MS = 10_000;
+
+/**
+ * What `undoReview` hands back after deleting the log row and recomputing (§5).
+ * The same shape the client had before the rating, so the card can go back in
+ * front of you with the state the log now implies rather than a cached guess.
+ */
+export interface UndoResult {
+  cardId: string;
+  state: CardStateView;
+  previews: RatingPreviews;
+  counts: DailyCounts;
 }

@@ -3,8 +3,13 @@
 import { z } from 'zod';
 
 import { requireSession } from '@/lib/auth';
-import { ReviewError, applyReview, type ReviewFailure } from '@/lib/db/review';
-import type { RateResult } from '@/lib/types';
+import {
+  ReviewError,
+  applyReview,
+  undoReview as undoReviewLog,
+  type ReviewFailure,
+} from '@/lib/db/review';
+import type { RateResult, UndoResult } from '@/lib/types';
 
 import type { ActionResult } from '@/lib/actions/words';
 
@@ -23,6 +28,9 @@ const MESSAGES: Record<ReviewFailure, string> = {
   'card-unavailable': 'Thẻ không còn trong phiên ôn tập',
   'card-missing': 'Không tìm thấy thẻ',
   'write-failed': 'Không ghi được kết quả ôn tập',
+  'log-missing': 'Không còn gì để hoàn tác',
+  'undo-expired': 'Đã quá thời gian hoàn tác',
+  'undo-not-latest': 'Thẻ đã được chấm lại, không hoàn tác được nữa',
 };
 
 /**
@@ -53,6 +61,33 @@ export async function rateCard(
   } catch (error) {
     if (error instanceof ReviewError) return { ok: false, error: MESSAGES[error.reason] };
     console.error('[rateCard] failed', error);
+    return { ok: false, error: MESSAGES['write-failed'] };
+  }
+}
+
+/**
+ * Take back the rating I just gave (§5).
+ *
+ * The window is enforced on the server against `reviewed_at`, not on the
+ * client's countdown: the toast is a hint, and a stale tab must not be able to
+ * delete a log row from an hour ago.
+ */
+export async function undoReview(logId: string): Promise<ActionResult<UndoResult>> {
+  try {
+    await requireSession();
+  } catch {
+    return { ok: false, error: 'Chưa đăng nhập' };
+  }
+
+  if (!z.string().uuid().safeParse(logId).success) {
+    return { ok: false, error: MESSAGES['log-missing'] };
+  }
+
+  try {
+    return { ok: true, data: await undoReviewLog(logId) };
+  } catch (error) {
+    if (error instanceof ReviewError) return { ok: false, error: MESSAGES[error.reason] };
+    console.error('[undoReview] failed', error);
     return { ok: false, error: MESSAGES['write-failed'] };
   }
 }
