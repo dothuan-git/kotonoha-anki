@@ -26,6 +26,7 @@ Drizzle, Auth.js (Google, single allowlisted address), `ts-fsrs`, Vitest.
 npm install
 npm run db:migrate             # apply drizzle/0000_initial_schema.sql
 npm run seed:unihan            # Hán Việt readings from Unihan (~10k rows)
+npm run seed:words             # optional: 50 N5 words to start from
 npm run dev
 ```
 
@@ -45,6 +46,7 @@ can.
 | `npm run db:generate` | Generate a migration from `lib/db/schema.ts` |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run seed:unihan` | Seed `kanji.han_viet`; idempotent, `-- --fresh` re-downloads |
+| `npm run seed:words` | Add the 50-word N5 starter deck; idempotent, `-- --dry` writes nothing |
 | `npm run recompute` | Rebuild every `card_states` row from `review_logs`; `-- --check` reports without writing |
 
 Layout note: `lib/answer.ts` is §6's matcher, and the only thing that decides
