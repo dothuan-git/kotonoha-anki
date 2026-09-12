@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* ThemeScript toggles a `.dark` class, and Tailwind v4's `dark:` variant keys
+   off prefers-color-scheme unless told otherwise — without this a manual
+   toggle and the OS setting disagree. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* §11: tokens live in exactly one place. Tailwind v4 is CSS-first, so they are
    CSS custom properties here and exposed to utilities via @theme inline below
    — there is no tailwind.config.ts to mirror them into. */
