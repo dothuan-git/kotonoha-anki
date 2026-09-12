@@ -16,7 +16,7 @@ import {
   type RatingValue,
   type ReplayLog,
 } from '@/lib/fsrs/replay';
-import { toPreviews, toStateView } from '@/lib/fsrs/state';
+import { staysInSession, toPreviews, toStateView } from '@/lib/fsrs/state';
 import { UNDO_WINDOW_MS, tallyCounts } from '@/lib/types';
 import type {
   CardStateView,
@@ -578,12 +578,7 @@ function toStateRow(cardId: string, card: Card) {
   };
 }
 
-export { toPreviews, toStateView };
-
-/** A card put back by a learning step returns inside the session; anything further out leaves it. */
-export function staysInSession(card: Card, now: Date): boolean {
-  return card.due.getTime() - now.getTime() <= LEARN_AHEAD_MINUTES * 60_000;
-}
+export { staysInSession, toPreviews, toStateView };
 
 function selectLogs(cardIds: readonly string[]) {
   return db

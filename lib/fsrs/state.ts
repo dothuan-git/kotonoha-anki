@@ -1,4 +1,5 @@
 import { formatInterval } from '@/lib/fsrs/format';
+import { LEARN_AHEAD_MINUTES } from '@/lib/fsrs/params';
 import {
   State,
   previewDueDates,
@@ -62,4 +63,13 @@ export function toPreviews(card: Card, now: Date, params: FSRSParameters): Ratin
   const due = previewDueDates(card, now, params);
   const at = (r: RatingValue) => formatInterval(due[r].getTime() - now.getTime());
   return { 1: at(1), 2: at(2), 3: at(3), 4: at(4) };
+}
+
+/**
+ * A card put back by a learning step returns inside the session; anything
+ * further out leaves it. Shared, because §8 has the client deciding this
+ * offline and the server deciding it at sync — from the same threshold.
+ */
+export function staysInSession(card: Card, now: Date): boolean {
+  return card.due.getTime() - now.getTime() <= LEARN_AHEAD_MINUTES * 60_000;
 }
