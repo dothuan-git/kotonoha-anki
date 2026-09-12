@@ -141,11 +141,39 @@ export interface DailyCounts {
   reviewCards: number;
 }
 
+/**
+ * Which cards have already been spent against §4's caps today, and in which
+ * bucket. A card counts once: a new card walking its learning steps writes
+ * several log rows the same day and must not also eat a review slot.
+ *
+ * The totals alone are not enough for §8. Offline the client has to keep the
+ * caps honest by itself, and rating a learning card the server already counted
+ * this morning must not add a second slot — so it needs the identities, not a
+ * number.
+ */
+export type CountedCards = Record<string, 'new' | 'review'>;
+
+export function tallyCounts(counted: CountedCards): DailyCounts {
+  let newCards = 0;
+  let reviewCards = 0;
+  for (const bucket of Object.values(counted)) {
+    if (bucket === 'new') newCards++;
+    else reviewCards++;
+  }
+  return { newCards, reviewCards };
+}
+
 export interface SessionView {
   now: string;
   items: ReviewItem[];
-  counts: DailyCounts;
+  countedCards: CountedCards;
   limits: { newPerDay: number; reviewsPerDay: number };
+  /**
+   * §4's only user-movable scheduler knob, carried so the client can build the
+   * same `FSRSParameters` the server would (§8 — the scheduler runs in the
+   * browser during the session).
+   */
+  requestRetention: number;
   /** Cards that were due but did not fit today's caps — why the session is short. */
   heldBack: DailyCounts;
   /** Earliest due date among active cards outside this session. */
@@ -154,20 +182,56 @@ export interface SessionView {
   totalCards: number;
 }
 
-/** What `rateCard` hands back: the authoritative state, never the client's guess. */
+/** One rating applied — locally during the session, or on the server at sync. */
 export interface RateResult {
   cardId: string;
   state: CardStateView;
   previews: RatingPreviews;
   /** The card comes back inside this session (a learning step), rather than leaving it. */
   repeat: boolean;
-  counts: DailyCounts;
   /**
    * This review took the recognition card past §4's stability threshold and
    * created the word's production card. It joins a later session, never this
    * one — §4 forbids two cards from the same word in one session.
+   *
+   * Only the server can know this: the unlock is a write, and the client has
+   * no view of the word's other cards. Offline it is `false` until sync.
    */
   unlockedProduction: boolean;
+}
+
+/**
+ * One rating waiting in the outbox (§8).
+ *
+ * `id` is `review_logs.id`, generated on the device, which is the whole
+ * idempotency story: a batch can be POSTed twice, or by two devices, and the
+ * primary key collapses the duplicates. `reviewedAt` is the device's true
+ * clock at the moment of the rating, not the moment it reached the server —
+ * a review taken on the train is scheduled from when it happened.
+ */
+export interface PendingReview {
+  id: string;
+  cardId: string;
+  rating: 1 | 2 | 3 | 4;
+  reviewedAt: string;
+}
+
+/**
+ * What `/api/sync` hands back after replaying a batch (§8). The client throws
+ * its local scheduling away and takes this: the server always wins, because it
+ * is the only party that folded the whole log.
+ */
+export interface SyncResult {
+  /** Log ids the server now holds — safe to drop from the outbox. */
+  applied: string[];
+  /**
+   * Log ids that will never be accepted (the card is gone, or suspended).
+   * Also safe to drop: retrying them forever would wedge the outbox.
+   */
+  rejected: { id: string; reason: string }[];
+  /** Authoritative state per affected card, after the replay. */
+  states: Record<string, { state: CardStateView; previews: RatingPreviews }>;
+  countedCards: CountedCards;
 }
 
 /**
@@ -186,5 +250,5 @@ export interface UndoResult {
   cardId: string;
   state: CardStateView;
   previews: RatingPreviews;
-  counts: DailyCounts;
+  countedCards: CountedCards;
 }

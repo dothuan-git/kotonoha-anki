@@ -17,13 +17,16 @@ import {
   type ReplayLog,
 } from '@/lib/fsrs/replay';
 import { toPreviews, toStateView } from '@/lib/fsrs/state';
-import { UNDO_WINDOW_MS } from '@/lib/types';
+import { UNDO_WINDOW_MS, tallyCounts } from '@/lib/types';
 import type {
   CardStateView,
+  CountedCards,
   DailyCounts,
+  PendingReview,
   RateResult,
   ReviewItem,
   SessionView,
+  SyncResult,
   UndoResult,
 } from '@/lib/types';
 
@@ -37,14 +40,18 @@ type FsrsParams = ReturnType<typeof schedulerParams>;
 type CardRow = { cardId: string; wordId: string; createdAt: Date };
 
 /**
- * The two counters §4's caps are spent against, since the study day began.
+ * Which cards §4's caps have been spent on since the study day began.
  *
- * Counted per card rather than per log row, and each card counts once: a new
- * card walking its learning steps writes several rows the same day, and those
+ * Per card rather than per log row, and each card counts once: a new card
+ * walking its learning steps writes several rows the same day, and those
  * repeats must not also eat a review slot. A card counts as new if its first
  * showing today was its first showing ever.
+ *
+ * The identities rather than the totals, because §8's client has to keep the
+ * same books offline and needs to know whether a card it is about to rate was
+ * already counted this morning.
  */
-export async function getDailyCounts(now = new Date()): Promise<DailyCounts> {
+export async function getCountedCards(now = new Date()): Promise<CountedCards> {
   const rows = await db
     .select({
       cardId: reviewLogs.cardId,
@@ -54,9 +61,13 @@ export async function getDailyCounts(now = new Date()): Promise<DailyCounts> {
     .where(gte(reviewLogs.reviewedAt, startOfStudyDay(now)))
     .groupBy(reviewLogs.cardId);
 
-  let newCards = 0;
-  for (const row of rows) if (row.wasNew) newCards++;
-  return { newCards, reviewCards: rows.length - newCards };
+  const counted: CountedCards = {};
+  for (const row of rows) counted[row.cardId] = row.wasNew ? 'new' : 'review';
+  return counted;
+}
+
+export async function getDailyCounts(now = new Date()): Promise<DailyCounts> {
+  return tallyCounts(await getCountedCards(now));
 }
 
 /**
@@ -64,8 +75,9 @@ export async function getDailyCounts(now = new Date()): Promise<DailyCounts> {
  * more" escape hatch, so the queue the client receives is the whole day.
  */
 export async function buildSession(now = new Date()): Promise<SessionView> {
-  const [settings, counts] = await Promise.all([getSettings(), getDailyCounts(now)]);
+  const [settings, countedCards] = await Promise.all([getSettings(), getCountedCards(now)]);
   const params = schedulerParams(settings.requestRetention);
+  const counts = tallyCounts(countedCards);
 
   const candidates = await db
     .select({
@@ -116,8 +128,9 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
   return {
     now: now.toISOString(),
     items,
-    counts,
+    countedCards,
     limits: { newPerDay: settings.newPerDay, reviewsPerDay: settings.reviewsPerDay },
+    requestRetention: settings.requestRetention,
     heldBack: {
       newCards: Math.max(0, newCards.length - newLimit),
       reviewCards: Math.max(0, dueReviews.length - reviewLimit),
@@ -252,7 +265,7 @@ export async function applyReview(input: {
     .from(reviewLogs)
     .where(eq(reviewLogs.id, input.logId))
     .limit(1);
-  if (existing) return await describe(input.cardId, folded.card, now, folded.params);
+  if (existing) return describe(input.cardId, folded.card, now, folded.params);
 
   // The fold is ordered by reviewed_at, so a clock that went backwards would
   // silently reorder history. Nudge past the last entry instead.
@@ -291,22 +304,21 @@ export async function applyReview(input: {
       ? await unlockProductionCard(available.wordId, available.wordCreatedAt, next.card)
       : false;
 
-  return await describe(input.cardId, next.card, reviewedAt, folded.params, unlockedProduction);
+  return describe(input.cardId, next.card, reviewedAt, folded.params, unlockedProduction);
 }
 
-async function describe(
+function describe(
   cardId: string,
   card: Card,
   now: Date,
   params: FsrsParams,
   unlockedProduction = false,
-): Promise<RateResult> {
+): RateResult {
   return {
     cardId,
     state: toStateView(card),
     previews: toPreviews(card, now, params),
     repeat: staysInSession(card, now),
-    counts: await getDailyCounts(now),
     unlockedProduction,
   };
 }
@@ -406,8 +418,78 @@ export async function undoReview(logId: string, now = new Date()): Promise<UndoR
     cardId: log.cardId,
     state: toStateView(folded.card),
     previews: toPreviews(folded.card, now, folded.params),
-    counts: await getDailyCounts(now),
+    countedCards: await getCountedCards(now),
   };
+}
+
+/**
+ * Permanent rejections: a log the server will never accept, however often the
+ * outbox retries. The client drops these, because retrying one forever wedges
+ * every review queued behind it.
+ */
+const PERMANENT: ReadonlySet<ReviewFailure> = new Set(['card-unavailable', 'card-missing']);
+
+/**
+ * §8 — replay an offline batch.
+ *
+ * The batch goes through `applyReview`, the same function a rating has always
+ * gone through, so an offline review and an online one cannot land on
+ * different schedules. Each row carries the timestamp of the moment it was
+ * rated, so a card reviewed on the train is scheduled from the train, not from
+ * whenever the signal came back.
+ *
+ * Ordered by `reviewedAt` across the whole batch. Two devices that were both
+ * offline interleave here, and because state is a fold (§5) the result is the
+ * same whichever device reconnects first.
+ *
+ * Nothing here is atomic and nothing needs to be: every insert is idempotent
+ * on the client-generated id, so a half-applied batch that is POSTed again
+ * simply finishes.
+ */
+export async function syncReviews(
+  batch: readonly PendingReview[],
+  now = new Date(),
+): Promise<SyncResult> {
+  const ordered = [...batch].sort(
+    (a, b) =>
+      Date.parse(a.reviewedAt) - Date.parse(b.reviewedAt) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+
+  const applied: string[] = [];
+  const rejected: SyncResult['rejected'] = [];
+  const states: SyncResult['states'] = {};
+
+  for (const entry of ordered) {
+    // A device clock that runs fast would otherwise schedule from the future
+    // and hold the card back for days. Behind is fine and expected — that is
+    // what being offline means — so only the future is clamped.
+    const reviewedAt = new Date(Math.min(Date.parse(entry.reviewedAt), now.getTime()));
+
+    try {
+      const result = await applyReview({
+        logId: entry.id,
+        cardId: entry.cardId,
+        rating: entry.rating,
+        now: reviewedAt,
+      });
+      applied.push(entry.id);
+      states[entry.cardId] = { state: result.state, previews: result.previews };
+    } catch (error) {
+      if (error instanceof ReviewError && PERMANENT.has(error.reason)) {
+        rejected.push({ id: entry.id, reason: error.reason });
+        continue;
+      }
+      // Transient — a failed write, a dropped connection. Listed as neither
+      // applied nor rejected, so the entry stays in the outbox and the next
+      // flush tries again.
+      console.error('[syncReviews] entry failed', entry.id, error);
+    }
+  }
+
+  // Recomputed against the server's own clock rather than the batch's, because
+  // §4's caps are spent against the study day that is running now.
+  return { applied, rejected, states, countedCards: await getCountedCards(now) };
 }
 
 /** §5 — recomputes one card from its log and stores the result. */
