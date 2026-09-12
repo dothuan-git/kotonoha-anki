@@ -6,24 +6,22 @@ import { db } from '@/lib/db';
 import { getSettings, hydrateWords } from '@/lib/db/queries';
 import { cardStates, cards, reviewLogs, words } from '@/lib/db/schema';
 import { startOfNextStudyDay, startOfStudyDay } from '@/lib/fsrs/day';
-import { formatInterval } from '@/lib/fsrs/format';
 import { LEARN_AHEAD_MINUTES, schedulerParams } from '@/lib/fsrs/params';
 import { buildQueue, type QueueCandidate, type QueueEntry } from '@/lib/fsrs/queue';
 import {
   State,
   applyRating,
   foldLogs,
-  previewDueDates,
   type Card,
   type RatingValue,
   type ReplayLog,
 } from '@/lib/fsrs/replay';
+import { toPreviews, toStateView } from '@/lib/fsrs/state';
 import { UNDO_WINDOW_MS } from '@/lib/types';
 import type {
   CardStateView,
   DailyCounts,
   RateResult,
-  RatingPreviews,
   ReviewItem,
   SessionView,
   UndoResult,
@@ -498,28 +496,7 @@ function toStateRow(cardId: string, card: Card) {
   };
 }
 
-export function toStateView(card: Card): CardStateView {
-  const row = toStateRow('', card);
-  return {
-    due: row.due.toISOString(),
-    stability: row.stability,
-    difficulty: row.difficulty,
-    state: row.state,
-    reps: row.reps,
-    lapses: row.lapses,
-    lastReview: row.lastReview?.toISOString() ?? null,
-  };
-}
-
-export function toPreviews(card: Card, now: Date, params: FsrsParams): RatingPreviews {
-  const due = previewDueDates(card, now, params);
-  return {
-    1: formatInterval(due[1].getTime() - now.getTime()),
-    2: formatInterval(due[2].getTime() - now.getTime()),
-    3: formatInterval(due[3].getTime() - now.getTime()),
-    4: formatInterval(due[4].getTime() - now.getTime()),
-  };
-}
+export { toPreviews, toStateView };
 
 /** A card put back by a learning step returns inside the session; anything further out leaves it. */
 export function staysInSession(card: Card, now: Date): boolean {

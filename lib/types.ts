@@ -101,7 +101,17 @@ export function formatPos(pos: Pos, transitivity: Transitivity): string {
 /** §4's four buttons, pre-rendered server-side: `1` = Quên … `4` = Dễ. */
 export type RatingPreviews = Record<1 | 2 | 3 | 4, string>;
 
-/** A `card_states` row as the client sees it. Derived — see §5. */
+/**
+ * A folded card as the client sees it. Derived — see §5.
+ *
+ * Wider than the `card_states` row on purpose. The last three fields are not
+ * stored anywhere: they come off the fold that produced this view, and §8 runs
+ * the scheduler client-side, where a card has to be stepped forward with no
+ * server and no log in reach. `learningSteps` in particular is what lets a
+ * card mid-way through `['1m', '10m']` keep its place in airplane mode.
+ *
+ * `lib/fsrs/state.ts` converts both ways.
+ */
 export interface CardStateView {
   due: string;
   stability: number | null;
@@ -110,6 +120,9 @@ export interface CardStateView {
   reps: number;
   lapses: number;
   lastReview: string | null;
+  elapsedDays: number;
+  scheduledDays: number;
+  learningSteps: number;
 }
 
 export interface ReviewItem {
