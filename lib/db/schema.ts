@@ -112,6 +112,13 @@ export const cards = pgTable(
       .references(() => words.id, { onDelete: 'cascade' }),
     cardType: cardTypeEnum('card_type').notNull(),
     active: boolean('active').notNull().default(true),
+    /**
+     * §4's leech flag, acknowledged. Not derived: `card_states.lapses` says
+     * when a card *is* a leech, and the log says it the same way a year from
+     * now — what the log cannot say is whether the prompt has already been
+     * put in front of the user. §4 asks for it once, so the once is stored.
+     */
+    leechAckedAt: timestamp('leech_acked_at', { withTimezone: true }),
   },
   (t) => [uniqueIndex('cards_word_type_idx').on(t.wordId, t.cardType)],
 );
@@ -161,6 +168,39 @@ export const reviewLogs = pgTable(
   (t) => [index('review_logs_card_reviewed_idx').on(t.cardId, t.reviewedAt)],
 );
 
+/**
+ * §13's confusion pairs — APPEND ONLY, like `review_logs` and for the same
+ * reason: it is an observation of something that happened, not a tally that
+ * gets edited. The counts on /stats are a fold over these rows.
+ *
+ * One row per wrong production answer that turned out to be another word in
+ * the collection. `id` is generated on the device so the offline outbox can
+ * replay a batch twice with no effect (§8), exactly as a review does.
+ *
+ * What was typed is deliberately not stored. A confusion is between two words
+ * the user owns; a wrong answer that resolves to nothing is just a wrong
+ * answer, and `review_logs` already recorded it.
+ */
+export const confusions = pgTable(
+  'confusions',
+  {
+    id: uuid('id').primaryKey(),
+    /** The word the card was asking for. */
+    wordId: uuid('word_id')
+      .notNull()
+      .references(() => words.id, { onDelete: 'cascade' }),
+    /** The word that was typed instead. */
+    typedWordId: uuid('typed_word_id')
+      .notNull()
+      .references(() => words.id, { onDelete: 'cascade' }),
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('confusions_word_idx').on(t.wordId),
+    index('confusions_observed_idx').on(t.observedAt),
+  ],
+);
+
 export const dictCache = pgTable('dict_cache', {
   /** The normalised lookup query, not necessarily a saved headword. */
   headword: text('headword').primaryKey(),
@@ -185,4 +225,5 @@ export type NewSentence = typeof sentences.$inferInsert;
 export type Card = typeof cards.$inferSelect;
 export type CardState = typeof cardStates.$inferSelect;
 export type ReviewLog = typeof reviewLogs.$inferSelect;
+export type Confusion = typeof confusions.$inferSelect;
 export type Settings = typeof settings.$inferSelect;

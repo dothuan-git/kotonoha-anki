@@ -36,3 +36,13 @@ export const LEARN_AHEAD_MINUTES = 20;
 
 /** §4: new cards are interleaved at most one per five reviews. */
 export const NEW_PER_REVIEWS = 5;
+
+/**
+ * §4's leech threshold: six lapses on one card.
+ *
+ * `card_states.lapses` is folded from the log like everything else (§5), so
+ * this is a reading of the history rather than a counter anything increments.
+ * What the log cannot say is whether the prompt has already been shown — that
+ * is `cards.leech_acked_at`, and it is why §4 gets to say "flag it once".
+ */
+export const LEECH_LAPSES = 6;
