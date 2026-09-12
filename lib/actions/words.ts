@@ -70,11 +70,16 @@ export async function createWord(input: WordInput): Promise<ActionResult<{ id: s
   const wordId = randomUUID();
   const cardId = randomUUID();
   const chars = extractKanji(data.headword);
+  // One timestamp for the word and its card state. `recomputeCardState` folds
+  // an empty log to `createEmptyCard(word.created_at)`, so the two have to be
+  // the same instant for a recompute to reproduce this row rather than move it.
+  const createdAt = new Date();
 
   type Statement = Parameters<typeof db.batch>[0][number];
   const batch: Statement[] = [
     db.insert(words).values({
       id: wordId,
+      createdAt,
       headword: data.headword,
       reading: data.reading,
       meaning: data.meaning,
@@ -119,10 +124,10 @@ export async function createWord(input: WordInput): Promise<ActionResult<{ id: s
 
   batch.push(
     db.insert(cards).values({ id: cardId, wordId, cardType: 'recognition', active: true }),
-    // State 0 is ts-fsrs `State.New`. Due now so the card enters the first
-    // session; the row is still a projection — an empty log folds to exactly
-    // this, which is what makes Phase 2's recompute reproduce it.
-    db.insert(cardStates).values({ cardId, due: new Date(), state: 0, reps: 0, lapses: 0 }),
+    // State 0 is ts-fsrs `State.New`. Due at creation so the card enters the
+    // first session; the row is still a projection — an empty log folds to
+    // exactly this, which is what lets `npm run recompute` reproduce it.
+    db.insert(cardStates).values({ cardId, due: createdAt, state: 0, reps: 0, lapses: 0 }),
   );
 
   try {

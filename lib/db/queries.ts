@@ -10,7 +10,9 @@ import type { KanjiView, WordView } from '@/lib/types';
  * one for the sentences. Two round trips regardless of how many words, rather
  * than a per-word N+1.
  */
-async function hydrate(rows: (typeof words.$inferSelect)[]): Promise<WordView[]> {
+export async function hydrateWords(
+  rows: (typeof words.$inferSelect)[],
+): Promise<WordView[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((w) => w.id);
 
@@ -85,12 +87,12 @@ export async function listWords(query?: string, limit = 200): Promise<WordView[]
     .orderBy(desc(words.createdAt))
     .limit(limit);
 
-  return hydrate(rows);
+  return hydrateWords(rows);
 }
 
 export async function getWord(id: string): Promise<WordView | null> {
   const rows = await db.select().from(words).where(eq(words.id, id)).limit(1);
-  const [view] = await hydrate(rows);
+  const [view] = await hydrateWords(rows);
   return view ?? null;
 }
 
@@ -135,7 +137,7 @@ export async function getKanjiWithWords(
     .innerJoin(wordKanji, and(eq(wordKanji.wordId, words.id), eq(wordKanji.kanjiChar, char)))
     .orderBy(desc(words.createdAt));
 
-  const hydrated = await hydrate(dedupeById(wordRows.map((r) => r.words)));
+  const hydrated = await hydrateWords(dedupeById(wordRows.map((r) => r.words)));
 
   return {
     kanji: {
