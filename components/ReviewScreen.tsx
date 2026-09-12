@@ -482,7 +482,12 @@ export function ReviewScreen({ session }: { session: SessionView }) {
             {!isRevealed &&
               (isProduction ? (
                 <AnswerInput
-                  key={`${currentWord.cardId}-${attemptSeq}`}
+                  // The input is uncontrolled, so it has to be remounted
+                  // rather than cleared. `done` matters as much as the card
+                  // id: on a short queue a learning step can put the same
+                  // card straight back, and without it React would reuse the
+                  // node with the previous attempt still typed in.
+                  key={`${currentWord.cardId}-${done}-${attemptSeq}`}
                   word={word}
                   disabled={saving}
                   onAnswer={handleAnswer}
