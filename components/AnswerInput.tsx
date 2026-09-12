@@ -7,7 +7,12 @@ import { bind, unbind } from 'wanakana';
 import { checkAnswer } from '@/lib/answer';
 
 /**
- * The production card's answer field.
+ * The typed answer field.
+ *
+ * Two cards type into it. The production card asks for the word itself, from
+ * the meaning alone. A recognition card switched into typing asks only for the
+ * reading, because its headword is on screen — `expect` is what says which,
+ * and it reaches `checkAnswer` rather than being decided here.
  *
  * Romaji becomes kana as you type, so the card never needs an IME — the same
  * `wanakana.bind` the add form uses, and for the same reason the input is
@@ -19,10 +24,13 @@ import { checkAnswer } from '@/lib/answer';
  */
 export function AnswerInput({
   word,
+  expect = 'word',
   disabled,
   onAnswer,
 }: {
   word: { headword: string; reading: string };
+  /** What the card is asking to be typed. */
+  expect?: 'word' | 'reading';
   disabled: boolean;
   /** A typed attempt, already judged, or a giving-up with no text. */
   onAnswer: (attempt: { input: string; correct: boolean }) => void;
@@ -41,7 +49,7 @@ export function AnswerInput({
   const submit = () => {
     const input = inputRef.current?.value ?? '';
     if (!input.trim() || disabled) return;
-    onAnswer({ input, correct: checkAnswer(input, word) });
+    onAnswer({ input, correct: checkAnswer(input, word, expect) });
   };
 
   return (
@@ -56,8 +64,8 @@ export function AnswerInput({
           autoCapitalize="off"
           spellCheck={false}
           disabled={disabled}
-          aria-label="Đáp án tiếng Nhật"
-          placeholder="akeru → あける"
+          aria-label={expect === 'reading' ? 'Cách đọc' : 'Đáp án tiếng Nhật'}
+          placeholder={expect === 'reading' ? 'ひらがな' : 'akeru → あける'}
           onInput={(e) => setHasText(e.currentTarget.value.trim().length > 0)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -66,7 +74,11 @@ export function AnswerInput({
             }
           }}
           onClick={(e) => e.stopPropagation()}
-          className="font-jp-serif w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-3 text-center text-2xl tracking-wide text-[var(--text-primary)] outline-none placeholder:font-sans placeholder:text-sm placeholder:tracking-normal placeholder:text-[var(--text-muted)] focus:border-[var(--bamboo)] disabled:opacity-60"
+          className={`font-jp-serif w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-3 text-center text-2xl tracking-wide text-[var(--text-primary)] outline-none placeholder:text-center placeholder:text-[var(--text-muted)] focus:border-[var(--bamboo)] disabled:opacity-60 ${
+            expect === 'reading'
+              ? 'placeholder:font-jp-sans placeholder:text-xl placeholder:tracking-wide'
+              : 'placeholder:font-sans placeholder:text-sm placeholder:tracking-normal'
+          }`}
         />
       </div>
 

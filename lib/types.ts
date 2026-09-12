@@ -92,11 +92,33 @@ export function formatHanViet(refs: readonly KanjiRef[]): string {
   return parts.length > 0 ? parts.join(' · ') : '—';
 }
 
-/** Renders `Verb 2 · tha động từ`. */
+/**
+ * Vietnamese display labels for the stored (English) part-of-speech values.
+ *
+ * The database keeps the English enum — renaming it would need a migration,
+ * and every dictionary mapping in `lib/dict/pos.ts` targets those labels. This
+ * map is display only: nothing reads back from it.
+ */
+export const POS_LABELS: Record<Pos, string> = {
+  Noun: 'Danh từ',
+  'Verb 1': 'Động từ loại 1',
+  'Verb 2': 'Động từ loại 2',
+  'Verb 3': 'Động từ loại 3',
+  'I-adjective': 'Tính từ い',
+  'Na-adjective': 'Tính từ な',
+  Adverb: 'Trạng từ',
+  Particle: 'Trợ từ',
+  Conjunction: 'Liên từ',
+  Counter: 'Trợ số từ',
+  Expression: 'Cụm diễn đạt',
+};
+
+/** Renders `Động từ loại 2 · tha động từ`. */
 export function formatPos(pos: Pos, transitivity: Transitivity): string {
-  if (!transitivity) return pos;
+  const label = POS_LABELS[pos] ?? pos;
+  if (!transitivity) return label;
   const vi = transitivity === 'transitive' ? 'tha động từ' : 'tự động từ';
-  return `${pos} · ${vi}`;
+  return `${label} · ${vi}`;
 }
 
 /** The four rating buttons, pre-rendered server-side: `1` = Quên … `4` = Dễ. */

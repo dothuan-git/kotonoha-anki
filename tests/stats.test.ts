@@ -6,10 +6,13 @@ import {
   bucketMaturity,
   bucketRetention,
   bucketVolume,
+  buildHeatmap,
+  computeStreak,
   forwardStudyDays,
   studyDayKey,
   studyDayRange,
   type StatLog,
+  type VolumeDay,
 } from '@/lib/stats';
 
 /**
@@ -233,5 +236,69 @@ describe('bucketMaturity', () => {
 
   it('returns every bucket even when the collection is empty', () => {
     expect(bucketMaturity([]).map((s) => s.count)).toEqual([0, 0, 0, 0, 0]);
+  });
+});
+
+/** A volume window from a run of daily rating counts, oldest first. */
+function volume(ratings: readonly number[]): VolumeDay[] {
+  return ratings.map((count, i) => ({
+    day: `2026-01-${String(i + 1).padStart(2, '0')}`,
+    newCards: 0,
+    reviewCards: 0,
+    ratings: count,
+  }));
+}
+
+describe('computeStreak', () => {
+  it('counts back from today', () => {
+    expect(computeStreak(volume([0, 1, 1, 1])).current).toBe(3);
+  });
+
+  it('lets an untouched today stand on yesterday', () => {
+    // 04:00 rollover: the streak must not read 0 all morning.
+    expect(computeStreak(volume([1, 1, 1, 0])).current).toBe(3);
+  });
+
+  it('breaks on a missed yesterday', () => {
+    expect(computeStreak(volume([1, 1, 1, 0, 0])).current).toBe(0);
+  });
+
+  it('keeps the longest run after a gap resets the current one', () => {
+    const streak = computeStreak(volume([1, 1, 1, 1, 0, 1]));
+    expect(streak).toMatchObject({ current: 1, longest: 4, gaps: 1 });
+  });
+
+  it('is all zeros for a window with nothing in it', () => {
+    expect(computeStreak(volume([0, 0, 0]))).toEqual({ current: 0, longest: 0, gaps: 3 });
+  });
+});
+
+describe('buildHeatmap', () => {
+  it('scales the steps to the busiest day rather than to fixed counts', () => {
+    // Against a peak of 100 these are 10%, 50% and 100% — one step each,
+    // where the prototype's hardcoded 6/10 thresholds would flatten all three
+    // onto the top step.
+    const cells = buildHeatmap(volume([10, 50, 100]), 3);
+    expect(cells.map((c) => c.level)).toEqual([1, 2, 4]);
+  });
+
+  it('gives an empty day level 0', () => {
+    expect(buildHeatmap(volume([0, 5]), 2)[0]?.level).toBe(0);
+  });
+
+  it('marks an empty day between two studied days as repaired', () => {
+    const cells = buildHeatmap(volume([3, 0, 3]), 3);
+    expect(cells.map((c) => c.repaired)).toEqual([false, true, false]);
+  });
+
+  it('does not mark leading or trailing empty days as repaired', () => {
+    const cells = buildHeatmap(volume([0, 3, 0]), 3);
+    expect(cells.map((c) => c.repaired)).toEqual([false, false, false]);
+  });
+
+  it('takes the last N days and survives an all-empty window', () => {
+    const cells = buildHeatmap(volume([1, 2, 3, 4, 5]), 2);
+    expect(cells.map((c) => c.ratings)).toEqual([4, 5]);
+    expect(buildHeatmap(volume([0, 0]), 2).every((c) => c.level === 0)).toBe(true);
   });
 });

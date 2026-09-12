@@ -71,6 +71,50 @@ export async function getDailyCounts(now = new Date()): Promise<DailyCounts> {
 }
 
 /**
+ * How many cards today's session would actually hand you — the nav badge.
+ *
+ * The same scan and the same cap arithmetic as `buildSession`, stopping
+ * before `hydrateQueue`. Counting raw due rows instead would be cheaper and
+ * wrong: the badge would say 240 on a morning the caps release 100, and a
+ * number the session then contradicts is worse than no number.
+ */
+export async function countDueToday(now = new Date()): Promise<number> {
+  const [settings, countedCards] = await Promise.all([getSettings(), getCountedCards(now)]);
+  const counts = tallyCounts(countedCards);
+
+  const candidates = await db
+    .select({
+      cardId: cards.id,
+      due: cardStates.due,
+      state: cardStates.state,
+    })
+    .from(cards)
+    .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
+    .innerJoin(words, eq(words.id, cards.wordId))
+    .where(and(eq(cards.active, true), eq(words.suspended, false)));
+
+  const learnAhead = now.getTime() + LEARN_AHEAD_MINUTES * 60_000;
+  let dueReviews = 0;
+  let newCards = 0;
+
+  for (const row of candidates) {
+    const due = row.due.getTime();
+    if (row.state === State.New) {
+      newCards++;
+    } else if (
+      due <= now.getTime() ||
+      ((row.state === State.Learning || row.state === State.Relearning) && due <= learnAhead)
+    ) {
+      dueReviews++;
+    }
+  }
+
+  const reviewLimit = Math.max(0, settings.reviewsPerDay - counts.reviewCards);
+  const newLimit = Math.max(0, settings.newPerDay - counts.newCards);
+  return Math.min(dueReviews, reviewLimit) + Math.min(newCards, newLimit);
+}
+
+/**
  * The day's session. The caps are applied once, here: there is no "study
  * more" escape hatch, so the queue the client receives is the whole day.
  */

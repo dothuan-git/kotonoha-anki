@@ -16,7 +16,7 @@ export function KanjiDetail({ kanji, words }: { kanji: KanjiView; words: WordVie
   const [pending, startTransition] = useTransition();
 
   return (
-    <div className="w-full">
+    <div className="mx-auto w-full max-w-4xl">
       <Link
         href="/kanji"
         className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)]"
@@ -26,8 +26,10 @@ export function KanjiDetail({ kanji, words }: { kanji: KanjiView; words: WordVie
       </Link>
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 shadow-xs">
-        <div className="flex items-start gap-4">
-          <span className="font-jp-serif text-6xl leading-none text-[var(--text-primary)]">
+        <div className="flex items-start gap-3.5">
+          {/* The prototype's modal header seal: the glyph set in a bamboo tile
+              rather than loose on the page. */}
+          <span className="font-jp-serif flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-3xl font-semibold text-[var(--bamboo)] sm:h-16 sm:w-16 sm:text-4xl">
             {kanji.char}
           </span>
 

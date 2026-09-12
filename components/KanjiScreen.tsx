@@ -33,7 +33,7 @@ export function KanjiScreen({ kanji }: { kanji: KanjiView[] }) {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
+        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {kanji.map((item) => (
             <motion.div key={item.char} whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.96 }}>
               <Link
@@ -45,11 +45,13 @@ export function KanjiScreen({ kanji }: { kanji: KanjiView[] }) {
                   <span className="font-semibold text-[var(--bamboo)]">{item.wordCount} từ</span>
                 </div>
 
-                <span className="font-jp-serif text-4xl leading-none text-[var(--text-primary)]">
+                <span className="font-jp-serif my-1 text-3xl font-semibold leading-none text-[var(--text-primary)] sm:text-4xl">
                   {item.char}
                 </span>
 
-                <span className="w-full truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                {/* The Hán Việt reading is the anchor of this screen, so it sits
+                    below its own hairline rather than floating under the glyph. */}
+                <span className="w-full truncate border-t border-[var(--border-subtle)] pt-1 text-xs font-bold tracking-wider text-[var(--text-primary)]">
                   {item.hanViet.length > 0 ? item.hanViet.join(' / ').toUpperCase() : '—'}
                 </span>
               </Link>

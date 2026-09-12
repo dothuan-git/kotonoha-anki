@@ -86,17 +86,22 @@ function expandProlongedSound(s: string): string {
 /**
  * Is this what the card was asking for?
  *
- * Accepts the reading, or the headword — typing 開ける instead of あける is a
- * correct answer, not a lucky one. Both sides go through `normaliseAnswer`
- * rather than a literal `input === headword`, so that a trailing space or a
- * katakana headword typed in kana is not marked wrong; nothing about the
- * comparison itself is loosened.
+ * A card asking for the word accepts the reading or the headword — typing
+ * 開ける instead of あける is a correct answer, not a lucky one. A card asking
+ * for the reading cannot: it has the headword on screen, so accepting it back
+ * would be marking the card's own prompt correct.
+ *
+ * Both sides go through `normaliseAnswer` rather than a literal
+ * `input === headword`, so that a trailing space or a katakana headword typed
+ * in kana is not marked wrong; nothing about the comparison itself is loosened.
  */
 export function checkAnswer(
   input: string,
   word: { headword: string; reading: string },
+  expect: 'word' | 'reading' = 'word',
 ): boolean {
   const attempt = normaliseAnswer(input);
   if (attempt === '') return false;
-  return attempt === normaliseAnswer(word.reading) || attempt === normaliseAnswer(word.headword);
+  if (attempt === normaliseAnswer(word.reading)) return true;
+  return expect === 'word' && attempt === normaliseAnswer(word.headword);
 }

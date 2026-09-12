@@ -74,4 +74,26 @@ describe('checkAnswer', () => {
       expect(checkAnswer(input, word)).toBe(expected);
     });
   }
+
+  /**
+   * Asking for the reading with the headword on screen. The headword is the
+   * prompt there, so accepting it back would mark the card's own question
+   * correct — everything else about the comparison is unchanged.
+   */
+  describe('expecting the reading', () => {
+    const readingCases: [string, { headword: string; reading: string }, string, boolean][] = [
+      ['the reading', akeru, 'あける', true],
+      ['the reading in katakana', akeru, 'アケル', true],
+      ['the headword in kanji, which is the prompt', akeru, '開ける', false],
+      ['the kanji headword of a kana-only reading', jikan, '時間', false],
+      ['a headword that is its own reading', coffee, 'コーヒー', true],
+      ['nothing at all', akeru, '', false],
+    ];
+
+    for (const [name, word, input, expected] of readingCases) {
+      it(`${expected ? 'accepts' : 'rejects'} ${name}`, () => {
+        expect(checkAnswer(input, word, 'reading')).toBe(expected);
+      });
+    }
+  });
 });

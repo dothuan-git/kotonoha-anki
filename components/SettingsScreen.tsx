@@ -39,7 +39,7 @@ export function SettingsScreen({
   }
 
   return (
-    <div className="w-full">
+    <div className="mx-auto w-full max-w-3xl">
       <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">Cài đặt</h1>
       <p className="mt-1 text-xs text-[var(--text-muted)]">
         Giới hạn mỗi ngày áp dụng cho phiên ôn tập kế tiếp. Đổi mục tiêu ghi nhớ sẽ tính lại lịch
