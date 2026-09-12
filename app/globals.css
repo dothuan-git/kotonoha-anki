@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* §11: tokens live in exactly one place. Tailwind v4 is CSS-first, so they are
+   CSS custom properties here and exposed to utilities via @theme inline below
+   — there is no tailwind.config.ts to mirror them into. */
+@theme inline {
+  --color-page: var(--bg-page);
+  --color-surface: var(--bg-surface);
+  --color-surface-elevated: var(--bg-surface-elevated);
+  --color-muted: var(--bg-muted);
+  --color-subtle: var(--bg-subtle);
+  --color-bamboo: var(--bamboo);
+  --color-bamboo-hover: var(--bamboo-hover);
+  --color-bamboo-light: var(--bamboo-light);
+  --color-bamboo-subtle: var(--bamboo-subtle);
+  --color-bamboo-border: var(--bamboo-border);
+}
+
+@layer base {
+  :root {
+    /* Washi Paper & Bamboo Theme (Light) */
+    --bg-page: #F6F3EC;
+    --bg-surface: #FCFAF6;
+    --bg-surface-elevated: #FFFFFF;
+    --bg-muted: #EFE9DE;
+    --bg-subtle: #E4DDD0;
+    --border-subtle: #E3DDD1;
+    --border-strong: #CEC5B5;
+    --text-primary: #1C231B;
+    --text-secondary: #4D574B;
+    --text-muted: #727C70;
+    
+    /* Bamboo primary colors */
+    --bamboo: #35652E;
+    --bamboo-hover: #295023;
+    --bamboo-light: #4E8645;
+    --bamboo-subtle: #EAF3E8;
+    --bamboo-border: #B7D9B1;
+    
+    --accent: #35652E;
+    --accent-subtle: #EAF3E8;
+    --success: #2E6A3B;
+    --success-subtle: #E3F2E6;
+    --warning: #C07010;
+    --warning-subtle: #FDF3E3;
+    --danger: #BD3C35;
+    --danger-subtle: #FBECEB;
+  }
+
+  .dark {
+    /* Washi Charcoal & Bamboo Night (Dark) */
+    --bg-page: #131713;
+    --bg-surface: #1B221B;
+    --bg-surface-elevated: #232C23;
+    --bg-muted: #242E24;
+    --bg-subtle: #2F3B2F;
+    --border-subtle: #2A362A;
+    --border-strong: #3D4C3D;
+    --text-primary: #F0EDE6;
+    --text-secondary: #C5CEC3;
+    --text-muted: #8D988B;
+    
+    /* Bamboo highlights */
+    --bamboo: #5FA554;
+    --bamboo-hover: #72BE66;
+    --bamboo-light: #7FCF73;
+    --bamboo-subtle: #1C331A;
+    --bamboo-border: #385734;
+    
+    --accent: #5FA554;
+    --accent-subtle: #1C331A;
+    --success: #4EAD62;
+    --success-subtle: #13331D;
+    --warning: #E59837;
+    --warning-subtle: #3D280B;
+    --danger: #E0564E;
+    --danger-subtle: #3D1816;
+  }
+
+  body {
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.015em;
+  }
+
+  ruby {
+    ruby-position: over;
+  }
+
+  rt {
+    font-family: 'Noto Sans JP', -apple-system, sans-serif;
+    font-size: 0.55em;
+    color: var(--text-muted);
+    font-weight: 500;
+    user-select: none;
+  }
+}
+
+/* Dedicated Japanese Serif (Mincho) - Classical, brush-informed calligraphy strokes */
+.font-jp,
+.font-jp-serif {
+  font-family: 'Shippori Mincho', 'Noto Serif JP', 'Yu Mincho', 'Hiragino Mincho ProN', serif;
+  font-feature-settings: "palt" 1;
+}
+
+/* Modern Japanese Sans-serif (Gothic) for compact utility tags */
+.font-jp-sans {
+  font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Brand display serif for Kotonoha logo */
+.font-brand {
+  font-family: 'Cormorant Garamond', 'Shippori Mincho', Georgia, serif;
+}
+
+.font-vn {
+  font-family: 'Be Vietnam Pro', sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6);
+}
+
+
+/* §11: respect prefers-reduced-motion globally, once. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
