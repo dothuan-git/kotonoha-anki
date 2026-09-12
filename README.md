@@ -6,8 +6,8 @@ washi-paper, wabi-sabi aesthetic. Single user, no sharing. See
 
 ## Status — Phase 1 (capture)
 
-Working: add a word (dictionary lookup, AI drafting, Hán Việt), the word list
-with search and inline edit, and the kanji index.
+Working: add a word (dictionary lookup, Hán Việt), the word list with search
+and inline edit, and the kanji index.
 
 Not built yet: `/` (review) and `/stats` show an empty state — both are
 projections over `review_logs`, which stays empty until Phase 2 lands the FSRS
@@ -16,14 +16,12 @@ scheduler. Nothing on those screens is mocked.
 ## Stack
 
 Next.js 16 (App Router), TypeScript strict, Tailwind v4, Neon Postgres +
-Drizzle, Auth.js (Google, single allowlisted address), Anthropic API for
-drafting, Vitest.
+Drizzle, Auth.js (Google, single allowlisted address), Vitest.
 
 ## Setup
 
 ```bash
 npm install
-cp .env.example .env.local     # then fill it in
 npm run db:migrate             # apply drizzle/0000_initial_schema.sql
 npm run seed:unihan            # Hán Việt readings from Unihan (~10k rows)
 npm run dev
@@ -49,7 +47,7 @@ can.
 ## Layout
 
 ```
-app/          routes and route handlers (/api/lookup, /api/draft, auth)
+app/          routes and route handlers (/api/lookup, auth)
 components/   client components, one per screen
 lib/db/       Drizzle schema and queries
 lib/dict/     Jotoba client, tag→pos mapping, furigana conversion

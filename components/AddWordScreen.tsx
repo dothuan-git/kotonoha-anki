@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Bot, Check, Sparkles, UserCheck } from 'lucide-react';
+import { ArrowRight, Check, Sparkles, UserCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
@@ -18,7 +18,7 @@ const JLPT_LABELS: Record<Jlpt, string> = {
   N1: 'N1 (Cao cấp)',
 };
 
-type Status = 'idle' | 'looking' | 'drafting' | 'saving' | 'saved';
+type Status = 'idle' | 'looking' | 'saving' | 'saved';
 
 /** Per-kanji Hán Việt, editable — §9 requires typing the Unihan gaps by hand. */
 type HanVietDraft = Array<{ char: string; reading: string }>;
@@ -35,12 +35,10 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
   const [sentenceJp, setSentenceJp] = useState('');
   const [sentenceRuby, setSentenceRuby] = useState('');
   const [sentenceVi, setSentenceVi] = useState('');
-  const [sentenceSource, setSentenceSource] = useState<'ai' | 'manual'>('manual');
 
   const [status, setStatus] = useState<Status>('idle');
   const [autofilled, setAutofilled] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draftFailed, setDraftFailed] = useState(false);
 
   const headwordRef = useRef<HTMLInputElement>(null);
   const readingRef = useRef<HTMLInputElement>(null);
@@ -106,41 +104,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
       setAutofilled(true);
     }
 
-    void runDraft(query, candidate, seq);
-  }
-
-  /** §9: drafting never blocks saving. A failure just leaves fields empty. */
-  async function runDraft(query: string, candidate: LookupCandidate | null, seq: number) {
-    setStatus('drafting');
-    setDraftFailed(false);
-
-    try {
-      const res = await fetch('/api/draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ headword: query, candidate }),
-      });
-
-      if (seq !== requestSeq.current) return;
-      if (!res.ok) throw new Error(String(res.status));
-
-      const draft = (await res.json()) as {
-        meaning: string;
-        sentence: { jp: string; jpRuby: string; vi: string };
-      };
-
-      if (seq !== requestSeq.current) return;
-
-      setMeaning((prev) => prev || draft.meaning);
-      setSentenceJp((prev) => prev || draft.sentence.jp);
-      setSentenceRuby((prev) => prev || draft.sentence.jpRuby);
-      setSentenceVi((prev) => prev || draft.sentence.vi);
-      setSentenceSource('ai');
-    } catch {
-      if (seq === requestSeq.current) setDraftFailed(true);
-    } finally {
-      if (seq === requestSeq.current) setStatus('idle');
-    }
+    setStatus('idle');
   }
 
   function reset() {
@@ -156,9 +120,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
     setSentenceJp('');
     setSentenceRuby('');
     setSentenceVi('');
-    setSentenceSource('manual');
     setAutofilled(false);
-    setDraftFailed(false);
     setStatus('idle');
     headwordRef.current?.focus();
   }
@@ -191,7 +153,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               jp: sentenceJp.trim(),
               jpRuby: sentenceRuby.trim() || sentenceJp.trim(),
               vi: sentenceVi.trim(),
-              source: sentenceSource,
+              source: 'manual' as const,
             }
           : null,
     });
@@ -213,7 +175,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
           Thêm từ vựng mới
         </h1>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Nhập từ tiếng Nhật (ví dụ: 開ける, 勉強), hệ thống tra từ điển và soạn nháp phần còn lại.
+          Nhập từ tiếng Nhật (ví dụ: 開ける, 勉強), hệ thống sẽ tra từ điển để gợi ý cách đọc, từ loại và Hán Việt.
         </p>
       </div>
 
@@ -237,10 +199,10 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               autoComplete="off"
               className="font-jp-serif w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-2xl font-semibold text-[var(--text-primary)] shadow-xs transition-all focus:border-[var(--bamboo)] focus:outline-none focus:ring-2 focus:ring-[var(--bamboo)]/20"
             />
-            {(status === 'looking' || status === 'drafting') && (
+            {status === 'looking' && (
               <div className="absolute right-3.5 top-3.5 flex animate-pulse items-center gap-1.5 text-xs text-[var(--text-muted)]">
                 <Sparkles className="h-4 w-4 text-[var(--bamboo)]" />
-                <span>{status === 'looking' ? 'Đang tra cứu…' : 'Đang soạn nháp…'}</span>
+                <span>Đang tra cứu…</span>
               </div>
             )}
           </div>
@@ -269,24 +231,12 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
           />
         </div>
 
-        <div className="space-y-3 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-muted)]/40 p-3.5">
-          <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
-            <div className="flex items-center gap-1.5">
-              <Bot className="h-3.5 w-3.5" />
-              <span className="font-semibold text-[var(--text-secondary)]">
-                Thông tin máy gợi ý (Có thể chỉnh sửa)
-              </span>
-            </div>
-            {draftFailed ? (
-              <span className="text-[11px] font-semibold text-[var(--warning)]">
-                Không soạn được nháp — tự điền
-              </span>
-            ) : autofilled ? (
-              <span className="text-[11px] font-semibold text-[var(--bamboo)]">
-                Đã tự động điền
-              </span>
-            ) : null}
-          </div>
+        <div className="space-y-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-muted)]/40 p-3.5">
+          {autofilled && (
+            <p className="text-[11px] font-semibold text-[var(--bamboo)]">
+              Đã tự động điền từ từ điển
+            </p>
+          )}
 
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Field label="Cách đọc (Hiragana)" htmlFor="reading">

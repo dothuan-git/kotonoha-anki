@@ -80,16 +80,6 @@ export interface LookupResult {
   candidates: LookupCandidate[];
 }
 
-/** §9 drafting response. */
-export interface DraftResult {
-  meaning: string;
-  sentence: {
-    jp: string;
-    jpRuby: string;
-    vi: string;
-  };
-}
-
 /**
  * Renders `開 KHAI · 始 THỦY` — the prototype's `hanViet` string, derived
  * rather than stored. Unihan gives lowercase readings; display uppercases.

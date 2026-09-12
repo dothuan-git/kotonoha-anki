@@ -10,13 +10,12 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio",
-    "seed:unihan": "tsx scripts/seed-unihan.ts"
+    "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
+    "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
+    "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
+    "seed:unihan": "dotenv -e .env.local -- tsx scripts/seed-unihan.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0",
     "@neondatabase/serverless": "^1.1.0",
     "@tanstack/react-query": "^5.102.8",
     "drizzle-orm": "^0.45.2",
@@ -35,6 +34,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/wanakana": "^4.0.6",
+    "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
     "fflate": "^0.8.3",
     "tailwindcss": "^4.1.14",
