@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ngoại tuyến — Kotonoha</title>
+    <!--
+      The fallback's fallback: shown only when a page was asked for that has
+      never been cached. The reviewer itself does not land here — it is cached
+      on the first visit, and its queue lives in IndexedDB.
+
+      Deliberately self-contained. Anything it linked to would be one more file
+      that has to have been cached for this page to render, which defeats the
+      purpose of having it.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f3ec;
+        --surface: #fffdf8;
+        --text: #221f1a;
+        --muted: #6f6a60;
+        --border: #e3ddd0;
+        --bamboo: #35652e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #131713;
+          --surface: #1a1f1a;
+          --text: #ece8df;
+          --muted: #9a978e;
+          --border: #2a302a;
+          --bamboo: #5fa554;
+        }
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center;
+      }
+      .card {
+        max-width: 26rem;
+      }
+      .seal {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        font-size: 26px;
+        color: var(--bamboo);
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.25rem;
+        letter-spacing: -0.01em;
+      }
+      p {
+        margin: 10px 0 0;
+        font-size: 0.875rem;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      a {
+        display: inline-block;
+        margin-top: 24px;
+        padding: 10px 18px;
+        border-radius: 12px;
+        background: var(--bamboo);
+        color: #fff;
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="seal">言</div>
+      <h1>Trang này cần mạng</h1>
+      <p>
+        Phiên ôn tập vẫn chạy được khi ngoại tuyến — kết quả được lưu trên máy và
+        gửi đi khi có mạng trở lại. Các trang khác thì cần kết nối.
+      </p>
+      <a href="/">Về phiên ôn tập</a>
+    </div>
+  </body>
+</html>

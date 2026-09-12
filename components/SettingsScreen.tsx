@@ -4,6 +4,7 @@ import { Moon, Sun } from 'lucide-react';
 import { useEffect, useState, useTransition } from 'react';
 
 import { saveSettings, signOutAction } from '@/lib/actions/settings';
+import { forgetLocalData } from '@/lib/client/forget';
 import type { Settings } from '@/lib/db/schema';
 
 export function SettingsScreen({
@@ -114,7 +115,12 @@ export function SettingsScreen({
 
       <section className="mt-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-xs">
         <Row label="Đăng nhập" hint={email ?? '—'}>
-          <form action={signOutAction}>
+          {/*
+            Signing out leaves the service worker holding cached documents for
+            an account that is no longer signed in, and IndexedDB holding the
+            day's queue. Both are cleared on the way out — see forgetLocalData.
+          */}
+          <form action={signOutAction} onSubmit={() => void forgetLocalData()}>
             <button
               type="submit"
               className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
