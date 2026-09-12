@@ -6,7 +6,7 @@ import { shareQuery } from '@/lib/share';
 export const runtime = 'nodejs';
 
 /**
- * POST /api/share — the Web Share Target (§10).
+ * POST /api/share — the Web Share Target.
  *
  * Android POSTs here when Kotonoha is picked from a share sheet, then follows
  * the redirect. 303 rather than 302 so the browser turns the POST into a GET

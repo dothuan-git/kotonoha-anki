@@ -4,7 +4,7 @@
  * Only the three things a dictionary cannot supply are written here — the
  * Vietnamese meaning, and one example sentence with its ruby. Reading, part of
  * speech, transitivity, the JLPT hint and the kanji links all come from Jotoba
- * at seed time (§9), through the same `lookup` the add form uses, so a seeded
+ * at seed time, through the same `lookup` the add form uses, so a seeded
  * row is indistinguishable from a hand-added one.
  *
  * `reading` is a selector, not data: it picks the right candidate when a
@@ -12,8 +12,9 @@
  * through. `pos` is a fallback for the handful of words Jotoba tags in a way
  * `mapPos` cannot place.
  *
- * Sentences follow §9's drafting constraints: N5–N4 vocabulary besides the
- * target word, the word in its most frequent pattern, ruby on every kanji.
+ * Sentences follow the same drafting constraints as elsewhere: N5–N4
+ * vocabulary besides the target word, the word in its most frequent
+ * pattern, ruby on every kanji.
  */
 import type { Jlpt, Pos } from '../../lib/types';
 

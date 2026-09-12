@@ -7,7 +7,7 @@ export type Transitivity = (typeof TRANSITIVITY_VALUES)[number] | null;
 
 export { JLPT_VALUES, POS_VALUES, TRANSITIVITY_VALUES };
 
-/** §6 ratings. `Again|Hard|Good|Easy` = 1|2|3|4, labelled in Vietnamese. */
+/** `Again|Hard|Good|Easy` = 1|2|3|4, labelled in Vietnamese. */
 export const RATING_LABELS = ['Quên', 'Khó', 'Được', 'Dễ'] as const;
 export type RatingLabel = (typeof RATING_LABELS)[number];
 
@@ -30,12 +30,12 @@ export interface KanjiRef {
 }
 
 /**
- * One row of /words. Replaces the prototype's flat `WordItem`: `partOfSpeech`
- * splits into `pos` + `transitivity`, the `hanViet` display string becomes
- * structured `kanji`, and the single inline example becomes `sentences`.
+ * One row of /words. `pos` and `transitivity` are separate fields, the
+ * `hanViet` display string is derived from structured `kanji`, and a word
+ * can carry more than one example in `sentences`.
  *
  * Scheduling fields are deliberately absent: they are a projection over
- * review_logs (§5), and live on `ReviewItem.state` where they are needed.
+ * review_logs, and live on `ReviewItem.state` where they are needed.
  */
 export interface WordView {
   id: string;
@@ -70,7 +70,7 @@ export interface LookupCandidate {
   transitivity: Transitivity;
   jlptHint: Jlpt | null;
   common: boolean;
-  /** Headword furigana converted to §7 format, e.g. 勉強[べんきょう]. */
+  /** Headword furigana in ruby format, e.g. 勉強[べんきょう]. */
   headwordRuby: string | null;
   kanji: KanjiRef[];
 }
@@ -82,8 +82,8 @@ export interface LookupResult {
 }
 
 /**
- * Renders `開 KHAI · 始 THỦY` — the prototype's `hanViet` string, derived
- * rather than stored. Unihan gives lowercase readings; display uppercases.
+ * Renders `開 KHAI · 始 THỦY`, derived rather than stored. Unihan gives
+ * lowercase readings; display uppercases.
  */
 export function formatHanViet(refs: readonly KanjiRef[]): string {
   const parts = refs
@@ -92,24 +92,25 @@ export function formatHanViet(refs: readonly KanjiRef[]): string {
   return parts.length > 0 ? parts.join(' · ') : '—';
 }
 
-/** Renders `Verb 2 · tha động từ`, the prototype's `partOfSpeech` line. */
+/** Renders `Verb 2 · tha động từ`. */
 export function formatPos(pos: Pos, transitivity: Transitivity): string {
   if (!transitivity) return pos;
   const vi = transitivity === 'transitive' ? 'tha động từ' : 'tự động từ';
   return `${pos} · ${vi}`;
 }
 
-/** §4's four buttons, pre-rendered server-side: `1` = Quên … `4` = Dễ. */
+/** The four rating buttons, pre-rendered server-side: `1` = Quên … `4` = Dễ. */
 export type RatingPreviews = Record<1 | 2 | 3 | 4, string>;
 
 /**
- * A folded card as the client sees it. Derived — see §5.
+ * A folded card as the client sees it. Derived, never stored as-is.
  *
  * Wider than the `card_states` row on purpose. The last three fields are not
- * stored anywhere: they come off the fold that produced this view, and §8 runs
- * the scheduler client-side, where a card has to be stepped forward with no
- * server and no log in reach. `learningSteps` in particular is what lets a
- * card mid-way through `['1m', '10m']` keep its place in airplane mode.
+ * stored anywhere: they come off the fold that produced this view, and the
+ * scheduler runs client-side during a session, where a card has to be
+ * stepped forward with no server and no log in reach. `learningSteps` in
+ * particular is what lets a card mid-way through `['1m', '10m']` keep its
+ * place in airplane mode.
  *
  * `lib/fsrs/state.ts` converts both ways.
  */
@@ -135,14 +136,14 @@ export interface ReviewItem {
   state: CardStateView;
   previews: RatingPreviews;
   /**
-   * §4's leech prompt has already been shown for this card. The count itself
+   * The leech prompt has already been shown for this card. The count itself
    * is `state.lapses`, folded from the log like everything else; this is the
    * one bit the log cannot supply, which is why it rides along.
    */
   leechAcked: boolean;
 }
 
-/** §4: six lapses, and the prompt has not been shown yet. */
+/** Six lapses, and the prompt has not been shown yet. */
 export function isLeech(item: {
   state: { lapses: number };
   leechAcked: boolean;
@@ -150,19 +151,19 @@ export function isLeech(item: {
   return !item.leechAcked && item.state.lapses >= LEECH_LAPSES;
 }
 
-/** Distinct cards studied since the study day began, split by §4's two caps. */
+/** Distinct cards studied since the study day began, split by the two daily caps. */
 export interface DailyCounts {
   newCards: number;
   reviewCards: number;
 }
 
 /**
- * Which cards have already been spent against §4's caps today, and in which
- * bucket. A card counts once: a new card walking its learning steps writes
- * several log rows the same day and must not also eat a review slot.
+ * Which cards have already been spent against the daily caps today, and in
+ * which bucket. A card counts once: a new card walking its learning steps
+ * writes several log rows the same day and must not also eat a review slot.
  *
- * The totals alone are not enough for §8. Offline the client has to keep the
- * caps honest by itself, and rating a learning card the server already counted
+ * The totals alone are not enough offline. The client has to keep the caps
+ * honest by itself, and rating a learning card the server already counted
  * this morning must not add a second slot — so it needs the identities, not a
  * number.
  */
@@ -184,9 +185,9 @@ export interface SessionView {
   countedCards: CountedCards;
   limits: { newPerDay: number; reviewsPerDay: number };
   /**
-   * §4's only user-movable scheduler knob, carried so the client can build the
-   * same `FSRSParameters` the server would (§8 — the scheduler runs in the
-   * browser during the session).
+   * The only user-movable scheduler knob, carried so the client can build
+   * the same `FSRSParameters` the server would — the scheduler runs in the
+   * browser during the session.
    */
   requestRetention: number;
   /** Cards that were due but did not fit today's caps — why the session is short. */
@@ -205,16 +206,16 @@ export interface RateResult {
   /** The card comes back inside this session (a learning step), rather than leaving it. */
   repeat: boolean;
   /**
-   * This review took the recognition card past §4's stability threshold and
+   * This review took the recognition card past the stability threshold and
    * created the word's production card. It joins a later session, never this
-   * one — §4 forbids two cards from the same word in one session.
+   * one — a word never shows two cards in the same session.
    *
    * Only the server can know this: the unlock is a write, and the client has
    * no view of the word's other cards. Offline it is `false` until sync.
    */
   unlockedProduction: boolean;
   /**
-   * This review took the card to §4's six lapses and the prompt has not been
+   * This review took the card to six lapses and the prompt has not been
    * shown. Computed on the device as well as on the server — unlike an
    * unlock, it needs nothing but the card's own fold and the flag it arrived
    * with, so the prompt appears on the train too.
@@ -223,7 +224,7 @@ export interface RateResult {
 }
 
 /**
- * One rating waiting in the outbox (§8).
+ * One rating waiting in the outbox.
  *
  * `id` is `review_logs.id`, generated on the device, which is the whole
  * idempotency story: a batch can be POSTed twice, or by two devices, and the
@@ -239,7 +240,7 @@ export interface PendingReview {
 }
 
 /**
- * One confusion waiting in the outbox (§13).
+ * One confusion waiting in the outbox.
  *
  * Rides the same route as a rating and for the same reasons: a wrong answer
  * typed in a tunnel is still worth knowing about, and a client-generated `id`
@@ -257,7 +258,7 @@ export interface PendingConfusion {
 }
 
 /**
- * What `/api/sync` hands back after replaying a batch (§8). The client throws
+ * What `/api/sync` hands back after replaying a batch. The client throws
  * its local scheduling away and takes this: the server always wins, because it
  * is the only party that folded the whole log.
  */
@@ -272,14 +273,14 @@ export interface SyncResult {
   /** Authoritative state per affected card, after the replay. */
   states: Record<string, { state: CardStateView; previews: RatingPreviews }>;
   /**
-   * Recognition cards whose replayed review took them past §4's stability
+   * Recognition cards whose replayed review took them past the stability
    * threshold and created the word's production card. Only the server can see
    * this — the unlock is a write against the word's other cards — so offline
    * it is simply news that arrives late.
    */
   unlocked: string[];
   /**
-   * Cards the replay left at §4's six lapses with the prompt unshown. The
+   * Cards the replay left at six lapses with the prompt unshown. The
    * device works this out for itself during the session; this covers the card
    * whose sixth lapse was rated on another device.
    */
@@ -288,14 +289,14 @@ export interface SyncResult {
 }
 
 /**
- * §5's undo window: ten seconds, and the only deletion `review_logs` ever
+ * The undo window: ten seconds, and the only deletion `review_logs` ever
  * permits. Shared so the toast's countdown and the server's guard cannot
  * disagree about how long you have.
  */
 export const UNDO_WINDOW_MS = 10_000;
 
 /**
- * What `undoReview` hands back after deleting the log row and recomputing (§5).
+ * What `undoReview` hands back after deleting the log row and recomputing.
  * The same shape the client had before the rating, so the card can go back in
  * front of you with the state the log now implies rather than a cached guess.
  */

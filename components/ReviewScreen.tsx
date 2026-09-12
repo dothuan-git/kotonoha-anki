@@ -66,13 +66,13 @@ interface Answered {
   rating: Rating;
 }
 
-/** A typed answer, already judged by §6's matcher. */
+/** A typed answer, already judged by the answer matcher. */
 interface Attempt {
   input: string;
   correct: boolean;
 }
 
-/** The rating still inside §5's undo window. At most one; a new rating replaces it. */
+/** The rating still inside the undo window. At most one; a new rating replaces it. */
 interface Undoable {
   logId: string;
   item: ReviewItem;
@@ -93,24 +93,23 @@ const FLUSH_INTERVAL_MS = 5_000;
  * The prototype's ReviewScreen, rebuilt on the real scheduler.
  *
  * Layout, copy and animation follow the prototype; what changed underneath is
- * that the deck is no longer a fixed array. The server builds the day once
- * (§4 — the caps are the whole day, there is no "study more"), each rating
- * goes back as a server action that returns the authoritative state, and a
- * card put back by a learning step re-enters the queue a couple of cards later
+ * that the deck is no longer a fixed array. The server builds the day once —
+ * the caps are the whole day, there is no "study more" — each rating goes
+ * back as a server action that returns the authoritative state, and a card
+ * put back by a learning step re-enters the queue a couple of cards later
  * rather than advancing an index that only moves forward.
  *
- * Phase 3 added the second direction. A `production` card hides the headword
- * and asks you to type it; the answer goes through §6's exact matcher, a wrong
- * one can only be graded Quên, and "gõ nhầm" throws the attempt away without
- * writing a log at all.
+ * A `production` card hides the headword and asks you to type it; the answer
+ * goes through the exact answer matcher, a wrong one can only be graded
+ * Quên, and "gõ nhầm" throws the attempt away without writing a log at all.
  *
- * Phase 4 cut the server out of the loop. A rating is scheduled here, on the
- * device, and goes into an outbox; `/api/sync` replays the outbox and hands
- * back the authoritative fold, which replaces whatever was computed locally.
- * There is no online path and offline path — there is one path, and being
- * online only means it drains sooner. Airplane mode is therefore not a mode
- * this screen knows about: it is what the ordinary path looks like when
- * nothing is draining.
+ * The server is cut out of the review loop itself. A rating is scheduled
+ * here, on the device, and goes into an outbox; `/api/sync` replays the
+ * outbox and hands back the authoritative fold, which replaces whatever was
+ * computed locally. There is no online path and offline path — there is one
+ * path, and being online only means it drains sooner. Airplane mode is
+ * therefore not a mode this screen knows about: it is what the ordinary path
+ * looks like when nothing is draining.
  */
 export function ReviewScreen({ session: serverSession }: { session: SessionView }) {
   const [session, setSession] = useState<SessionView>(serverSession);
@@ -123,7 +122,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const [attemptSeq, setAttemptSeq] = useState(0);
   const [undoable, setUndoable] = useState<Undoable | null>(null);
   const [editing, setEditing] = useState(false);
-  /** §4's leech prompt, shown once for the card that just crossed six lapses. */
+  /** The leech prompt, shown once for the card that just crossed six lapses. */
   const [leeched, setLeeched] = useState<ReviewItem | null>(null);
   const [fontStyle, setFontStyle] = useState<'mincho' | 'gothic'>('mincho');
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +147,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   /**
    * Applying what came back from /api/sync: the server folded each card's
    * whole log, this screen only ever folded the slice it was handed, so the
-   * server wins outright (§8). Cards that have already left the queue need
+   * server wins outright. Cards that have already left the queue need
    * nothing — their state is on the server, which is where the next session
    * reads it from.
    */
@@ -167,10 +166,11 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       setNotice(`Đã mở ${result.unlocked.length} thẻ gõ mới — sẽ xuất hiện ở phiên sau.`);
     }
 
-    // §4's prompt for a card whose sixth lapse was rated somewhere else. The
-    // one in front of you raised its own prompt at the rating, without waiting
-    // for a round trip, so this only fires for the other device's card — and
-    // only if that card is in today's queue, where there is a word to edit.
+    // The leech prompt, for a card whose sixth lapse was rated somewhere
+    // else. The one in front of you raised its own prompt at the rating,
+    // without waiting for a round trip, so this only fires for the other
+    // device's card — and only if that card is in today's queue, where there
+    // is a word to edit.
     if (result.leeches.length > 0) {
       setLeeched((current) => {
         if (current) return current;
@@ -206,7 +206,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   queueRef.current = queue;
 
   /**
-   * §8's prefetch, and the resume decision.
+   * The offline prefetch, and the resume decision.
    *
    * The day's cards, words and sentences already arrived in the payload that
    * rendered this page, so prefetching them means keeping them. What takes a
@@ -252,7 +252,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   }, [ready, session, queue, countedCards]);
 
   /**
-   * Drain the outbox. Entries are held back for §5's undo window, so a flush
+   * Drain the outbox. Entries are held back for the undo window, so a flush
    * straight after a rating deliberately does nothing and this poll is what
    * eventually sends it.
    */
@@ -293,9 +293,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   );
 
   /**
-   * §6's escape hatch. The attempt is discarded and nothing is written — no
-   * log, no rating, no state change — so a slipped finger costs a retype
-   * rather than a card.
+   * The escape hatch for a mistyped answer. The attempt is discarded and
+   * nothing is written — no log, no rating, no state change — so a slipped
+   * finger costs a retype rather than a card.
    */
   const handleMistype = useCallback(() => {
     setAttempt(null);
@@ -304,7 +304,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   }, []);
 
   /**
-   * One rating, scheduled here (§8) and queued for the server.
+   * One rating, scheduled here on the device and queued for the server.
    *
    * Nothing is awaited. The card moves because the scheduler said so, not
    * because a round trip came back — which is what makes the session work in
@@ -315,12 +315,12 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     (rating: Rating) => {
       const item = queue[0];
       if (!item || !ready) return;
-      // A wrong production answer is a miss (§6); the buttons that would
-      // grade it as anything else are not rendered, and not reachable by key.
+      // A wrong production answer is a miss; the buttons that would grade it
+      // as anything else are not rendered, and not reachable by key.
       if (item.cardType === 'production' && attempt && !attempt.correct && rating !== 1) return;
 
       // Generated here so a retried send lands on the same row instead of
-      // logging the review twice (§3) — and so undo knows which row to drop.
+      // logging the review twice — and so undo knows which row to drop.
       const logId = crypto.randomUUID();
       const now = new Date();
       const { result, pending: entry } = rateLocally({
@@ -336,9 +336,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       setIsRevealed(false);
       setAttempt(null);
       setEditing(false);
-      // §4 asks for the prompt once, at six lapses. It is raised here rather
-      // than waiting for the sync because the device already knows both halves
-      // — see `rateLocally`.
+      // The leech prompt appears once, at six lapses. It is raised here
+      // rather than waiting for the sync because the device already knows
+      // both halves — see `rateLocally`.
       setLeeched(result.leech ? { ...item, state: result.state } : null);
       setAnswered((a) => [...a, { logId, item, rating }]);
       setCountedCards((c) => countCard(c, item));
@@ -365,7 +365,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
       void enqueue(entry, now.getTime()).then(async () => setPending(await pendingCount()));
 
-      // §13 — a wrong answer worth a second look, but only if it was typed.
+      // A wrong answer worth a second look, but only if it was typed.
       // "Chưa nhớ ra" submits an empty attempt and is a miss, not a mix-up.
       // Whether it names another word is the server's question: the device has
       // the day's queue, not the collection.
@@ -382,12 +382,12 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   );
 
   /**
-   * §5's undo, which now has a cheap case and an expensive one.
+   * Undo, which now has a cheap case and an expensive one.
    *
    * The cheap case is the common one: the rating is still in the outbox,
    * because the flush holds entries back for exactly this window. Dropping it
    * there means nothing was ever written, so there is no log row to delete and
-   * `review_logs` keeps the append-only property §3 asks of it. The card comes
+   * `review_logs` keeps its append-only property. The card comes
    * back carrying the state it had before — which is simply correct, since
    * nothing happened to it.
    *
@@ -403,9 +403,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     setUndoable(null);
     setError(null);
     setNotice(null);
-    // The lapse that raised §4's prompt is the one being taken back, so the
-    // prompt goes with it. Nothing was acknowledged, so it returns if the card
-    // is failed again.
+    // The lapse that raised the leech prompt is the one being taken back, so
+    // the prompt goes with it. Nothing was acknowledged, so it returns if the
+    // card is failed again.
     setLeeched(null);
 
     const restore = (state: ReviewItem['state'], previews: ReviewItem['previews']) => {
@@ -441,7 +441,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     });
   }, [undoable]);
 
-  /** Edit mid-review (§13). Server first: a failed save must not leave a lie on screen. */
+  /** Edit mid-review. Server first: a failed save must not leave a lie on screen. */
   const handleEditSave = useCallback(
     (patch: ReviewEdit) => {
       const item = queue[0];
@@ -465,18 +465,18 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   );
 
   /**
-   * §4's prompt, answered.
+   * The leech prompt, answered.
    *
    * Both ways out of it — saving a rewrite, or deciding the word is fine as
    * written — count as having read it, so both acknowledge. That is what turns
-   * off the flag and takes the word's production card out of rotation; §4 puts
-   * the rewrite first for a reason, and a card retired before you had the
+   * off the flag and takes the word's production card out of rotation; the
+   * rewrite comes first for a reason, and a card retired before you had the
    * chance to fix its meaning is a card you never fixed.
    *
    * The acknowledgement is a server write and there is no offline path for it.
    * A dismissal with no signal closes the panel and changes nothing, so the
-   * card is flagged again next session — which is the honest outcome: §4 wants
-   * the prompt shown once, and "once" is something only the server can hold.
+   * card is flagged again next session — which is the honest outcome for a
+   * prompt that only the server can remember having shown once.
    */
   const handleLeechDone = useCallback(
     (patch?: ReviewEdit) => {
@@ -593,7 +593,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
           {/*
             The prototype made this a toggle. It is not a preference any more:
-            recognition and production are two cards on the same word (§4), the
+            recognition and production are two cards on the same word, the
             queue decides which one is in front of you, and the label says
             which it is.
           */}
@@ -641,7 +641,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         </div>
       </div>
 
-      {/* The prototype's toast slot: undo (§5), then anything a write had to say. */}
+      {/* The prototype's toast slot: undo, then anything a write had to say. */}
       <AnimatePresence>
         {undoable && (
           <UndoToast
@@ -915,7 +915,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             </motion.button>
           )
         ) : wrongAnswer ? (
-          /* §6: a near miss is a miss, so Quên is the only grade on offer.
+          /* A near miss is a miss, so Quên is the only grade on offer.
              The other button writes nothing at all. */
           <div className="grid grid-cols-2 gap-2">
             <motion.button
@@ -998,8 +998,7 @@ function Verdict({ attempt }: { attempt: Attempt }) {
 /**
  * The prototype's completion screen. Its "Ôn tập lại từ đầu" button is gone:
  * it replayed the same deck, which against a real scheduler means re-rating
- * cards already answered today, and §4 rules out a "study more" escape hatch
- * in as many words.
+ * cards already answered today, and there is no "study more" escape hatch.
  */
 function Finished({
   title,

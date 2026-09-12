@@ -1,9 +1,8 @@
 import type { Pos, Transitivity } from '@/lib/types';
 
 /**
- * Jotoba's part-of-speech tags. §9 of the technical plan describes raw JMdict
- * strings (`v5r`, `v1`, `vt`), but Jotoba does not return those — it returns
- * tagged enums, verified against the live API:
+ * Jotoba's part-of-speech tags. Raw JMdict strings (`v5r`, `v1`, `vt`) never
+ * appear — Jotoba returns tagged enums instead, verified against the live API:
  *
  *   飲む     [{"Verb":{"Godan":"Mu"}}, {"Verb":"Transitive"}]
  *   開ける   [{"Verb":"Ichidan"}, {"Verb":"Transitive"}]

@@ -2,7 +2,7 @@ import { KotonohaLogo } from '@/components/KotonohaLogo';
 import { signIn } from '@/lib/auth';
 
 /**
- * §1: no registration. One Google account is allowlisted by ALLOWED_EMAIL and
+ * No registration. One Google account is allowlisted by ALLOWED_EMAIL and
  * the signIn callback refuses everything else, so this page is a single button.
  */
 export default async function SignInPage({

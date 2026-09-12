@@ -4,7 +4,7 @@ import { STALE_PAYLOAD_MS, chooseSession } from '@/lib/client/session';
 import type { SessionView } from '@/lib/types';
 
 /**
- * §8's resume rule.
+ * The offline resume rule.
  *
  * Worth its own tests because getting it wrong is silent and expensive in both
  * directions. Prefer the client too eagerly and reviews are replayed that were

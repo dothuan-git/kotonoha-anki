@@ -4,11 +4,11 @@ import { schedulerParams } from '@/lib/fsrs/params';
 import { foldLogs, sortLogs, type ReplayLog } from '@/lib/fsrs/replay';
 
 /**
- * §12's fourth test: log replay determinism.
+ * Log replay determinism.
  *
- * This is the property the whole design in §5 rests on. If a fold is not
+ * This is the property the whole design rests on. If a fold is not
  * reproducible, then `card_states` is real state pretending to be a
- * projection, undo cannot be "recompute from the log", and Phase 4's sync has
+ * projection, undo cannot be "recompute from the log", and offline sync has
  * no way to resolve two devices.
  */
 
@@ -68,7 +68,7 @@ describe('foldLogs', () => {
   });
 
   /**
-   * §8: two devices reviewing offline can produce the same `reviewed_at` down
+   * Two devices reviewing offline can produce the same `reviewed_at` down
    * to the millisecond. Without a total order the same log folds two ways
    * depending on which batch reached the server first.
    */

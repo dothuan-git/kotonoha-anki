@@ -5,7 +5,7 @@ import { isLeech } from '@/lib/types';
 import type { CountedCards, PendingReview, RateResult, ReviewItem } from '@/lib/types';
 
 /**
- * §8 — the scheduler, run on the device.
+ * The scheduler, run on the device.
  *
  * The session has to keep working with no signal, and learning steps are the
  * reason this cannot be faked with a pending spinner: `Again` on a new card
@@ -15,9 +15,9 @@ import type { CountedCards, PendingReview, RateResult, ReviewItem } from '@/lib/
  *
  * What it produces is provisional. The rating goes into the outbox, the server
  * refolds the card's whole log at sync, and whatever comes back replaces this
- * (§8 — server always wins). That is not a fallback path: it is the normal
+ * — the server always wins. That is not a fallback path: it is the normal
  * one, online and off. The two agree because both end at `applyRating` with
- * the same parameters, and because the fold is deterministic (§5).
+ * the same parameters, and because the fold is deterministic.
  */
 export interface LocalRating {
   result: RateResult;
@@ -25,7 +25,7 @@ export interface LocalRating {
 }
 
 export function rateLocally(input: {
-  /** `review_logs.id`, generated on the device — the idempotency key (§3). */
+  /** `review_logs.id`, generated on the device — the idempotency key. */
   logId: string;
   item: ReviewItem;
   rating: RatingValue;
@@ -53,7 +53,7 @@ export function rateLocally(input: {
       // Only the server can see the word's other cards, so an unlock is
       // discovered at sync. Offline it simply has not happened yet.
       unlockedProduction: false,
-      // §4's leech flag, unlike the unlock, needs nothing the device does not
+      // The leech flag, unlike the unlock, needs nothing the device does not
       // already have: the lapse count comes off the fold that just ran, and
       // whether the prompt has been shown arrived with the card. So the
       // prompt appears on the train, at the review that earned it.
@@ -69,7 +69,7 @@ export function rateLocally(input: {
 }
 
 /**
- * §4's caps, kept offline.
+ * The daily caps, kept offline.
  *
  * A card counts once for the day, in the bucket it was first shown in. The
  * server's own definition, applied to the same books — which is why the

@@ -8,13 +8,13 @@ import { acknowledgeLeech as ackLeech } from '@/lib/db/leech';
 import type { ActionResult } from '@/lib/actions/words';
 
 /**
- * §4's leech prompt, dismissed.
+ * The leech prompt, dismissed.
  *
  * A server action rather than a sync payload, because unlike a rating it is
  * not something that happens on a schedule: it happens when the user reads the
  * prompt and decides they are done with it. Offline the dismissal is local
  * only and the card is flagged again next session, which is the honest
- * outcome — §4 asks for the prompt once, and once is a thing the server knows.
+ * outcome — the prompt shows once, and once is a thing only the server knows.
  */
 export async function acknowledgeLeech(
   cardId: string,

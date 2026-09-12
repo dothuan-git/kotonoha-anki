@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_SHARE_QUERY, shareQuery } from '@/lib/share';
 
 /**
- * §10's share target. Table-driven, because the interesting part is not the
+ * The share target. Table-driven, because the interesting part is not the
  * code — it is the range of things Android actually hands a share target, none
  * of which is documented anywhere and all of which arrive in the same three
  * fields.
@@ -85,8 +85,9 @@ describe('shareQuery', () => {
   }
 
   /**
-   * A shared article arrives as a paragraph. §7 rules out tokenising it, so
-   * the honest thing is to cap it and let the form be edited — not to guess
+   * A shared article arrives as a paragraph. No browser-side tokeniser can
+   * resolve a word boundary reliably, so the honest thing is to cap it and
+   * let the form be edited — not to guess
    * where the first word ends.
    */
   it('caps a shared sentence rather than guessing a word boundary', () => {

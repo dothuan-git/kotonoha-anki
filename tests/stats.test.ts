@@ -13,10 +13,10 @@ import {
 } from '@/lib/stats';
 
 /**
- * §10's charts, and the one thing about them that can actually be wrong: which
- * day a review lands on.
+ * The /stats charts, and the one thing about them that can actually be
+ * wrong: which day a review lands on.
  *
- * The study day starts at 04:00 Asia/Ho_Chi_Minh (§4), which is 21:00 UTC the
+ * The study day starts at 04:00 Asia/Ho_Chi_Minh, which is 21:00 UTC the
  * previous day. Every timestamp below is written in UTC so the boundary is
  * visible rather than implied.
  */
@@ -99,7 +99,7 @@ describe('bucketVolume', () => {
     )[0];
 
     // One new card, three ratings — a new card walking ['1m', '10m'] must not
-    // also spend a review slot, which is how §4's caps count it.
+    // also spend a review slot, which is how the daily caps count it.
     expect(day).toEqual({ day: '2026-09-12', newCards: 1, reviewCards: 0, ratings: 3 });
   });
 
@@ -143,8 +143,9 @@ describe('bucketForecast', () => {
   const due = (at: string, state = State.Review) => ({ due: new Date(at), state });
 
   it('leaves new cards out entirely', () => {
-    // A new card's due is the word's creation time (§5), so it is "overdue"
-    // by construction; what releases it is the daily cap, not the clock.
+    // A new card's due is the word's creation time (the fold seeds from
+    // it), so it is "overdue" by construction; what releases it is the
+    // daily cap, not the clock.
     const result = bucketForecast([due('2020-01-01T00:00:00.000Z', State.New)], NOON, 7);
     expect(result.overdue).toBe(0);
     expect(result.forecast.every((day) => day.count === 0)).toBe(true);
@@ -210,7 +211,7 @@ describe('bucketRetention', () => {
 });
 
 describe('bucketMaturity', () => {
-  it('splits Review cards at §4’s 21-day line and again at 90', () => {
+  it('splits Review cards at the 21-day line and again at 90', () => {
     const slices = bucketMaturity([
       { state: State.New, stability: null },
       { state: State.Learning, stability: 0.4 },

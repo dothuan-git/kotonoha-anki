@@ -14,7 +14,7 @@ export interface WordInsert {
   transitivity: Transitivity;
   jlpt: Jlpt | null;
   note: string | null;
-  /** Hán Việt typed by hand, for the Unihan gaps §9 warns about. */
+  /** Hán Việt typed by hand, for the gaps in the Unihan data. */
   hanViet: Record<string, string[]>;
   sentence: { jp: string; jpRuby: string; vi: string; source: 'ai' | 'manual' } | null;
   /** Overridable so a seed can backdate a word. Defaults to now. */
@@ -23,8 +23,8 @@ export interface WordInsert {
 
 /**
  * Writes a word, its kanji links, an optional first sentence, and its
- * `recognition` card (§4 — a new word gets that card only; `production` is
- * unlocked at stability >= 21, `cloze` is opt-in).
+ * `recognition` card — a new word gets that card only; `production` is
+ * unlocked at stability >= 21, `cloze` is opt-in.
  *
  * Lives here rather than inside the server action so that a seed script
  * creates rows through exactly this path. The subtle part is not the insert —

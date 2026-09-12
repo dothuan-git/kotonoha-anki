@@ -7,7 +7,7 @@ import { bind, unbind } from 'wanakana';
 import { checkAnswer } from '@/lib/answer';
 
 /**
- * The production card's answer field (§6).
+ * The production card's answer field.
  *
  * Romaji becomes kana as you type, so the card never needs an IME — the same
  * `wanakana.bind` the add form uses, and for the same reason the input is

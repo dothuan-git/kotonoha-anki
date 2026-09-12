@@ -15,8 +15,8 @@ export const metadata: Metadata = {
    * The icons are SVG, which Chrome on Android installs from happily. iOS does
    * not: `apple-touch-icon` has to be a PNG, so adding Kotonoha to an iOS home
    * screen gives a screenshot-derived icon until a PNG is dropped into
-   * /public/icons and named here. The share target is Chrome-only anyway (§10),
-   * so Android is the platform this phase is actually for.
+   * /public/icons and named here. The share target is Chrome-only anyway,
+   * so Android is the platform this is actually built for.
    */
   icons: {
     icon: [{ url: '/icons/icon.svg', type: 'image/svg+xml' }],

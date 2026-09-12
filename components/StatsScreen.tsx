@@ -16,11 +16,11 @@ import {
 } from '@/lib/stats';
 
 /**
- * §10's four charts, over `review_logs`.
+ * The four /stats charts, over `review_logs`.
  *
  * Nothing here is mocked and nothing is smoothed: an empty collection gets
  * empty states saying so rather than a plausible-looking curve. Three of the
- * four read the log directly (§5 — the log is the source of truth), so they
+ * four read the log directly (the log is the source of truth), so they
  * stay right across a `npm run recompute`; only the forecast reads the
  * projection, because "when is this due" is what the projection is for.
  */
@@ -159,7 +159,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
 
         <ChartCard
           title="Độ chín của sổ từ"
-          caption="Các thẻ đang chạy, xếp theo độ bền trí nhớ. Mốc 21 ngày là mốc §4 dùng để mở thẻ gõ."
+          caption="Các thẻ đang chạy, xếp theo độ bền trí nhớ. Mốc 21 ngày là mốc dùng để mở thẻ gõ."
           table={
             <DataTable
               head={['Nhóm', 'Thẻ']}
@@ -188,7 +188,7 @@ function Tile({ label, value }: { label: string; value: number }) {
 }
 
 /**
- * §13's confusion pairs.
+ * The confusion pairs.
  *
  * A list and not a chart on purpose: there are a handful of them, each one is
  * a pair of words you need to read, and the only number that matters is how

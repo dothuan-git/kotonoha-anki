@@ -6,10 +6,10 @@ import { lookup } from '@/lib/dict/jotoba';
 export const runtime = 'nodejs';
 
 /**
- * GET /api/lookup?q=開ける — dictionary passthrough with cache (§10).
+ * GET /api/lookup?q=開ける — dictionary passthrough with cache.
  *
  * A dictionary miss or a Jotoba outage returns an empty candidate list with
- * HTTP 200, never an error: §9 requires the add form to stay usable, and a
+ * HTTP 200, never an error: the add form must stay usable, and a
  * 5xx here would make the client treat a normal "no such word" as a fault.
  */
 export async function GET(request: Request) {

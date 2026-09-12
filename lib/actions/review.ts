@@ -22,9 +22,9 @@ const MESSAGES: Record<ReviewFailure, string> = {
 };
 
 /**
- * Take back a rating that has already reached the server (§5).
+ * Take back a rating that has already reached the server.
  *
- * The uncommon half of undo. Phase 4 holds a rating in the outbox for the
+ * The uncommon half of undo. The outbox holds a rating for the
  * length of the window, so the usual undo drops a local row that was never
  * sent and never comes here at all. What is left for this to handle is a
  * rating that got out early — flushed by another tab, or synced from another

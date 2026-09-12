@@ -2,7 +2,7 @@ import { StatsScreen } from '@/components/StatsScreen';
 import { buildStats } from '@/lib/db/stats';
 
 /**
- * §10's /stats. Read on every request rather than cached: the charts are a
+ * /stats. Read on every request rather than cached: the charts are a
  * fold over `review_logs`, and the log grows during the session that is
  * running in the next tab.
  */

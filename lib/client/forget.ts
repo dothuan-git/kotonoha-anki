@@ -9,9 +9,10 @@ import { clearSession } from '@/lib/client/session';
  * shows the last session's cards.
  *
  * Stays: the outbox. It holds ratings that have happened and have not reached
- * the server, and clearing it would destroy exactly what §8 exists to protect.
- * It survives the sign-out and flushes on the next sign-in. §10 admits one
- * address, so those rows can only ever belong to whoever signs back in.
+ * the server, and clearing it would destroy exactly what offline review
+ * exists to protect. It survives the sign-out and flushes on the next
+ * sign-in. Only one address is allowed to sign in, so those rows can only
+ * ever belong to whoever signs back in.
  *
  * Both halves race the navigation that the sign-out action triggers, so
  * neither waits on anything it does not have to: the message goes straight to

@@ -1,7 +1,7 @@
 import type { RubySegment } from '@/lib/types';
 
 /**
- * Parses the §7 ruby format: `窓[まど]を開[あ]けてください。`
+ * Parses the ruby format: `窓[まど]を開[あ]けてください。`
  *
  * A bracket group annotates the run of characters immediately before it. `\[`
  * and `\]` are literal brackets. An unclosed `[` is emitted as literal text

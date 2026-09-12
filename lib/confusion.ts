@@ -1,7 +1,7 @@
 import { normaliseAnswer } from '@/lib/answer';
 
 /**
- * §13's confusion pairs — the pure half.
+ * The confusion pairs — the pure half.
  *
  * A wrong production answer is only interesting if it was a *different word
  * you already know*. Typing あける for 開く is a confusion; typing あkえru is a
@@ -9,7 +9,7 @@ import { normaliseAnswer } from '@/lib/answer';
  * this answers is narrow: does what was typed name another word in the
  * collection?
  *
- * It runs through `normaliseAnswer` (§6) and nothing else. No edit distance,
+ * It runs through `normaliseAnswer` and nothing else. No edit distance,
  * no fuzzy match — the same rule that decides whether an answer was right
  * decides which word it was right *about*, and a matcher that guessed here
  * would invent confusions the user never had.

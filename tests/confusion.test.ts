@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveConfusion, type WordIdentity } from '@/lib/confusion';
 
 /**
- * §13's confusion pairs. The question is narrow: did what was typed name
+ * The confusion pairs. The question is narrow: did what was typed name
  * another word in the collection, or was it just wrong?
  */
 
@@ -44,7 +44,7 @@ describe('resolveConfusion', () => {
     expect(resolveConfusion('のぼる', NOBORU_UP.id, COLLECTION)).toBe(NOBORU_CLIMB.id);
   });
 
-  it('compares through §6’s normaliser rather than literally', () => {
+  it('compares through the answer normaliser rather than literally', () => {
     // Same rule as the matcher that judged the answer wrong: katakana folds to
     // hiragana and ー expands to the vowel before it.
     expect(resolveConfusion('こおひい', AKU.id, COLLECTION)).toBe(COFFEE.id);

@@ -1,6 +1,6 @@
 import { AddWordScreen } from '@/components/AddWordScreen';
 
-/** `?q=` is how /api/share hands a shared word to the form (§10, Phase 4). */
+/** `?q=` is how /api/share hands a shared word to the form. */
 export default async function AddPage({
   searchParams,
 }: {

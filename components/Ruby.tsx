@@ -1,7 +1,7 @@
 import { parseRuby } from '@/lib/ruby';
 
 /**
- * §7: real <ruby><rb>…</rb><rt>…</rt></ruby>, not a CSS approximation, so
+ * Real <ruby><rb>…</rb><rt>…</rt></ruby>, not a CSS approximation, so
  * furigana survives text selection, copy-paste and screen readers.
  */
 export function Ruby({ text, className }: { text: string; className?: string }) {

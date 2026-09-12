@@ -1,5 +1,5 @@
 /**
- * §6 — answer matching for production cards.
+ * Answer matching for production cards.
  *
  * No fuzzy matching and no edit-distance tolerance: in an SRS a near miss is a
  * miss, and a matcher that forgives じ for ぢ teaches the wrong reading. The
@@ -30,8 +30,8 @@ function row(kana: string, vowel: string): Record<string, string> {
 }
 
 /**
- * Everything discarded before comparing: whitespace, the interpuncts and
- * wave dashes §6 names, and ordinary sentence punctuation in both widths.
+ * Everything discarded before comparing: whitespace, interpuncts and wave
+ * dashes, and ordinary sentence punctuation in both widths.
  *
  * Deliberately not a `　-〿` block sweep — that range also holds 々,
  * which is part of 人々 and must survive into the headword comparison.
@@ -40,7 +40,7 @@ const PUNCTUATION =
   /[\s・･〜～~、。，．,.！!？?：:；;…‥「」『』【】〈〉《》（）()\[\]｛｝{}ー]/g;
 
 /**
- * §6's normal form.
+ * The normal form used for comparison.
  *
  * Order is load-bearing: ー takes its vowel from the kana before it, so the
  * katakana has to be hiragana before the expansion runs, and the expansion has
@@ -87,8 +87,8 @@ function expandProlongedSound(s: string): string {
  * Is this what the card was asking for?
  *
  * Accepts the reading, or the headword — typing 開ける instead of あける is a
- * correct answer, not a lucky one (§6). Both sides go through `normaliseAnswer`
- * rather than §6's literal `input === headword`, so that a trailing space or a
+ * correct answer, not a lucky one. Both sides go through `normaliseAnswer`
+ * rather than a literal `input === headword`, so that a trailing space or a
  * katakana headword typed in kana is not marked wrong; nothing about the
  * comparison itself is loosened.
  */

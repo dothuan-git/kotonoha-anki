@@ -19,7 +19,7 @@ const wordInput = z.object({
   transitivity: z.enum(TRANSITIVITY_VALUES).nullable().default(null),
   jlpt: z.enum(JLPT_VALUES).nullable().default(null),
   note: z.string().trim().max(2000).nullable().default(null),
-  /** Hán Việt typed by hand, for the Unihan gaps §9 warns about. */
+  /** Hán Việt typed by hand, for the gaps in the Unihan data. */
   hanViet: z.record(z.string(), z.array(z.string())).default({}),
   sentence: z
     .object({
@@ -151,9 +151,9 @@ async function rebuildKanjiLinks(wordId: string, headword: string) {
 }
 
 /**
- * Deletes a word outright. §4 forbids *auto*-deleting or auto-suspending on
- * leeches; an explicit delete by the user is a different thing. Cascades take
- * the sentences, cards, card_states and review_logs with it.
+ * Deletes a word outright. Leeches are never *auto*-deleted or
+ * auto-suspended; an explicit delete by the user is a different thing.
+ * Cascades take the sentences, cards, card_states and review_logs with it.
  */
 export async function deleteWord(id: string): Promise<ActionResult> {
   try {
@@ -174,7 +174,7 @@ export async function deleteWord(id: string): Promise<ActionResult> {
   return OK;
 }
 
-/** §4: never auto-suspend. This is the manual toggle. */
+/** Never auto-suspend. This is the manual toggle. */
 export async function setSuspended(id: string, suspended: boolean): Promise<ActionResult> {
   try {
     await requireSession();

@@ -3,7 +3,7 @@ import { startOfStudyDay } from '@/lib/fsrs/day';
 import type { SessionView } from '@/lib/types';
 
 /**
- * §8's prefetched queue.
+ * The prefetched offline queue.
  *
  * The day's cards, words and sentences are already in the payload the server
  * rendered `/` with, so "prefetch" here means "keep what arrived". Writing it
@@ -40,7 +40,7 @@ export async function saveSession(session: SessionView, now = new Date()): Promi
   }
 }
 
-/** The stored queue, if it belongs to the study day that is running now (§4). */
+/** The stored queue, if it belongs to the study day that is running now. */
 export async function loadSession(now = new Date()): Promise<SessionView | null> {
   const db = openLocalDb();
   if (!db) return null;
@@ -71,8 +71,8 @@ export type SessionSource = 'server' | 'resumed';
  * Which queue the session should open with.
  *
  * Pure, and separate from the storage above, because it is the part that is
- * easy to get subtly wrong. The rule §8 states is "server always wins", and
- * the two exceptions are both cases where the thing that arrived is not
+ * easy to get subtly wrong. The rule is "server always wins", and the two
+ * exceptions are both cases where the thing that arrived is not
  * actually the server's current view:
  *
  * - **Ratings are still in the outbox.** The server has not seen them, so its

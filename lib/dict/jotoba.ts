@@ -41,7 +41,7 @@ async function fetchFromJotoba(query: string): Promise<JotobaResponse> {
 }
 
 /**
- * Cache-first dictionary lookup (§9). The raw payload is stored so a future
+ * Cache-first dictionary lookup. The raw payload is stored so a future
  * change to the mapping can be applied to already-seen words without
  * re-fetching, and so Jotoba is hit once per word ever.
  */
