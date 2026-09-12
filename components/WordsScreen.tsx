@@ -7,6 +7,7 @@ import {
   ChevronUp,
   Pencil,
   Search,
+  StickyNote,
   Trash2,
   Volume2,
   X,
@@ -20,6 +21,7 @@ import { deleteWord, updateWord } from '@/lib/actions/words';
 import { playJapaneseAudio } from '@/lib/client/audio';
 import {
   JLPT_VALUES,
+  POS_LABELS,
   POS_VALUES,
   formatHanViet,
   formatPos,
@@ -222,7 +224,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
                       transition={{ duration: 0.18, ease: 'easeOut' }}
                       className="overflow-hidden"
                     >
-                      <div className="space-y-2.5 border-t border-[var(--border-subtle)] bg-[var(--bg-page)]/40 px-3.5 pb-3.5 pt-1 text-sm sm:px-4 sm:pb-4">
+                      <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-page)]/40 px-3.5 pb-4 pt-3.5 text-sm sm:px-5 sm:pb-5 sm:pt-4">
                         {editingId === word.id ? (
                           <EditForm
                             word={word}
@@ -265,6 +267,11 @@ export function WordsScreen({ words }: { words: WordView[] }) {
   );
 }
 
+/**
+ * The expanded row, laid out as a dictionary entry rather than a form dump:
+ * hierarchy carries the structure, so the only borders left are the ones that
+ * mean something — the quote rule beside an example, the note's accent.
+ */
 function Details({
   word,
   confirming,
@@ -282,70 +289,97 @@ function Details({
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
 }) {
+  const kanji = word.kanji.filter((k) => k.hanViet.length > 0);
+
   return (
     <>
-      <div className="grid grid-cols-2 gap-2 pt-1 text-xs text-[var(--text-secondary)]">
-        <div>
-          <span className="text-[var(--text-muted)]">Hán Việt: </span>
-          <span className="font-semibold text-[var(--text-primary)]">
-            {formatHanViet(word.kanji)}
-          </span>
-        </div>
-        <div>
-          <span className="text-[var(--text-muted)]">Từ loại: </span>
-          <span>{formatPos(word.pos, word.transitivity)}</span>
-        </div>
+      {/* Grammar and Hán Việt read as one line of credentials under the
+          headword, the way a dictionary prints them. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="rounded-full bg-[var(--bamboo-subtle)] px-2.5 py-1 text-[11px] font-semibold text-[var(--bamboo)]">
+          {formatPos(word.pos, word.transitivity)}
+        </span>
+
+        {kanji.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            {kanji.map((k) => (
+              <span key={k.char} className="flex items-baseline gap-1.5">
+                <span className="font-jp-serif text-base leading-none text-[var(--text-primary)]">
+                  {k.char}
+                </span>
+                <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                  {k.hanViet.join('/')}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
-      {word.sentences.map((sentence) => (
-        <div
-          key={sentence.id}
-          className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3"
-        >
-          <Ruby
-            text={sentence.jpRuby}
-            className="font-jp-sans text-sm font-medium leading-relaxed text-[var(--text-primary)]"
-          />
-          <p className="mt-1 text-xs text-[var(--text-secondary)]">{sentence.vi}</p>
+      {word.sentences.length > 0 && (
+        <div className="mt-3.5 space-y-3">
+          {word.sentences.map((sentence) => (
+            <div
+              key={sentence.id}
+              className="rounded-xl border border-[var(--border-subtle)] border-l-2 border-l-[var(--bamboo-border)] bg-[var(--bg-surface)] px-3.5 py-2.5"
+            >
+              {/* leading-loose, not relaxed: the <rt> furigana row needs the
+                  headroom or it collides with the line above. */}
+              <Ruby
+                text={sentence.jpRuby}
+                className="font-jp-serif block text-base leading-loose text-[var(--text-primary)]"
+              />
+              <p className="mt-0.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+                {sentence.vi}
+              </p>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
 
-      {word.note && <p className="text-xs italic text-[var(--text-muted)]">{word.note}</p>}
+      {word.note && (
+        <p className="mt-3.5 flex items-start gap-1.5 text-xs italic leading-relaxed text-[var(--text-muted)]">
+          <StickyNote className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{word.note}</span>
+        </p>
+      )}
 
-      <div className="flex items-center justify-between gap-2 pt-1 text-xs">
-        <div className="text-[11px] text-[var(--text-muted)]">
+      {/* Quiet by default: the entry is for reading, so the actions stay out of
+          the way until the pointer asks for them. */}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <span className="text-[11px] text-[var(--text-muted)]">
           Thêm ngày {formatAdded(word.createdAt)}
-        </div>
-        <div className="flex items-center gap-2">
+        </span>
+        <div className="-mr-1 flex items-center gap-1">
           <button
             type="button"
             onClick={onEdit}
-            className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
           >
-            <Pencil className="h-3 w-3" />
+            <Pencil className="h-3.5 w-3.5" />
             <span>Sửa</span>
           </button>
           <button
             type="button"
             onClick={onAskDelete}
-            className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--danger)]/30 px-2.5 py-1 text-[var(--danger)] hover:bg-[var(--danger-subtle)]"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--danger-subtle)] hover:text-[var(--danger)]"
           >
-            <Trash2 className="h-3 w-3" />
+            <Trash2 className="h-3.5 w-3.5" />
             <span>Xoá</span>
           </button>
         </div>
       </div>
 
       {confirming && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--danger)]/40 bg-[var(--danger-subtle)] px-3 py-2">
-          <span className="text-xs font-medium text-[var(--danger)]">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl border border-[var(--danger)]/40 bg-[var(--danger-subtle)] px-3 py-2.5">
+          <span className="text-xs font-medium leading-relaxed text-[var(--danger)]">
             Xoá từ này cùng câu ví dụ và lịch sử ôn tập?
           </span>
           <div className="flex shrink-0 gap-2">
             <button
               type="button"
               onClick={onCancelDelete}
-              className="cursor-pointer rounded-lg px-2 py-1 text-xs font-medium text-[var(--text-secondary)]"
+              className="cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             >
               Huỷ
             </button>
@@ -353,7 +387,7 @@ function Details({
               type="button"
               onClick={onConfirmDelete}
               disabled={disabled}
-              className="cursor-pointer rounded-lg bg-[var(--danger)] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60"
+              className="cursor-pointer rounded-lg bg-[var(--danger)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
             >
               Xoá
             </button>
@@ -363,6 +397,7 @@ function Details({
     </>
   );
 }
+
 
 function EditForm({
   word,
@@ -432,7 +467,7 @@ function EditForm({
           >
             {POS_VALUES.map((v) => (
               <option key={v} value={v}>
-                {v}
+                {POS_LABELS[v]}
               </option>
             ))}
           </select>

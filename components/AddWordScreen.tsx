@@ -9,7 +9,15 @@ import { bind, unbind } from 'wanakana';
 import { Ruby } from '@/components/Ruby';
 import { createWord } from '@/lib/actions/words';
 import { hasJapaneseVoice, onVoicesReady, playJapaneseAudio } from '@/lib/client/audio';
-import { JLPT_VALUES, POS_VALUES, type Jlpt, type LookupCandidate, type Pos } from '@/lib/types';
+import { rubyToPlain } from '@/lib/ruby';
+import {
+  JLPT_VALUES,
+  POS_LABELS,
+  POS_VALUES,
+  type Jlpt,
+  type LookupCandidate,
+  type Pos,
+} from '@/lib/types';
 
 const JLPT_LABELS: Record<Jlpt, string> = {
   N5: 'N5 (Cơ bản)',
@@ -33,7 +41,6 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
   const [jlpt, setJlpt] = useState<Jlpt | ''>('');
   const [note, setNote] = useState('');
   const [hanViet, setHanViet] = useState<HanVietDraft>([]);
-  const [sentenceJp, setSentenceJp] = useState('');
   const [sentenceRuby, setSentenceRuby] = useState('');
   const [sentenceVi, setSentenceVi] = useState('');
 
@@ -131,7 +138,6 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
     setJlpt('');
     setNote('');
     setHanViet([]);
-    setSentenceJp('');
     setSentenceRuby('');
     setSentenceVi('');
     setAutofilled(false);
@@ -162,10 +168,10 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
           .map((h) => [h.char, h.reading.trim().split(/\s+/)]),
       ),
       sentence:
-        sentenceJp.trim() && sentenceVi.trim()
+        sentenceRuby.trim() && sentenceVi.trim()
           ? {
-              jp: sentenceJp.trim(),
-              jpRuby: sentenceRuby.trim() || sentenceJp.trim(),
+              jp: rubyToPlain(sentenceRuby.trim()),
+              jpRuby: sentenceRuby.trim(),
               vi: sentenceVi.trim(),
               source: 'manual' as const,
             }
@@ -208,11 +214,21 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               type="text"
               value={headword}
               onChange={(e) => setHeadword(e.target.value)}
-              placeholder="Nhập 開ける, 勉強, 静か..."
               autoFocus
               autoComplete="off"
               className="font-jp-serif w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-2xl font-semibold text-[var(--text-primary)] shadow-xs transition-all focus:border-[var(--bamboo)] focus:outline-none focus:ring-2 focus:ring-[var(--bamboo)]/20"
             />
+            {/* Overlay stands in for ::placeholder: a smaller placeholder than
+                the input's own font sits on its baseline, which reads as
+                bottom-aligned. Flex centering is the only reliable fix. */}
+            {headword === '' && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 left-3.5 right-3.5 flex items-center truncate text-sm text-[var(--text-muted)]"
+              >
+                Nhập 開ける, 勉強, 静か...
+              </span>
+            )}
             {status === 'looking' ? (
               <div className="absolute right-3.5 top-3.5 flex animate-pulse items-center gap-1.5 text-xs text-[var(--text-muted)]">
                 <Sparkles className="h-4 w-4 text-[var(--bamboo)]" />
@@ -261,15 +277,24 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
             </label>
             <span className="text-[11px] font-medium text-[var(--text-muted)]">Bắt buộc</span>
           </div>
-          <input
-            id="meaning"
-            type="text"
-            value={meaning}
-            onChange={(e) => setMeaning(e.target.value)}
-            placeholder="Nghĩa súc tích, theo cách hiểu của bạn..."
-            className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-base font-medium text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
-            required
-          />
+          <div className="relative">
+            <input
+              id="meaning"
+              type="text"
+              value={meaning}
+              onChange={(e) => setMeaning(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-base font-medium text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+              required
+            />
+            {meaning === '' && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 left-3 right-3 flex items-center truncate text-xs text-[var(--text-muted)]"
+              >
+                Nghĩa súc tích, theo cách hiểu của bạn...
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Everything the dictionary drafted. The dashed rule is the design's
@@ -313,7 +338,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
                 <option value="">— chọn —</option>
                 {POS_VALUES.map((value) => (
                   <option key={value} value={value}>
-                    {value}
+                    {POS_LABELS[value]}
                   </option>
                 ))}
               </select>
@@ -380,18 +405,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
             </Field>
           )}
 
-          <Field label="Câu ví dụ tiếng Nhật" htmlFor="sentenceJp">
-            <input
-              id="sentenceJp"
-              type="text"
-              value={sentenceJp}
-              onChange={(e) => setSentenceJp(e.target.value)}
-              placeholder="窓を開けてください。"
-              className="font-jp-sans w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
-            />
-          </Field>
-
-          <Field label="Câu ví dụ có furigana — 窓[まど]を開[あ]けて…" htmlFor="sentenceRuby">
+          <Field label="Câu ví dụ tiếng Nhật (furigana trong ngoặc vuông)" htmlFor="sentenceRuby">
             <input
               id="sentenceRuby"
               type="text"
