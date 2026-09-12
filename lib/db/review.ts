@@ -1,4 +1,6 @@
-import { and, asc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+
+import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
 import { getSettings, hydrateWords } from '@/lib/db/queries';
@@ -16,6 +18,7 @@ import {
   type RatingValue,
   type ReplayLog,
 } from '@/lib/fsrs/replay';
+import { UNDO_WINDOW_MS } from '@/lib/types';
 import type {
   CardStateView,
   DailyCounts,
@@ -23,6 +26,7 @@ import type {
   RatingPreviews,
   ReviewItem,
   SessionView,
+  UndoResult,
 } from '@/lib/types';
 
 /**
@@ -196,7 +200,13 @@ export async function loadFoldedCard(
   };
 }
 
-export type ReviewFailure = 'card-unavailable' | 'card-missing' | 'write-failed';
+export type ReviewFailure =
+  | 'card-unavailable'
+  | 'card-missing'
+  | 'write-failed'
+  | 'log-missing'
+  | 'undo-expired'
+  | 'undo-not-latest';
 
 export class ReviewError extends Error {
   constructor(readonly reason: ReviewFailure) {
@@ -221,7 +231,12 @@ export async function applyReview(input: {
   const now = input.now ?? new Date();
 
   const [available] = await db
-    .select({ id: cards.id })
+    .select({
+      id: cards.id,
+      wordId: cards.wordId,
+      cardType: cards.cardType,
+      wordCreatedAt: words.createdAt,
+    })
     .from(cards)
     .innerJoin(words, eq(words.id, cards.wordId))
     .where(and(eq(cards.id, input.cardId), eq(cards.active, true), eq(words.suspended, false)))
@@ -272,7 +287,13 @@ export async function applyReview(input: {
     throw new ReviewError('write-failed');
   }
 
-  return await describe(input.cardId, next.card, reviewedAt, folded.params);
+  // §4 — checked after every review, on the card that just moved.
+  const unlockedProduction =
+    available.cardType === 'recognition'
+      ? await unlockProductionCard(available.wordId, available.wordCreatedAt, next.card)
+      : false;
+
+  return await describe(input.cardId, next.card, reviewedAt, folded.params, unlockedProduction);
 }
 
 async function describe(
@@ -280,12 +301,113 @@ async function describe(
   card: Card,
   now: Date,
   params: FsrsParams,
+  unlockedProduction = false,
 ): Promise<RateResult> {
   return {
     cardId,
     state: toStateView(card),
     previews: toPreviews(card, now, params),
     repeat: staysInSession(card, now),
+    counts: await getDailyCounts(now),
+    unlockedProduction,
+  };
+}
+
+/** §4: "created and activated automatically once the recognition card's stability >= 21". */
+export const PRODUCTION_UNLOCK_STABILITY = 21;
+
+/**
+ * Creates the word's production card once its recognition card is solid enough.
+ *
+ * The new card's state row is `createEmptyCard(word.created_at)` — the same
+ * seed every other fold uses (§5) — so `npm run recompute` reproduces it
+ * exactly instead of moving it to whenever the rebuild happened to run. Being
+ * due in the past is the point: it is a new card and belongs in the next
+ * session, not this one (§4 allows only one card per word per session).
+ *
+ * A failure here is logged and swallowed. The review it followed is already
+ * written, and losing an unlock costs nothing: the next review of the same
+ * card runs this check again.
+ */
+async function unlockProductionCard(
+  wordId: string,
+  wordCreatedAt: Date,
+  recognition: Card,
+): Promise<boolean> {
+  if (recognition.state === State.New) return false;
+  if (!recognition.stability || recognition.stability < PRODUCTION_UNLOCK_STABILITY) return false;
+
+  try {
+    const [existing] = await db
+      .select({ id: cards.id })
+      .from(cards)
+      .where(and(eq(cards.wordId, wordId), eq(cards.cardType, 'production')))
+      .limit(1);
+    if (existing) return false;
+
+    const cardId = randomUUID();
+    await db.batch([
+      db
+        .insert(cards)
+        .values({ id: cardId, wordId, cardType: 'production', active: true })
+        .onConflictDoNothing({ target: [cards.wordId, cards.cardType] }),
+      db
+        .insert(cardStates)
+        .values({ cardId, due: wordCreatedAt, state: State.New, reps: 0, lapses: 0 })
+        .onConflictDoNothing({ target: cardStates.cardId }),
+    ]);
+    return true;
+  } catch (error) {
+    console.error('[unlockProductionCard] failed', error);
+    return false;
+  }
+}
+
+/**
+ * Takes back the review that was just written: delete that one row by id, then
+ * rebuild the card from what remains (§5). Nothing is compensated or patched —
+ * the projection simply folds a shorter log.
+ *
+ * Two guards, because a delete against an append-only table should be narrow:
+ * the row has to be inside the window, and it has to be the card's most recent
+ * review. Undoing into the middle of a history would rewrite everything after
+ * it on the next fold.
+ */
+export async function undoReview(logId: string, now = new Date()): Promise<UndoResult> {
+  const [log] = await db
+    .select({ id: reviewLogs.id, cardId: reviewLogs.cardId, reviewedAt: reviewLogs.reviewedAt })
+    .from(reviewLogs)
+    .where(eq(reviewLogs.id, logId))
+    .limit(1);
+  if (!log) throw new ReviewError('log-missing');
+
+  if (now.getTime() - log.reviewedAt.getTime() > UNDO_WINDOW_MS) {
+    throw new ReviewError('undo-expired');
+  }
+
+  const [latest] = await db
+    .select({ id: reviewLogs.id })
+    .from(reviewLogs)
+    .where(eq(reviewLogs.cardId, log.cardId))
+    .orderBy(desc(reviewLogs.reviewedAt), desc(reviewLogs.id))
+    .limit(1);
+  if (latest?.id !== log.id) throw new ReviewError('undo-not-latest');
+
+  try {
+    await db.delete(reviewLogs).where(eq(reviewLogs.id, logId));
+  } catch (error) {
+    console.error('[undoReview] failed', error);
+    throw new ReviewError('write-failed');
+  }
+
+  const folded = await loadFoldedCard(log.cardId);
+  if (!folded) throw new ReviewError('card-missing');
+  await stateUpsert(log.cardId, folded.card);
+
+  return {
+    cardId: log.cardId,
+    state: toStateView(folded.card),
+    previews: toPreviews(folded.card, now, folded.params),
     counts: await getDailyCounts(now),
   };
 }

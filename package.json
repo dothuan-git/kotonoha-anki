@@ -14,6 +14,7 @@
     "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
     "seed:unihan": "dotenv -e .env.local -- tsx scripts/seed-unihan.ts",
+    "seed:words": "dotenv -e .env.local -- tsx scripts/seed-words.ts",
     "recompute": "dotenv -e .env.local -- tsx scripts/recompute.ts"
   },
   "dependencies": {
