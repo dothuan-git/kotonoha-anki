@@ -1,12 +1,13 @@
-import { PhaseGate } from '@/components/PhaseGate';
-import { countWords } from '@/lib/db/queries';
+import { StatsScreen } from '@/components/StatsScreen';
+import { buildStats } from '@/lib/db/stats';
+
+/**
+ * §10's /stats. Read on every request rather than cached: the charts are a
+ * fold over `review_logs`, and the log grows during the session that is
+ * running in the next tab.
+ */
+export const dynamic = 'force-dynamic';
 
 export default async function StatsPage() {
-  return (
-    <PhaseGate
-      title="Thống kê chưa mở"
-      body="Bốn biểu đồ thuộc giai đoạn 5. Dữ liệu thì đã có: mỗi lượt chấm trong phiên ôn tập ghi một dòng vào review_logs, nên biểu đồ sẽ dựng được từ lịch sử thật chứ không phải số liệu mẫu."
-      wordCount={await countWords()}
-    />
-  );
+  return <StatsScreen stats={await buildStats()} />;
 }

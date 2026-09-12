@@ -157,11 +157,6 @@ function dedupeById<T extends { id: string }>(rows: T[]): T[] {
   return rows.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)));
 }
 
-export async function countWords(): Promise<number> {
-  const [row] = await db.select({ n: count() }).from(words);
-  return Number(row?.n ?? 0);
-}
-
 const SETTINGS_ID = 1;
 
 /**
