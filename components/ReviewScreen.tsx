@@ -1,22 +1,37 @@
 'use client';
 
-import { CheckCircle2, Keyboard, Sparkles, Volume2 } from 'lucide-react';
+import {
+  Check,
+  CheckCircle2,
+  Keyboard,
+  Pencil,
+  RotateCcw,
+  Sparkles,
+  Volume2,
+  X,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState, useTransition } from 'react';
 
+import { AnswerInput } from '@/components/AnswerInput';
+import { ReviewEditPanel, type ReviewEdit } from '@/components/ReviewEditPanel';
 import { Ruby } from '@/components/Ruby';
-import { rateCard } from '@/lib/actions/review';
+import { UndoToast } from '@/components/UndoToast';
+import { rateCard, undoReview } from '@/lib/actions/review';
+import { updateWord } from '@/lib/actions/words';
 import { playJapaneseAudio } from '@/lib/client/audio';
 import { STUDY_TIME_ZONE } from '@/lib/fsrs/day';
 import { formatDueIn } from '@/lib/fsrs/format';
 import {
   RATING_LABELS,
+  UNDO_WINDOW_MS,
   formatHanViet,
   formatPos,
   type DailyCounts,
   type ReviewItem,
   type SessionView,
+  type WordView,
 } from '@/lib/types';
 
 type Rating = 1 | 2 | 3 | 4;
@@ -32,9 +47,27 @@ const RATING_STYLES: Record<Rating, string> = {
   4: 'bg-[var(--bamboo)] text-white hover:opacity-90 shadow-xs',
 };
 
+const ALL_RATINGS = [1, 2, 3, 4] as const;
+
 interface Answered {
+  /** `review_logs.id` — what undo deletes. */
+  logId: string;
   item: ReviewItem;
   rating: Rating;
+}
+
+/** A typed answer, already judged by §6's matcher. */
+interface Attempt {
+  input: string;
+  correct: boolean;
+}
+
+/** The rating still inside §5's undo window. At most one; a new rating replaces it. */
+interface Undoable {
+  logId: string;
+  item: ReviewItem;
+  rating: Rating;
+  expiresAt: number;
 }
 
 /**
@@ -46,50 +79,92 @@ interface Answered {
  * goes back as a server action that returns the authoritative state, and a
  * card put back by a learning step re-enters the queue a couple of cards later
  * rather than advancing an index that only moves forward.
+ *
+ * Phase 3 added the second direction. A `production` card hides the headword
+ * and asks you to type it; the answer goes through §6's exact matcher, a wrong
+ * one can only be graded Quên, and "gõ nhầm" throws the attempt away without
+ * writing a log at all.
  */
 export function ReviewScreen({ session }: { session: SessionView }) {
   const [queue, setQueue] = useState<ReviewItem[]>(session.items);
   const [answered, setAnswered] = useState<Answered[]>([]);
   const [counts, setCounts] = useState<DailyCounts>(session.counts);
   const [isRevealed, setIsRevealed] = useState(false);
+  const [attempt, setAttempt] = useState<Attempt | null>(null);
+  /** Bumped by "gõ nhầm" to remount the answer field with an empty value. */
+  const [attemptSeq, setAttemptSeq] = useState(0);
+  const [undoable, setUndoable] = useState<Undoable | null>(null);
+  const [editing, setEditing] = useState(false);
   const [fontStyle, setFontStyle] = useState<'mincho' | 'gothic'>('mincho');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, startTransition] = useTransition();
 
   const currentWord = queue[0];
+  const isProduction = currentWord?.cardType === 'production';
 
   const handleReveal = useCallback(() => {
+    if (!currentWord || isProduction) return;
     setIsRevealed(true);
-    if (currentWord) playJapaneseAudio(currentWord.word.headword);
-  }, [currentWord]);
+    playJapaneseAudio(currentWord.word.headword);
+  }, [currentWord, isProduction]);
+
+  /** A production card's answer arrives already judged; revealing is what follows. */
+  const handleAnswer = useCallback(
+    (result: Attempt) => {
+      setAttempt(result);
+      setIsRevealed(true);
+      if (currentWord) playJapaneseAudio(currentWord.word.headword);
+    },
+    [currentWord],
+  );
+
+  /**
+   * §6's escape hatch. The attempt is discarded and nothing is written — no
+   * log, no rating, no state change — so a slipped finger costs a retype
+   * rather than a card.
+   */
+  const handleMistype = useCallback(() => {
+    setAttempt(null);
+    setIsRevealed(false);
+    setAttemptSeq((n) => n + 1);
+  }, []);
 
   const handleRate = useCallback(
     (rating: Rating) => {
       const item = queue[0];
       if (!item) return;
+      // A wrong production answer is a miss (§6); the buttons that would
+      // grade it as anything else are not rendered, and not reachable by key.
+      if (item.cardType === 'production' && attempt && !attempt.correct && rating !== 1) return;
+
+      // Generated here so a retried submit lands on the same row instead of
+      // logging the review twice (§3) — and so undo knows which row to delete.
+      const logId = crypto.randomUUID();
 
       setError(null);
+      setNotice(null);
       setIsRevealed(false);
+      setAttempt(null);
+      setEditing(false);
       setQueue((q) => q.slice(1));
-      setAnswered((a) => [...a, { item, rating }]);
+      setAnswered((a) => [...a, { logId, item, rating }]);
 
       startTransition(async () => {
-        const result = await rateCard({
-          // The log's primary key, generated here so a retry cannot log the
-          // same review twice (§3).
-          logId: crypto.randomUUID(),
-          cardId: item.cardId,
-          rating,
-        });
+        const result = await rateCard({ logId, cardId: item.cardId, rating });
 
         if (!result.ok) {
           setError(result.error);
-          setAnswered((a) => a.slice(0, -1));
+          setAnswered((a) => a.filter((x) => x.logId !== logId));
           setQueue((q) => [item, ...q]);
           return;
         }
 
         setCounts(result.data.counts);
+        setUndoable({ logId, item, rating, expiresAt: Date.now() + UNDO_WINDOW_MS });
+        if (result.data.unlockedProduction) {
+          setNotice(`Đã mở thẻ gõ cho ${item.word.headword} — sẽ xuất hiện ở phiên sau.`);
+        }
         if (result.data.repeat) {
           const updated: ReviewItem = {
             ...item,
@@ -99,6 +174,63 @@ export function ReviewScreen({ session }: { session: SessionView }) {
           };
           setQueue((q) => [...q.slice(0, LEARNING_GAP), updated, ...q.slice(LEARNING_GAP)]);
         }
+      });
+    },
+    [queue, attempt],
+  );
+
+  /**
+   * §5's undo: the server deletes that one log row and refolds the card, and
+   * what comes back is the state the shorter log implies. The card goes back
+   * in front of you carrying it, rather than the values it had before — those
+   * were a different card's worth of history.
+   */
+  const handleUndo = useCallback(() => {
+    const last = undoable;
+    if (!last) return;
+    setUndoable(null);
+    setError(null);
+    setNotice(null);
+
+    startTransition(async () => {
+      const result = await undoReview(last.logId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setCounts(result.data.counts);
+      setAnswered((a) => a.filter((x) => x.logId !== last.logId));
+      setIsRevealed(false);
+      setAttempt(null);
+      setEditing(false);
+      setQueue((q) => [
+        { ...last.item, state: result.data.state, previews: result.data.previews },
+        // A learning step may have put this card back further down; the undone
+        // review is the reason it is there, so that copy goes too.
+        ...q.filter((i) => i.cardId !== last.item.cardId),
+      ]);
+    });
+  }, [undoable]);
+
+  /** Edit mid-review (§13). Server first: a failed save must not leave a lie on screen. */
+  const handleEditSave = useCallback(
+    (patch: ReviewEdit) => {
+      const item = queue[0];
+      if (!item) return;
+      const wordId = item.word.id;
+
+      startTransition(async () => {
+        const result = await updateWord({ id: wordId, ...patch });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+
+        const apply = (w: WordView): WordView => (w.id === wordId ? { ...w, ...patch } : w);
+        setQueue((q) => q.map((i) => ({ ...i, word: apply(i.word) })));
+        setAnswered((a) => a.map((x) => ({ ...x, item: { ...x.item, word: apply(x.item.word) } })));
+        setEditing(false);
       });
     },
     [queue],
@@ -150,6 +282,10 @@ export function ReviewScreen({ session }: { session: SessionView }) {
   const total = answered.length + queue.length;
   const done = answered.length;
   const hanViet = formatHanViet(word.kanji);
+  // The answer side of a production card stays hidden until it is answered —
+  // headword, Hán Việt and furigana all give it away.
+  const showAnswerSide = !isProduction || isRevealed;
+  const wrongAnswer = isProduction && attempt !== null && !attempt.correct;
 
   return (
     <div className="w-full flex flex-col justify-between min-h-[580px] p-2">
@@ -168,45 +304,86 @@ export function ReviewScreen({ session }: { session: SessionView }) {
           </div>
         </div>
 
-        {/* Mode Toggle & Audio button */}
+        {/* Card mode & per-card controls */}
         <div className="flex items-center gap-2">
           {/*
-            The prototype toggled a typing mode that compared the input to the
-            reading with ===. Real answer matching is §6 — normalisation, the
-            "gõ nhầm" escape — and ships with production cards in Phase 3. The
-            control stays visible and disabled rather than shipping a version
-            that marks コーヒー wrong for a correct answer.
+            The prototype made this a toggle. It is not a preference any more:
+            recognition and production are two cards on the same word (§4), the
+            queue decides which one is in front of you, and the label says
+            which it is.
           */}
-          <button
-            type="button"
-            disabled
-            title="Chế độ gõ đi cùng thẻ chủ động, giai đoạn 3"
-            className="px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] text-xs font-medium flex items-center gap-1.5 text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
+          <span
+            className="px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] text-xs font-medium flex items-center gap-1.5 text-[var(--text-secondary)]"
+            title={
+              isProduction
+                ? 'Thẻ gõ — nhớ lại từ tiếng Nhật từ nghĩa tiếng Việt'
+                : 'Thẻ lật — nhận mặt từ'
+            }
           >
-            <Keyboard className="w-3.5 h-3.5" />
-            <span>Thẻ lật</span>
-          </button>
+            {isProduction ? (
+              <Keyboard className="w-3.5 h-3.5" />
+            ) : (
+              <RotateCcw className="w-3.5 h-3.5" />
+            )}
+            <span>{isProduction ? 'Thẻ gõ' : 'Thẻ lật'}</span>
+          </span>
+
+          {/* Editing before the answer is on screen would give a production card away. */}
+          {isRevealed && (
+            <button
+              type="button"
+              onClick={() => setEditing((v) => !v)}
+              className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${
+                editing
+                  ? 'border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-[var(--bamboo)]'
+                  : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)]'
+              }`}
+              title="Sửa từ này"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           <button
             type="button"
             onClick={() => playJapaneseAudio(word.headword)}
-            className="p-1.5 rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)] cursor-pointer transition-colors"
-            title="Nghe phát âm"
+            disabled={!showAnswerSide}
+            className="p-1.5 rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title={showAnswerSide ? 'Nghe phát âm' : 'Nghe phát âm sau khi trả lời'}
           >
             <Volume2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/*
-        The prototype's undo toast sat here. Undo is Phase 3 (§13) — it is a
-        hard-delete of the just-written log row followed by a recompute, and
-        `recomputeCardState` is already the second half of it. Until then the
-        slot carries the one message a real server write can produce.
-      */}
+      {/* The prototype's toast slot: undo (§5), then anything a write had to say. */}
       <AnimatePresence>
+        {undoable && (
+          <UndoToast
+            key={undoable.logId}
+            headword={undoable.item.word.headword}
+            rating={undoable.rating}
+            expiresAt={undoable.expiresAt}
+            busy={saving}
+            onUndo={handleUndo}
+            onExpire={() => setUndoable(null)}
+          />
+        )}
+        {notice && (
+          <motion.div
+            key="notice"
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            transition={{ duration: 0.18 }}
+            className="w-full mt-2 py-2 px-3 rounded-lg bg-[var(--bamboo-subtle)] border border-[var(--bamboo-border)] text-xs text-[var(--bamboo)] overflow-hidden"
+          >
+            {notice}
+          </motion.div>
+        )}
         {error && (
           <motion.div
+            key="error"
             initial={{ opacity: 0, y: -8, height: 0 }}
             animate={{ opacity: 1, y: 0, height: 'auto' }}
             exit={{ opacity: 0, y: -8, height: 0 }}
@@ -226,9 +403,9 @@ export function ReviewScreen({ session }: { session: SessionView }) {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.99 }}
           transition={{ duration: 0.18, ease: 'easeOut' }}
-          onClick={!isRevealed ? handleReveal : undefined}
+          onClick={!isRevealed && !isProduction ? handleReveal : undefined}
           className={`w-full mt-3 flex-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl p-5 sm:p-7 flex flex-col justify-between shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-colors ${
-            !isRevealed ? 'cursor-pointer hover:border-[var(--bamboo)]/50' : ''
+            !isRevealed && !isProduction ? 'cursor-pointer hover:border-[var(--bamboo)]/50' : ''
           }`}
         >
           {/* Card Header Tags */}
@@ -266,34 +443,56 @@ export function ReviewScreen({ session }: { session: SessionView }) {
             </button>
           </div>
 
-          {/* Center: Large Kanji Headword */}
+          {/* Center: the prompt — the headword, or the meaning to produce it from */}
           <div className="py-6 text-center">
-            <h1
-              className={`text-5xl sm:text-6xl text-[var(--text-primary)] select-all transition-all ${
-                fontStyle === 'mincho'
-                  ? 'font-jp-serif font-medium sm:font-semibold tracking-wide'
-                  : 'font-jp-sans font-bold tracking-tight'
-              }`}
-            >
-              {word.headword}
-            </h1>
+            {showAnswerSide ? (
+              <>
+                <h1
+                  className={`text-5xl sm:text-6xl text-[var(--text-primary)] select-all transition-all ${
+                    fontStyle === 'mincho'
+                      ? 'font-jp-serif font-medium sm:font-semibold tracking-wide'
+                      : 'font-jp-sans font-bold tracking-tight'
+                  }`}
+                >
+                  {word.headword}
+                </h1>
 
-            {/* Hán Việt reading tag */}
-            {hanViet !== '—' && (
-              <div className="mt-3">
-                <span className="inline-block px-3 py-1 rounded-full bg-[var(--bg-muted)] text-[var(--text-secondary)] text-xs font-semibold tracking-wide border border-[var(--border-subtle)]">
-                  Hán Việt: {hanViet}
+                {/* Hán Việt reading tag */}
+                {hanViet !== '—' && (
+                  <div className="mt-3">
+                    <span className="inline-block px-3 py-1 rounded-full bg-[var(--bg-muted)] text-[var(--text-secondary)] text-xs font-semibold tracking-wide border border-[var(--border-subtle)]">
+                      Hán Việt: {hanViet}
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="text-[11px] text-[var(--text-muted)] block font-medium">
+                  Nghĩa tiếng Việt
                 </span>
-              </div>
+                <p className="mt-1.5 text-3xl sm:text-4xl font-bold leading-snug text-[var(--text-primary)]">
+                  {word.meaning}
+                </p>
+                <p className="mt-2 text-xs text-[var(--text-muted)]">Gõ từ tiếng Nhật tương ứng</p>
+              </>
             )}
 
             {/* Click to reveal prompt */}
-            {!isRevealed && (
-              <div className="mt-8 text-xs text-[var(--text-muted)] flex items-center justify-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[var(--bamboo)]" />
-                <span>Chạm hoặc bấm Phím cách để xem đáp án</span>
-              </div>
-            )}
+            {!isRevealed &&
+              (isProduction ? (
+                <AnswerInput
+                  key={`${currentWord.cardId}-${attemptSeq}`}
+                  word={word}
+                  disabled={saving}
+                  onAnswer={handleAnswer}
+                />
+              ) : (
+                <div className="mt-8 text-xs text-[var(--text-muted)] flex items-center justify-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--bamboo)]" />
+                  <span>Chạm hoặc bấm Phím cách để xem đáp án</span>
+                </div>
+              ))}
           </div>
 
           {/* Revealed Content: Meaning, Furigana & Example Sentence */}
@@ -306,6 +505,8 @@ export function ReviewScreen({ session }: { session: SessionView }) {
                 transition={{ duration: 0.2, ease: 'easeOut' }}
                 className="border-t border-[var(--border-subtle)] pt-5 space-y-3.5 overflow-hidden"
               >
+                {attempt && <Verdict attempt={attempt} />}
+
                 {/* Reading + Sound */}
                 <div className="flex items-center justify-between">
                   <div>
@@ -378,6 +579,15 @@ export function ReviewScreen({ session }: { session: SessionView }) {
                     </div>
                   </div>
                 ))}
+
+                {editing && (
+                  <ReviewEditPanel
+                    word={word}
+                    saving={saving}
+                    onCancel={() => setEditing(false)}
+                    onSave={handleEditSave}
+                  />
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -386,9 +596,55 @@ export function ReviewScreen({ session }: { session: SessionView }) {
 
       {/* Bottom Rating Controls with Spring Press Animations */}
       <div className="mt-3 pt-1">
-        {isRevealed ? (
+        {!isRevealed ? (
+          isProduction ? (
+            // The answer field carries its own submit; a reveal button here
+            // would be a way around typing.
+            <p className="py-3.5 text-center text-xs text-[var(--text-muted)]">
+              Gõ đáp án rồi bấm Enter
+            </p>
+          ) : (
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleReveal}
+              className="w-full py-3.5 rounded-xl bg-[var(--bamboo)] hover:bg-[var(--bamboo-hover)] text-white text-sm font-semibold tracking-wide transition-colors cursor-pointer shadow-xs"
+            >
+              Hiện đáp án (Phím cách)
+            </motion.button>
+          )
+        ) : wrongAnswer ? (
+          /* §6: a near miss is a miss, so Quên is the only grade on offer.
+             The other button writes nothing at all. */
+          <div className="grid grid-cols-2 gap-2">
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => handleRate(1)}
+              className={`py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer flex flex-col items-center ${RATING_STYLES[1]}`}
+            >
+              <span>{RATING_LABELS[0]}</span>
+              <span className="text-[10px] opacity-70 font-normal mt-0.5">
+                {currentWord.previews[1]}
+              </span>
+            </motion.button>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleMistype}
+              title="Bỏ qua lần gõ này, không ghi vào lịch sử ôn tập"
+              className="py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-muted)] transition-colors cursor-pointer flex flex-col items-center"
+            >
+              <span>Gõ nhầm</span>
+              <span className="text-[10px] opacity-70 font-normal mt-0.5">không tính</span>
+            </motion.button>
+          </div>
+        ) : (
           <div className="grid grid-cols-4 gap-2">
-            {([1, 2, 3, 4] as const).map((rating) => (
+            {ALL_RATINGS.map((rating) => (
               <motion.button
                 key={rating}
                 type="button"
@@ -405,18 +661,36 @@ export function ReviewScreen({ session }: { session: SessionView }) {
               </motion.button>
             ))}
           </div>
-        ) : (
-          <motion.button
-            type="button"
-            whileHover={{ scale: 1.01 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={handleReveal}
-            className="w-full py-3.5 rounded-xl bg-[var(--bamboo)] hover:bg-[var(--bamboo-hover)] text-white text-sm font-semibold tracking-wide transition-colors cursor-pointer shadow-xs"
-          >
-            Hiện đáp án (Phím cách)
-          </motion.button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * What you typed, against what the card wanted.
+ *
+ * A wrong answer shows the attempt back verbatim — without it you cannot tell
+ * a mistype from a genuinely wrong reading, which is exactly the judgement
+ * "gõ nhầm" asks you to make.
+ */
+function Verdict({ attempt }: { attempt: Attempt }) {
+  if (attempt.correct) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] px-3 py-2 text-sm font-semibold text-[var(--bamboo)]">
+        <Check className="h-4 w-4 shrink-0" />
+        <span>Chính xác</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+      <X className="h-4 w-4 shrink-0" />
+      <span className="font-semibold">Chưa đúng</span>
+      {attempt.input.trim() && (
+        <span className="font-jp-serif truncate opacity-80">— bạn gõ: {attempt.input}</span>
+      )}
     </div>
   );
 }
