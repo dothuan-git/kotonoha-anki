@@ -1,9 +1,9 @@
 import Link from 'next/link';
 
 /**
- * Phase 1 ships capture only. Review and Stats are honest about having no data
- * rather than showing invented numbers: both are projections over review_logs,
- * which stays empty until Phase 2 lands FSRS.
+ * A screen that is honestly not built yet, rather than one showing invented
+ * numbers. Phase 2 took the reviewer off this; /stats keeps it until the
+ * charts land in Phase 5.
  */
 export function PhaseGate({
   title,

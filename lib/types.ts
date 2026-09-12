@@ -33,8 +33,8 @@ export interface KanjiRef {
  * splits into `pos` + `transitivity`, the `hanViet` display string becomes
  * structured `kanji`, and the single inline example becomes `sentences`.
  *
- * Scheduling fields (`reviewCount`, `nextDueDate`, …) are deliberately absent —
- * they are a projection over review_logs and arrive in Phase 2.
+ * Scheduling fields are deliberately absent: they are a projection over
+ * review_logs (§5), and live on `ReviewItem.state` where they are needed.
  */
 export interface WordView {
   id: string;
@@ -96,4 +96,57 @@ export function formatPos(pos: Pos, transitivity: Transitivity): string {
   if (!transitivity) return pos;
   const vi = transitivity === 'transitive' ? 'tha động từ' : 'tự động từ';
   return `${pos} · ${vi}`;
+}
+
+/** §4's four buttons, pre-rendered server-side: `1` = Quên … `4` = Dễ. */
+export type RatingPreviews = Record<1 | 2 | 3 | 4, string>;
+
+/** A `card_states` row as the client sees it. Derived — see §5. */
+export interface CardStateView {
+  due: string;
+  stability: number | null;
+  difficulty: number | null;
+  state: number;
+  reps: number;
+  lapses: number;
+  lastReview: string | null;
+}
+
+export interface ReviewItem {
+  cardId: string;
+  cardType: 'recognition' | 'production' | 'cloze';
+  /** First ever showing — drives the "từ mới" badge and the new-card cap. */
+  isNew: boolean;
+  word: WordView;
+  state: CardStateView;
+  previews: RatingPreviews;
+}
+
+/** Distinct cards studied since the study day began, split by §4's two caps. */
+export interface DailyCounts {
+  newCards: number;
+  reviewCards: number;
+}
+
+export interface SessionView {
+  now: string;
+  items: ReviewItem[];
+  counts: DailyCounts;
+  limits: { newPerDay: number; reviewsPerDay: number };
+  /** Cards that were due but did not fit today's caps — why the session is short. */
+  heldBack: DailyCounts;
+  /** Earliest due date among active cards outside this session. */
+  nextDue: string | null;
+  nextDayStart: string;
+  totalCards: number;
+}
+
+/** What `rateCard` hands back: the authoritative state, never the client's guess. */
+export interface RateResult {
+  cardId: string;
+  state: CardStateView;
+  previews: RatingPreviews;
+  /** The card comes back inside this session (a learning step), rather than leaving it. */
+  repeat: boolean;
+  counts: DailyCounts;
 }
