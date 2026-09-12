@@ -1,13 +1,13 @@
 /*
- * §8's service worker.
+ * The service worker.
  *
  * Its job is narrow: make sure that opening the app with no signal produces
  * the reviewer rather than the browser's dinosaur. The queue itself is not
  * here — it is in IndexedDB, put there by the session on mount — so this only
  * has to serve the shell that runs it.
  *
- * §8 is explicit that API responses are never cached, and the same logic rules
- * out one more thing it does not mention: React's flight payloads. A cached
+ * API responses are never cached, and the same logic rules out one more
+ * thing worth calling out explicitly: React's flight payloads. A cached
  * `?_rsc=` response is a session rendered at some past moment, and serving it
  * as though it were current would hand the reviewer cards that have already
  * been answered. Documents are cached — the reviewer has to open somehow —
@@ -72,7 +72,7 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin !== self.location.origin) return;
 
-  // §8: never cache API responses. /api/sync in particular must never be
+  // Never cache API responses. /api/sync in particular must never be
   // answered from a cache — a replayed batch response would tell the client
   // its outbox had been accepted when it had not.
   if (url.pathname.startsWith('/api/')) return;

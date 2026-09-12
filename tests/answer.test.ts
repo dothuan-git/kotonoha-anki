@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { checkAnswer, normaliseAnswer } from '@/lib/answer';
 
 /**
- * §12's first required test: the answer normaliser, table-driven. §6 names the
- * cases that matter — 開ける, the コーヒー family, and じ/ぢ — and each is here.
+ * The answer normaliser, table-driven. The cases that matter — 開ける, the
+ * コーヒー family, and じ/ぢ — are each here.
  */
 
 describe('normaliseAnswer', () => {
@@ -64,7 +64,7 @@ describe('checkAnswer', () => {
     ['コーヒー as written', coffee, 'コーヒー', true],
     ['こおひい, the expanded form', coffee, 'こおひい', true],
     ['こうひい, which is not it', coffee, 'こうひい', false],
-    // §6 calls this one out by name: no fuzzy matching means these stay apart.
+    // No fuzzy matching means these stay apart.
     ['じ where the word has じ', jikan, 'じかん', true],
     ['ぢ where the word has じ', jikan, 'ぢかん', false],
   ];

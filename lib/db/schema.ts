@@ -13,7 +13,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-/** §3. Order is the display order in the add form's selector. */
+/** Order is the display order in the add form's selector. */
 export const POS_VALUES = [
   'Noun',
   'Verb 1',
@@ -64,7 +64,7 @@ export const kanji = pgTable('kanji', {
   char: text('char').primaryKey(),
   /** Unihan kVietnamese, stored lowercase as the source gives it. */
   hanViet: text('han_viet').array().notNull().default([]),
-  /** Not in §3 — the /kanji screen needs a gloss and a level. Hand-filled. */
+  /** Not part of the core word model — the /kanji screen needs a gloss and a level. Hand-filled. */
   meaningVi: text('meaning_vi'),
   jlpt: jlptEnum('jlpt'),
 });
@@ -94,7 +94,7 @@ export const sentences = pgTable(
       .notNull()
       .references(() => words.id, { onDelete: 'cascade' }),
     jp: text('jp').notNull(),
-    /** §7 format: 窓[まど]を開[あ]けてください。 */
+    /** Ruby format: 窓[まど]を開[あ]けてください。 */
     jpRuby: text('jp_ruby').notNull(),
     vi: text('vi').notNull(),
     source: sentenceSourceEnum('source'),
@@ -113,10 +113,10 @@ export const cards = pgTable(
     cardType: cardTypeEnum('card_type').notNull(),
     active: boolean('active').notNull().default(true),
     /**
-     * §4's leech flag, acknowledged. Not derived: `card_states.lapses` says
+     * The leech flag, acknowledged. Not derived: `card_states.lapses` says
      * when a card *is* a leech, and the log says it the same way a year from
      * now — what the log cannot say is whether the prompt has already been
-     * put in front of the user. §4 asks for it once, so the once is stored.
+     * put in front of the user. The prompt shows once, so the once is stored.
      */
     leechAckedAt: timestamp('leech_acked_at', { withTimezone: true }),
   },
@@ -124,7 +124,7 @@ export const cards = pgTable(
 );
 
 /**
- * DERIVED — §5. Never the source of truth; always reproducible by folding
+ * DERIVED. Never the source of truth; always reproducible by folding
  * review_logs for the card through the FSRS scheduler. Stored for query speed.
  */
 export const cardStates = pgTable(
@@ -146,9 +146,9 @@ export const cardStates = pgTable(
 );
 
 /**
- * APPEND ONLY — §3. Never updated. The single permitted deletion is the undo
- * window in §5: hard-delete the just-written row by id, then recompute.
- * `id` is client-generated so the offline outbox (§8) is idempotent on replay.
+ * APPEND ONLY. Never updated. The single permitted deletion is the undo
+ * window: hard-delete the just-written row by id, then recompute.
+ * `id` is client-generated so the offline outbox is idempotent on replay.
  */
 export const reviewLogs = pgTable(
   'review_logs',
@@ -169,13 +169,13 @@ export const reviewLogs = pgTable(
 );
 
 /**
- * §13's confusion pairs — APPEND ONLY, like `review_logs` and for the same
+ * Confusion pairs — APPEND ONLY, like `review_logs` and for the same
  * reason: it is an observation of something that happened, not a tally that
  * gets edited. The counts on /stats are a fold over these rows.
  *
  * One row per wrong production answer that turned out to be another word in
  * the collection. `id` is generated on the device so the offline outbox can
- * replay a batch twice with no effect (§8), exactly as a review does.
+ * replay a batch twice with no effect, exactly as a review does.
  *
  * What was typed is deliberately not stored. A confusion is between two words
  * the user owns; a wrong answer that resolves to nothing is just a wrong
@@ -208,7 +208,7 @@ export const dictCache = pgTable('dict_cache', {
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Single row, id = 1. §4 caps and §10 preferences. */
+/** Single row, id = 1. Daily caps and app preferences. */
 export const settings = pgTable('settings', {
   id: integer('id').primaryKey().default(1),
   newPerDay: integer('new_per_day').notNull().default(12),

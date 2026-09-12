@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { RetentionWeek } from '@/lib/stats';
 
 /**
- * Chart 3 — the share of reviews recalled, by week, against §4's target.
+ * Chart 3 — the share of reviews recalled, by week, against the scheduler's target.
  *
  * One series, so no legend: the title says what the line is. The target is a
  * reference rule rather than a second series — it is not data, it is the
@@ -81,7 +81,7 @@ export function RetentionChart({
           </g>
         ))}
 
-        {/* §4's request_retention — a rule, labelled, not a series. */}
+        {/* request_retention — a rule, labelled, not a series. */}
         <line
           x1={PAD.left}
           x2={WIDTH - PAD.right}

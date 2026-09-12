@@ -18,9 +18,9 @@ import {
 } from '@/lib/stats';
 
 /**
- * §10's /stats, read straight off `review_logs`.
+ * /stats, read straight off `review_logs`.
  *
- * The log is the source of truth (§5), so three of the four charts need
+ * The log is the source of truth, so three of the four charts need
  * nothing else — and because they read the log rather than `card_states`, they
  * stay right through a `npm run recompute` that moves every projected row.
  * Only the forecast needs the projection, because "when is this due" is
@@ -62,9 +62,9 @@ export async function buildStats(now = new Date()): Promise<StatsView> {
 /**
  * The log window, four columns of it.
  *
- * A full year at §4's cap is around 36k rows and this reads half of that, all
- * of it narrow. §1 says to optimise for one person using this for years rather
- * than for scale; if that ever stops being comfortable, the volume and
+ * A full year at the daily cap is around 36k rows and this reads half of
+ * that, all of it narrow. This is a single-user app meant to run for years
+ * rather than to scale; if that ever stops being comfortable, the volume and
  * retention buckets are the two things to push into SQL, and the study-day
  * boundary (04:00, a fixed zone) is the only awkward part of doing so.
  */
@@ -84,8 +84,8 @@ function selectLogsSince(since: Date): Promise<StatLog[]> {
 /**
  * The projected state of every card that is actually in rotation — the same
  * filter `buildSession` applies, so the forecast counts what a session would
- * hand you rather than what is merely in the table. A leeched production card
- * (§4) and a suspended word are both out.
+ * hand you rather than what is merely in the table. A leeched production
+ * card and a suspended word are both out.
  */
 function selectActiveStates(): Promise<{ due: Date; state: number; stability: number | null }[]> {
   return db

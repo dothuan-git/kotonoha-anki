@@ -1,34 +1,26 @@
 # Kotonoha
 
 A private Japanese vocabulary trainer with Vietnamese meanings, built around a
-washi-paper, wabi-sabi aesthetic. Single user, no sharing. See
-[kotonoha-technical-plan.md](kotonoha-technical-plan.md) for the full design.
+washi-paper, wabi-sabi aesthetic. Single user, no sharing.
 
-## Status — Phase 5 (the rest)
+## Status
 
-Everything §13 lists is built. Adding a word (dictionary lookup, Hán Việt), the
-word list with search and inline edit, the kanji index, the review session —
+Adding a word works end to end: dictionary lookup, Hán Việt, the word list
+with search and inline edit, the kanji index. So does the review session —
 FSRS scheduling, the daily queue, recognition **and** production cards, kana
-input with §6 answer matching, "gõ nhầm", the ten-second undo, editing a word
-mid-review — the offline session, and now `/stats`, leech handling, confusion
-pairs and the audio check on save.
+input with exact answer matching, "gõ nhầm", the ten-second undo, editing a
+word mid-review. The session works with no signal: it installs as a PWA, the
+day's queue is kept in IndexedDB, the scheduler runs on the device, ratings
+queue in an outbox and replay through `/api/sync`, and sharing Japanese text
+to Kotonoha from anywhere on the phone opens the add form with the word in
+it. `/stats` is four charts over `review_logs`, a card forgotten six times
+raises a one-time leech prompt and retires the word's production card, and a
+wrong typed answer that names another word you own is recorded as a
+confusion pair.
 
-Phase 4 made the session work with no signal: it installs as a PWA, the day's
-queue is kept in IndexedDB, the scheduler runs on the device, ratings queue in
-an outbox and replay through `/api/sync`, and sharing Japanese text to Kotonoha
-from anywhere on the phone opens the add form with the word in it.
-
-Phase 5 is the screens and rules that need a history to be worth anything.
-`/stats` is four charts over `review_logs`. A card that has been forgotten six
-times raises §4's leech prompt once and retires the word's production card. A
-wrong typed answer that turns out to name *another word you own* is recorded as
-a confusion pair rather than just a miss.
-
-**One thing §9 asks for was never built and still is not: `POST /api/draft`.**
-Phase 1 was meant to include the Claude drafting endpoint that fills in the
-Vietnamese meaning and an example sentence; the add form has no AI drafting and
-no `ANTHROPIC_API_KEY` is read anywhere. Everything else in §13 is done, so
-this is the outstanding item.
+**One thing was never built: `POST /api/draft`.** The add form has fields for
+an AI-drafted Vietnamese meaning and example sentence, but no drafting
+endpoint fills them and no `ANTHROPIC_API_KEY` is read anywhere.
 
 ## Stack
 
@@ -65,10 +57,10 @@ can.
 | `npm run seed:words` | Add the 50-word N5 starter deck; idempotent, `-- --dry` writes nothing |
 | `npm run recompute` | Rebuild every `card_states` row from `review_logs`; `-- --check` reports without writing |
 
-Layout note: `lib/answer.ts` is §6's matcher, and the only thing that decides
-whether a typed answer is right — and, since Phase 5, the only thing that
-decides which *other* word a wrong answer named. `lib/client/outbox.ts` is the
-only thing that sends a review to the server.
+Layout note: `lib/answer.ts` is the answer matcher, and the only thing that
+decides whether a typed answer is right — and the only thing that decides
+which *other* word a wrong answer named. `lib/client/outbox.ts` is the only
+thing that sends a review to the server.
 
 ## Layout
 
@@ -82,10 +74,10 @@ lib/fsrs/     scheduler params, log replay, queue order, the study day,
 lib/client/   IndexedDB, the offline outbox, the stored session, the TTS check
 lib/dict/     Jotoba client, tag→pos mapping, furigana conversion
 lib/actions/  server actions
-lib/ruby.ts   §7 ruby parser
-lib/share.ts  §10 share-target text extraction
-lib/stats.ts  §10's four charts as pure functions over rows
-lib/confusion.ts  §13's pair resolution, through §6's normaliser
+lib/ruby.ts   the ruby parser
+lib/share.ts  share-target text extraction
+lib/stats.ts  the four /stats charts as pure functions over rows
+lib/confusion.ts  confusion-pair resolution, through the answer normaliser
 proxy.ts      auth redirect (Next 16's renamed middleware)
 public/       manifest, service worker, offline page, icons
 scripts/      Unihan seed, card-state recompute
@@ -94,7 +86,7 @@ tests/        unit tests
 
 ## How review works
 
-- **`card_states` is a projection, not state** (§5). `lib/fsrs/replay.ts` folds
+- **`card_states` is a projection, not state.** `lib/fsrs/replay.ts` folds
   a card's `review_logs` through FSRS; `lib/db/review.ts` stores the result for
   query speed and is the only thing that writes the table. `npm run recompute`
   rebuilds every row and reports anything that did not reproduce — drift there
@@ -106,8 +98,8 @@ tests/        unit tests
   the log already determines, and a stored copy would be a second source of
   truth. Every path that needs a real `Card` folds the log first.
 - **Fuzz stays deterministic.** ts-fsrs seeds it from the card itself, so a
-  replay lands on the same due date — which is what makes §5's guarantee real
-  rather than aspirational.
+  replay lands on the same due date — which is what makes the projection a
+  real guarantee rather than an aspirational one.
 - **The study day starts at 04:00 `Asia/Ho_Chi_Minh`** (`lib/fsrs/day.ts`), so
   a session that runs past midnight still counts against the day it began. The
   caps count each card once: a new card walking its learning steps does not
@@ -115,19 +107,19 @@ tests/        unit tests
 - **Changing `request_retention` reschedules the whole collection** on the next
   `npm run recompute`, rather than only affecting future reviews.
 
-### Intervals differ from §4's table
+### Intervals differ from the naive prediction
 
-§4 predicts a graduating interval of 1 day, `Easy` on a new card at 4 days, and
-a repeated-`Good` path of 1 → 3 → 7 → 17 → 40 → 95 → 200 → 365. The config
-block in §4 is implemented verbatim, but those numbers come from `w`, the
-model's weights, not from any of those knobs. With the stock FSRS-5 weights the
-actual path is **10m → 2d → 11d → 44d → 164d → 357d → 365d**, and `Easy` on a
-new card lands around 9 days.
+A graduating interval of 1 day, `Easy` on a new card at 4 days, and a
+repeated-`Good` path of 1 → 3 → 7 → 17 → 40 → 95 → 200 → 365 is what the
+scheduler config would suggest at a glance. Those numbers come from `w`, the
+model's weights, not from the config knobs directly. With the stock FSRS-5
+weights the actual path is **10m → 2d → 11d → 44d → 164d → 357d → 365d**, and
+`Easy` on a new card lands around 9 days.
 
-Hitting §4's table would mean overriding `w[2]` and `w[3]` — the initial
-stability estimates for `Good` and `Easy` — which distorts the model's own
-first-review guesses. Left alone pending a decision; the override is a one-line
-change in `lib/fsrs/params.ts`.
+Matching the naive prediction would mean overriding `w[2]` and `w[3]` — the
+initial stability estimates for `Good` and `Easy` — which distorts the
+model's own first-review guesses. Left alone pending a decision; the override
+is a one-line change in `lib/fsrs/params.ts`.
 
 ## How recall works
 
@@ -135,7 +127,7 @@ change in `lib/fsrs/params.ts`.
   and no example sentence on the prompt side — both leak the answer. The
   headword, the reading and the furigana appear together once you have
   answered.
-- **Matching is exact** (`lib/answer.ts`, §6). NFKC, katakana folded to
+- **Matching is exact** (`lib/answer.ts`). NFKC, katakana folded to
   hiragana, ー expanded to the vowel before it (コーヒー → こおひい, which is
   why こうひい does not match), punctuation and interpuncts stripped. Accepts
   the reading or the headword — typing 開ける instead of あける is correct. No
@@ -147,7 +139,7 @@ change in `lib/fsrs/params.ts`.
 - **"Chưa nhớ ra"** reveals the answer and counts as a miss. Without it the
   only way to see the answer is to type a wrong one, which logs a review you
   did not mean to grade.
-- **Undo is ten seconds** (§5), and it is the one deletion `review_logs`
+- **Undo is ten seconds**, and it is the one deletion `review_logs`
   permits. The server deletes that row by id and refolds the card; the card
   comes back in front of you carrying the state the shorter log implies, not
   the values the client had cached. Two guards, because a delete against an
@@ -161,16 +153,17 @@ change in `lib/fsrs/params.ts`.
 
 ### When production cards appear
 
-§4 unlocks one at `stability >= 21` on the word's recognition card, checked
-after every review. With the stock FSRS-5 weights that is the **4th consecutive
-Được** (stability steps 2.3 → 2.3 → 11.0 → 44.0, about eight weeks in) or the
-**2nd Dễ**. Nothing lands exactly on 21; the fold steps over it.
+A word's production card is created and activated once `stability >= 21` on
+its recognition card, checked after every review. With the stock FSRS-5
+weights that is the **4th consecutive Được** (stability steps 2.3 → 2.3 →
+11.0 → 44.0, about eight weeks in) or the **2nd Dễ**. Nothing lands exactly
+on 21; the fold steps over it.
 
 The new card's state row is `createEmptyCard(word.created_at)` — the same seed
 every other fold uses — so `npm run recompute` reproduces it instead of moving
 it to whenever the rebuild ran. It is therefore due in the past, which is
-correct: it is a new card, and it joins the *next* session, never the one that
-unlocked it (§4 allows one card per word per session).
+correct: it is a new card, and it joins the *next* session, never the one
+that unlocked it (a word never shows two cards in the same session).
 
 One consequence worth knowing: new cards are ordered by `words.created_at`, so
 an unlocked production card sorts ahead of recently added vocabulary and spends
@@ -185,7 +178,7 @@ change it.
   reaches the server through `/api/sync`, whether or not there is a
   connection. Being online only means the queue drains sooner. The `rateCard`
   server action is gone: a second path for the connected case is exactly the
-  thing that drifts from the first, and §8's guarantee is that an offline
+  thing that drifts from the first, and the guarantee is that an offline
   review and an online one land on the same schedule.
 - **The scheduler runs on the device**, because learning steps leave no
   choice. `Quên` on a new card means "again in a minute", and a minute is
@@ -194,14 +187,15 @@ change it.
   `tests/local.test.ts` proves it lands where the server's fold of the
   resulting log lands.
 - **`CardStateView` is wider than `card_states`.** The table still stores only
-  §3's columns, and `learning_steps` still is not one of them. The wire shape
-  carries it anyway, along with `elapsed_days` and `scheduled_days`, because
-  they come free off the fold that just ran and the client has no log to refold
-  from. A card that forgets which of `['1m', '10m']` it is on goes back in ten
-  minutes instead of graduating to two days — every time, forever.
+  the columns FSRS actually needs, and `learning_steps` still is not one of
+  them. The wire shape carries it anyway, along with `elapsed_days` and
+  `scheduled_days`, because they come free off the fold that just ran and the
+  client has no log to refold from. A card that forgets which of `['1m',
+  '10m']` it is on goes back in ten minutes instead of graduating to two
+  days — every time, forever.
 - **Undo now has a cheap case.** The flush holds each entry for the length of
-  §5's window, so the usual undo drops a row that was never sent: nothing was
-  written, and `review_logs` keeps the append-only property §3 asks of it. The
+  the undo window, so the usual undo drops a row that was never sent: nothing
+  was written, and `review_logs` keeps its append-only property. The
   server-side `undoReview` is still there for a rating that got out early —
   flushed by another tab, synced from another device — and that is what the one
   permitted deletion is spent on.
@@ -215,7 +209,7 @@ change it.
   place this bites is a device clock running fast — `syncReviews` clamps a
   future `reviewed_at` to the server's now, and the corrected state comes back
   in the same response.
-- **Two devices need no conflict resolution.** Because state is a fold (§5),
+- **Two devices need no conflict resolution.** Because state is a fold,
   replaying both outboxes in `reviewed_at` order lands on the same card
   whichever one reconnects first. `tests/local.test.ts` covers the ordering.
 
@@ -225,7 +219,7 @@ Shell, hashed `_next/static` chunks, and the Google Fonts faces — a card set i
 a fallback sans-serif is a different card. Documents are cached network-first,
 so the reviewer opens offline.
 
-Not cached: `/api/*`, as §8 requires, and React's flight payloads. A cached
+Not cached: `/api/*`, and React's flight payloads. A cached
 `?_rsc=` response is a session rendered at some past moment; serving it as
 though it were current would hand back cards that were already answered. The
 cached document has the same problem, which is why it carries `session.now` and
@@ -233,22 +227,22 @@ cached document has the same problem, which is why it carries `session.now` and
 `lib/client/session.ts`.
 
 Signing out clears the cached pages and the stored queue. It never clears the
-outbox: those are reviews that have not reached the server, and §10 admits one
-address, so they can only belong to whoever signs back in.
+outbox: those are reviews that have not reached the server, and only one
+address is allowed to sign in, so they can only belong to whoever signs back
+in.
 
 ### Installing it
 
 `/manifest.webmanifest` declares the share target at `POST /api/share`, which
 303s to `/add?q=` with the run of Japanese pulled out of whatever the share
-sheet sent. It deliberately does not segment a shared sentence — §7 rules out
-browser-side tokenising, and guessing a word boundary here is the same mistake
-one layer up.
+sheet sent. It deliberately does not segment a shared sentence — no
+browser-side tokeniser can resolve a word boundary reliably here, and
+guessing would be the same mistake one layer up.
 
-**The icons are SVG.** Chrome on Android installs from them, which is the
-platform this phase is for — Web Share Target is Chrome-only. iOS wants a PNG
-`apple-touch-icon` and will use a screenshot until one exists; dropping
-`icons/apple-touch-icon.png` into `public/` and naming it in `app/layout.tsx`
-is the whole fix, if that ever matters.
+**The icons are SVG.** Chrome on Android installs from them; Web Share Target
+is Chrome-only. iOS wants a PNG `apple-touch-icon` and will use a screenshot
+until one exists; dropping `icons/apple-touch-icon.png` into `public/` and
+naming it in `app/layout.tsx` is the whole fix, if that ever matters.
 
 The service worker only registers in production. In development it unregisters
 anything already there, because a worker caching dev chunks that are rebuilt on
@@ -256,17 +250,17 @@ every keystroke costs an afternoon.
 
 ## How /stats works
 
-Four charts (§10), read off `review_logs` rather than off `card_states`. The log
-is the source of truth (§5), so three of the four stay right across a
+Four charts, read off `review_logs` rather than off `card_states`. The log
+is the source of truth, so three of the four stay right across a
 `npm run recompute` that moves every projected row; only the forecast reads the
 projection, because "when is this due" is what the projection is for.
 
 - **Lượt ôn mỗi ngày** — distinct cards studied per day, split new vs review,
-  30 or 90 days. Counted exactly the way §4's caps count: once per card per
-  day, in the bucket of its first showing, so a new card walking `['1m','10m']`
-  is one new card and not also three reviews.
+  30 or 90 days. Counted exactly the way the daily caps count: once per card
+  per day, in the bucket of its first showing, so a new card walking
+  `['1m','10m']` is one new card and not also three reviews.
 - **Sắp đến hạn** — the next 30 days. New cards are left out: their `due` is
-  the word's creation time (§5 seeds the fold from it), so all of them are
+  the word's creation time (the fold seeds from it), so all of them are
   "overdue" by construction and what actually releases them is the daily cap.
   Anything genuinely past its date is a single overdue count instead.
 - **Tỉ lệ nhớ** — the share graded Được or Dễ, by week, against
@@ -275,7 +269,7 @@ projection, because "when is this due" is what the projection is for.
   counting it would drag the line down at exactly the rate new words are added.
   Weekly, because a day is 20–100 reviews and the noise swamps the signal.
 - **Độ chín của sổ từ** — the active cards by stability, split at 21 and 90
-  days. 21 is §4's own line: it is where a production card unlocks.
+  days. 21 is the same line a production card unlocks at.
 
 **The bucketing is by study day, not by calendar day**, and that is the part
 worth being careful about. A study day starts at 04:00 `Asia/Ho_Chi_Minh`,
@@ -284,11 +278,11 @@ would label every column a day early, consistently enough to look right.
 `studyDayKey` formats in the study zone, and `tests/stats.test.ts` pins the
 boundary at 03:59 and 04:00.
 
-The window is read as rows and bucketed in JS rather than grouped in SQL. §1
-says to optimise for one person using this for years, and 26 weeks at §4's cap
-is under 20k narrow rows; the awkward part of pushing it into SQL would be that
-same 04:00 boundary. If it ever stops being comfortable, the volume and
-retention buckets are the two to move.
+The window is read as rows and bucketed in JS rather than grouped in SQL.
+This is a single-user app meant to run for years, not to scale, and 26 weeks
+at the daily cap is under 20k narrow rows; the awkward part of pushing it
+into SQL would be that same 04:00 boundary. If it ever stops being
+comfortable, the volume and retention buckets are the two to move.
 
 Every chart carries a legend where it has more than one series, a hover/tap
 readout under the plot rather than a tooltip floating over the columns it is
@@ -303,20 +297,21 @@ same colour to a deuteranope.
 
 ## Leeches, confusion pairs and audio
 
-### Leeches (§4)
+### Leeches
 
 At six lapses a card raises the prompt **once**. The count is
 `card_states.lapses`, folded from the log like everything else; what the log
 cannot say is whether the prompt has already been shown, so that one bit is
 stored as `cards.leech_acked_at`.
 
-The prompt *is* the editor. §4 asks for a rewrite of the meaning or a note, and
-an alert that only told you to go and do one somewhere else is an alert you
-dismiss. Saving and dismissing both acknowledge, because both are the decision
-§4 wanted; only then does the word's production card go `active = false`, with
-recognition left running. It never offers to suspend or delete — §4 rules both
-out as automatic, and the moment you have just failed a word six times is the
-worst moment to decide you are done with it.
+The prompt *is* the editor: a rewrite of the meaning or a note, right there,
+because an alert that only told you to go and do one somewhere else is an
+alert you dismiss. Saving and dismissing both acknowledge, since both are the
+decision the prompt exists to get; only then does the word's production card
+go `active = false`, with recognition left running. It never offers to
+suspend or delete the word — the moment you have just failed it six times is
+the worst moment to decide you are done with it, and both of those stay
+manual decisions on /words.
 
 The device raises it without waiting for the server: unlike a production
 unlock, the leech flag needs only the card's own fold and the flag it arrived
@@ -325,19 +320,18 @@ offline path — dismissing with no signal changes nothing and the card is
 flagged again next session, which is the honest outcome for a rule that is
 about showing something once.
 
-**One Phase 4 behaviour changed for this.** `applyReview` no longer requires
+**One behaviour changed for this.** `applyReview` no longer requires
 `cards.active`; the queue still filters on it. `active` decides what a session
 *hands you*, not whether a review that already happened may be recorded — and
 retiring a production card mid-session, while the rating that triggered it is
 still in the outbox, would otherwise reject that rating permanently and throw
 away a review the user actually did. A suspended word still rejects.
 
-### Confusion pairs (§13)
+### Confusion pairs
 
-Nothing in the plan defines these beyond the name. What they are here: a wrong
-production answer that turns out to name **another word in the collection**.
-Typing あける for 開く is a confusion; typing あkえru is a typo, and `review_logs`
-has already recorded it as a miss.
+A wrong production answer that turns out to name **another word in the
+collection**. Typing あける for 開く is a confusion; typing あkえru is a typo,
+and `review_logs` has already recorded it as a miss.
 
 - The attempt rides the outbox alongside the rating, so one typed in a tunnel
   is not lost, and a client-generated id makes the replay idempotent.
@@ -355,14 +349,13 @@ has already recorded it as a miss.
 - It is directional. "asked for 開く, typed 開ける" and its mirror are different
   mistakes, and collapsing them would hide which direction keeps failing.
 
-### Audio (§13's "TTS audio on save")
+### Audio
 
-No audio is generated, stored or fetched. §2 lists no speech provider, and the
-Web Speech API already reads Japanese on every platform this runs on —
-including offline, because the voice is installed on the device rather than
-streamed. A stored MP3 per word would buy identical audio across devices at the
-cost of a provider, a key, a blob store and a sync path, for one person
-listening on one phone.
+No audio is generated, stored or fetched. The Web Speech API already reads
+Japanese on every platform this runs on — including offline, because the
+voice is installed on the device rather than streamed. A stored MP3 per word
+would buy identical audio across devices at the cost of a provider, a key, a
+blob store and a sync path, for one person listening on one phone.
 
 What the platform does not give for free is knowing whether it will work. A
 device with no Japanese voice reads 開ける in English, and discovering that
@@ -372,13 +365,13 @@ the word once while adding it. `lib/client/audio.ts` also waits for
 `voiceschanged` — an early `getVoices()` returns an empty list in Chrome, which
 is why the previous version silently fell back to the default voice.
 
-## Notes for the next phase
+## Notes for whoever picks this up
 
-- **`POST /api/draft` is the outstanding item** (§9). It is Phase 1 work that
-  was never built: Claude drafts the Vietnamese meaning and an example sentence
-  with ruby from the headword plus the dictionary result, validated with Zod,
-  retried once on a parse failure, and never blocking the save. The add form
-  has the fields; nothing fills them.
+- **`POST /api/draft` is the outstanding item.** An AI drafting endpoint would
+  fill in the Vietnamese meaning and an example sentence with ruby from the
+  headword plus the dictionary result, validated with Zod, retried once on a
+  parse failure, and never blocking the save. The add form has the fields;
+  nothing fills them.
 - **`review_logs` is still append-only.** Two permitted deletions, both narrow:
   `undoReview`'s 10-second window on the server, and the outbox entry dropped
   before it is ever sent. `confusions` is append-only on the same terms and has
@@ -393,8 +386,8 @@ is why the previous version silently fell back to the default voice.
   `VOLUME_DAYS` and `StatsView` live in `lib/stats.ts` rather than next to the
   queries that use them.
 - **Jotoba does not return raw JMdict tags.** `lib/dict/pos.ts` maps its actual
-  tagged enums; §9's `v5*`/`v1`/`vt` table does not apply. Test fixtures are
-  verbatim live responses so the mapping cannot drift silently.
+  tagged enums. Test fixtures are verbatim live responses so the mapping
+  cannot drift silently.
 - **JLPT is a hint, never authoritative.** Jotoba carries no word-level level;
   the hint comes from the constituent kanji and often disagrees (開ける hints
   N4 but is N5). The form's selector always wins.

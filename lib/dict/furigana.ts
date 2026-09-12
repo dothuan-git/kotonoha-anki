@@ -1,7 +1,7 @@
 import { escapeRuby } from '@/lib/ruby';
 
 /**
- * Converts Jotoba's furigana notation into the §7 format.
+ * Converts Jotoba's furigana notation into the app's ruby format.
  *
  * Jotoba writes a bracket group as `[kanji|reading|reading|…]`, one reading per
  * kanji character when it can split them, otherwise one reading for the run.

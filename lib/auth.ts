@@ -5,14 +5,14 @@ const allowedEmail = process.env.ALLOWED_EMAIL?.trim().toLowerCase();
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [Google],
-  // No adapter and no user tables: one person, no registration (§1).
+  // No adapter and no user tables: one person, no registration.
   session: { strategy: 'jwt' },
   // error must be set too: a signIn-callback rejection routes to pages.error,
   // which otherwise falls back to Auth.js's own page and loses our message.
   pages: { signIn: '/signin', error: '/signin' },
   callbacks: {
     signIn({ profile }) {
-      // §10: refuse anyone but the allowlisted address. A missing
+      // Refuse anyone but the allowlisted address. A missing
       // ALLOWED_EMAIL refuses everyone rather than admitting everyone.
       if (!allowedEmail) return false;
       const email = profile?.email?.trim().toLowerCase();

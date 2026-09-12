@@ -6,7 +6,7 @@
  * invariant that a word and its card state share one `createdAt`, without
  * which every seeded row drifts on the first `npm run recompute`.
  *
- * Dictionary fields come from Jotoba at seed time (§9), cached in `dict_cache`
+ * Dictionary fields come from Jotoba at seed time, cached in `dict_cache`
  * as usual. The seed file carries only what a dictionary cannot give: the
  * Vietnamese meaning and one example sentence with its ruby.
  *
@@ -75,7 +75,7 @@ for (const seed of N5_WORDS) {
 
   // No match means the reading in the seed file disagrees with the dictionary,
   // which is worth seeing rather than papering over: a wrong reading is a
-  // production card that marks a correct answer wrong (§6).
+  // production card that marks a correct answer wrong.
   if (!candidate) {
     problems.push(`${label}: Jotoba returned no candidate with this reading`);
     console.log(`  ✗ ${label} — no matching dictionary entry`);
@@ -107,10 +107,10 @@ for (const seed of N5_WORDS) {
       meaning: seed.meaning,
       pos,
       transitivity: candidate.transitivity,
-      // Not candidate.jlptHint: it is derived from the kanji and often wrong
-      // (§9). The deck knows its own level; /words can correct any of them.
+      // Not candidate.jlptHint: it is derived from the kanji and often wrong.
+      // The deck knows its own level; /words can correct any of them.
       jlpt: seed.jlpt ?? DECK_LEVEL,
-      // §9: Jotoba's English glosses are a sanity check, never saved. The
+      // Jotoba's English glosses are a sanity check, never saved. The
       // note stays empty for you to fill in from use.
       note: null,
       // Unihan already seeded these; insertWord leaves existing rows alone.

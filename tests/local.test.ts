@@ -7,9 +7,9 @@ import { toCard, toStateView } from '@/lib/fsrs/state';
 import type { CountedCards, ReviewItem, WordView } from '@/lib/types';
 
 /**
- * §8's load-bearing claim: the session can run on the device and the server
- * can replay it afterwards without the two disagreeing about where the card
- * ended up.
+ * The load-bearing claim behind offline review: the session can run on the
+ * device and the server can replay it afterwards without the two disagreeing
+ * about where the card ended up.
  *
  * That claim rests on two things, and this file tests both. The state view has
  * to round-trip to a real ts-fsrs card — otherwise the client resumes a
@@ -232,7 +232,7 @@ describe('countCard', () => {
   });
 
   /**
-   * §4: a new card walking its learning steps writes several rows the same day
+   * A new card walking its learning steps writes several rows the same day
    * and must not also spend a review slot.
    */
   it('leaves a card that is already counted alone', () => {

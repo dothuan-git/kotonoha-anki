@@ -13,7 +13,7 @@ export interface ReviewEdit {
 }
 
 /**
- * Fixing a word without leaving the session (§13).
+ * Fixing a word without leaving the session.
  *
  * A wrong meaning is most visible at the moment it is wrong, and the
  * alternative — remember it, finish the session, go to /words — is how a
@@ -22,7 +22,7 @@ export interface ReviewEdit {
  * that changes what the card *is*. Part of speech and JLPT belong to the word,
  * not to the review, and they are two taps away on /words.
  *
- * Editing the reading rewrites what a production card accepts (§6), which is
+ * Editing the reading rewrites what a production card accepts, which is
  * the whole point of being able to correct it here.
  */
 export function ReviewEditPanel({
@@ -36,7 +36,7 @@ export function ReviewEditPanel({
   saving: boolean;
   onCancel: () => void;
   onSave: (patch: ReviewEdit) => void;
-  /** §4's leech prompt reuses this panel, where leaving it is not a cancel. */
+  /** The leech prompt reuses this panel, where leaving it is not a cancel. */
   cancelLabel?: string;
 }) {
   const [headword, setHeadword] = useState(word.headword);

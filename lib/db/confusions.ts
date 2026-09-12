@@ -6,7 +6,7 @@ import { cards, confusions, words } from '@/lib/db/schema';
 import type { PendingConfusion } from '@/lib/types';
 
 /**
- * §13's confusion pairs — the half that touches the database.
+ * The confusion pairs — the half that touches the database.
  *
  * Recording is append-only, like `review_logs` and for the same reason: these
  * are observations, and the counts on /stats are a fold over them. The id is
@@ -38,9 +38,9 @@ export async function recordConfusions(batch: readonly PendingConfusion[]): Prom
   const wordByCard = new Map(owners.map((row) => [row.cardId, row.wordId]));
   if (wordByCard.size === 0) return 0;
 
-  // The whole collection, three columns of it. §1 is one person's vocabulary,
-  // so this is thousands of rows at the outside, and it is read only when a
-  // sync actually carries a wrong answer.
+  // The whole collection, three columns of it. This is one person's
+  // vocabulary, so this is thousands of rows at the outside, and it is read
+  // only when a sync actually carries a wrong answer.
   const collection: WordIdentity[] = await db
     .select({ id: words.id, headword: words.headword, reading: words.reading })
     .from(words);

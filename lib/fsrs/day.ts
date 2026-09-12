@@ -1,12 +1,12 @@
 /**
- * The study day, for §4's daily caps.
+ * The study day, for the daily caps.
  *
  * A day starts at 04:00 rather than midnight so a session that runs past
  * midnight keeps counting against the day it began — otherwise the caps
  * silently reset at 00:00 and hand out twelve more new cards.
  *
- * The zone is a constant, not a setting: §1 is explicit that this is one
- * person's app. Change these two values if that person moves.
+ * The zone is a constant, not a setting: this is a single-user app for one
+ * particular person. Change these two values if that person moves.
  */
 export const STUDY_TIME_ZONE = 'Asia/Ho_Chi_Minh';
 export const DAY_START_HOUR = 4;

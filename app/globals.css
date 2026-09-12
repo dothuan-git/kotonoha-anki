@@ -5,7 +5,7 @@
    toggle and the OS setting disagree. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* §11: tokens live in exactly one place. Tailwind v4 is CSS-first, so they are
+/* Tokens live in exactly one place. Tailwind v4 is CSS-first, so they are
    CSS custom properties here and exposed to utilities via @theme inline below
    — there is no tailwind.config.ts to mirror them into. */
 @theme inline {
@@ -170,7 +170,7 @@
 }
 
 
-/* §11: respect prefers-reduced-motion globally, once. */
+/* Respect prefers-reduced-motion globally, once. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

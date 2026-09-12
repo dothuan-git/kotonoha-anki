@@ -1,5 +1,5 @@
 /**
- * Seeds `kanji.han_viet` from the Unicode Consortium's Unihan database (§9).
+ * Seeds `kanji.han_viet` from the Unicode Consortium's Unihan database.
  *
  * Idempotent: re-running replaces each character's readings with what the file
  * says, so a Unihan revision can simply be re-applied. Nothing else on the row
@@ -12,8 +12,8 @@
  *   npm run seed:unihan            # uses the cached download if present
  *   npm run seed:unihan -- --fresh # force re-download
  *
- * §9 warns to expect gaps on rarer characters; the add form lets a Hán Việt
- * reading be typed by hand and persists it.
+ * Expect gaps on rarer characters; the add form lets a Hán Việt reading be
+ * typed by hand and persists it.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

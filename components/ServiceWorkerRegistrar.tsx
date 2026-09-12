@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 
 /**
- * Registers §8's service worker, and only in production.
+ * Registers the service worker, and only in production.
  *
  * In development it does the opposite and tears down anything already
  * registered. A worker caching hashed dev chunks that are rebuilt on every

@@ -1,10 +1,11 @@
 /**
- * §13's TTS, which is the platform's.
+ * TTS, which is the platform's.
  *
- * No audio is generated, stored or fetched. §2 lists no speech provider and
- * §1 rules out infrastructure this app does not need, and the Web Speech API
- * already reads Japanese on every platform this runs on — including on the
- * train, because the voice is installed on the device rather than streamed.
+ * No audio is generated, stored or fetched — this is a single-user app that
+ * does not need the infrastructure a speech provider would add, and the Web
+ * Speech API already reads Japanese on every platform this runs on —
+ * including on the train, because the voice is installed on the device
+ * rather than streamed.
  * A stored MP3 per word would buy identical audio across devices at the cost
  * of a provider, a key, a blob store and a sync path, for a single user who
  * listens on one phone.

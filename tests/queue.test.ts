@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { startOfNextStudyDay, startOfStudyDay } from '@/lib/fsrs/day';
 import { buildQueue, type QueueCandidate } from '@/lib/fsrs/queue';
 
-/** §4's queue order, with the caps and the same-word rule applied. */
+/** The queue order, with the caps and the same-word rule applied. */
 
 function review(id: string, minutesOverdue: number, wordId = `w-${id}`): QueueCandidate {
   return { cardId: id, wordId, order: -minutesOverdue };
@@ -74,7 +74,7 @@ describe('buildQueue', () => {
     expect(queue).toEqual([]);
   });
 
-  /** §4: never show two cards from the same word in one session. */
+  /** Never show two cards from the same word in one session. */
   it('never shows two cards from the same word', () => {
     const queue = buildQueue({
       reviews: [review('recognition', 50, 'word-1')],

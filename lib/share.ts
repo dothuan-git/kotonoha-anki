@@ -1,5 +1,5 @@
 /**
- * §10's share target, as a pure function.
+ * The share target, as a pure function.
  *
  * Android hands a Web Share Target three fields and no promise about which of
  * them holds anything useful. A dictionary app shares `text`; a browser shares
@@ -11,8 +11,8 @@
  * would only have to be cleared of.
  *
  * What this deliberately does not do is segment. Sharing a whole sentence
- * gives you the whole sentence in the box; §7 is explicit that no browser-side
- * tokeniser can tell 開ける from 開く, and guessing a word boundary here would
+ * gives you the whole sentence in the box; no browser-side tokeniser can
+ * tell 開ける from 開く, and guessing a word boundary here would
  * be the same mistake one layer up. Trimming it is a keystroke.
  */
 

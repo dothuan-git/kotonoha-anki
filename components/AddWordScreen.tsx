@@ -21,7 +21,7 @@ const JLPT_LABELS: Record<Jlpt, string> = {
 
 type Status = 'idle' | 'looking' | 'saving' | 'saved';
 
-/** Per-kanji Hán Việt, editable — §9 requires typing the Unihan gaps by hand. */
+/** Per-kanji Hán Việt, editable — for typing over the gaps in the Unihan data by hand. */
 type HanVietDraft = Array<{ char: string; reading: string }>;
 
 export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) {
@@ -40,7 +40,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
   const [status, setStatus] = useState<Status>('idle');
   const [autofilled, setAutofilled] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** null until the voice list has loaded — §13's TTS check, see lib/client/audio. */
+  /** null until the voice list has loaded — see the TTS check in lib/client/audio. */
   const [canSpeak, setCanSpeak] = useState<boolean | null>(null);
 
   const headwordRef = useRef<HTMLInputElement>(null);
@@ -67,7 +67,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
   }, []);
 
   /**
-   * §13's TTS, checked where it can still be acted on.
+   * The TTS check, run where it can still be acted on.
    *
    * Nothing is generated or stored: the voice is the platform's and it is on
    * the device, which is why it works on the train. What is worth knowing at

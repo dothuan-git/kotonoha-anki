@@ -15,7 +15,7 @@ export interface QueueEntry {
 }
 
 /**
- * §4's queue order.
+ * The queue order.
  *
  * Overdue reviews first, most overdue first; new cards interleaved at most one
  * per five reviews; never two cards from the same word in one session, with

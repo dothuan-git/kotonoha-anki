@@ -13,12 +13,12 @@ import type { FSRSParameters } from 'ts-fsrs';
 /**
  * The wire shape of a folded card, and the way back to a real ts-fsrs `Card`.
  *
- * Pure and free of `lib/db`, because §8 runs the scheduler client-side: the
+ * Pure and free of `lib/db`, because the scheduler runs client-side: the
  * browser has to rebuild a `Card` from what the session payload carried and
  * step it forward with no server in reach.
  *
- * Note what this is *not*. `card_states` — the table — still stores only the
- * columns §3 lists, and `learning_steps` is still deliberately absent from it
+ * Note what this is *not*. `card_states` — the table — still stores only a
+ * few plain columns, and `learning_steps` is still deliberately absent from it
  * (a step index the log already determines). `CardStateView` is the projection
  * on the wire, produced by a fold that just ran, so carrying the step costs
  * nothing and saves the client from folding a log it does not have.
@@ -42,7 +42,7 @@ export function toStateView(card: Card): CardStateView {
   };
 }
 
-/** The inverse. `toStateView(toCard(v))` is `v`, which is what makes §8 safe. */
+/** The inverse. `toStateView(toCard(v))` is `v`, which is what makes offline scheduling safe. */
 export function toCard(view: CardStateView): Card {
   return {
     due: new Date(view.due),
@@ -58,7 +58,7 @@ export function toCard(view: CardStateView): Card {
   };
 }
 
-/** §4's four buttons and what each would schedule ("10 phút", "2 ngày"). */
+/** The four rating buttons and what each would schedule ("10 phút", "2 ngày"). */
 export function toPreviews(card: Card, now: Date, params: FSRSParameters): RatingPreviews {
   const due = previewDueDates(card, now, params);
   const at = (r: RatingValue) => formatInterval(due[r].getTime() - now.getTime());
@@ -67,8 +67,8 @@ export function toPreviews(card: Card, now: Date, params: FSRSParameters): Ratin
 
 /**
  * A card put back by a learning step returns inside the session; anything
- * further out leaves it. Shared, because §8 has the client deciding this
- * offline and the server deciding it at sync — from the same threshold.
+ * further out leaves it. Shared, because the client decides this offline and
+ * the server decides it at sync — from the same threshold.
  */
 export function staysInSession(card: Card, now: Date): boolean {
   return card.due.getTime() - now.getTime() <= LEARN_AHEAD_MINUTES * 60_000;

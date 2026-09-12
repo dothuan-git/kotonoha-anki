@@ -26,8 +26,9 @@ const batchSchema = z.object({
     )
     .max(MAX_BATCH),
   /**
-   * §13's wrong answers, riding along. Optional because a client from before
-   * Phase 5 does not send them, and because most batches have none.
+   * Wrong answers that might name another word, riding along. Optional
+   * because an older client build might not send them, and because most
+   * batches have none.
    */
   confusions: z
     .array(
@@ -43,7 +44,7 @@ const batchSchema = z.object({
 });
 
 /**
- * POST /api/sync — the offline log batch (§8, §10).
+ * POST /api/sync — the offline log batch.
  *
  * The client posts its outbox and takes what comes back, discarding whatever
  * it scheduled locally. The server wins because it is the only party that

@@ -160,7 +160,7 @@ function dedupeById<T extends { id: string }>(rows: T[]): T[] {
 const SETTINGS_ID = 1;
 
 /**
- * The single settings row, created with §4's defaults on first read.
+ * The single settings row, created with the default caps on first read.
  *
  * A read, so it lives here rather than in lib/actions: every export of a
  * 'use server' module becomes a callable endpoint, and a read exported from

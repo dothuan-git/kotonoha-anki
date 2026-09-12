@@ -7,7 +7,7 @@ import {
 } from '@/lib/types';
 
 /**
- * §8's outbox: ratings that have happened, waiting to reach the server.
+ * The offline outbox: ratings that have happened, waiting to reach the server.
  *
  * Every rating goes through here, online and off. There is no second path for
  * the connected case — that is the point. An offline review and an online one
@@ -33,7 +33,7 @@ export async function enqueue(pending: PendingReview, queuedAt = Date.now()): Pr
 }
 
 /**
- * §13 — a wrong answer that might name another word, queued for the server
+ * A wrong answer that might name another word, queued for the server
  * to resolve.
  *
  * Not held back for the undo window the way a rating is. Undo takes back a
@@ -73,15 +73,15 @@ export async function pendingCount(): Promise<number> {
 }
 
 /**
- * §5's undo, taken at the only point where it costs nothing.
+ * Undo, taken at the only point where it costs nothing.
  *
  * Returns true if the row was still here — in which case nothing was ever
- * written, there is no log to delete, and `review_logs` keeps the property §3
- * asks of it. Returns false once the entry has been flushed, and the caller
+ * written, there is no log to delete, and `review_logs` keeps its append-only
+ * property. Returns false once the entry has been flushed, and the caller
  * has to go to the server and spend the one deletion the table permits.
  *
- * The README's note for this phase asks for exactly this guard: an undone
- * review must never reach /api/sync at all.
+ * An undone review must never reach /api/sync at all — this is the guard
+ * that makes that true.
  */
 export async function takeBack(logId: string): Promise<boolean> {
   const db = openLocalDb();
@@ -102,7 +102,7 @@ export async function takeBack(logId: string): Promise<boolean> {
 /**
  * POST what is ready to /api/sync and drop what the server took.
  *
- * Entries younger than §5's undo window are held back. The window is a client
+ * Entries younger than the undo window are held back. The window is a client
  * concern — the toast is still up, the rating can still be taken back — and
  * not sending them means the common undo deletes a local row instead of a
  * committed one. An entry held back is not at risk: it is already durable in

@@ -4,7 +4,7 @@ import { jotobaFuriganaToRuby } from '@/lib/dict/furigana';
 import { escapeRuby, parseRuby, rubyToPlain, rubyToReading } from '@/lib/ruby';
 
 describe('parseRuby', () => {
-  it('parses the format from §7', () => {
+  it('parses the ruby format', () => {
     expect(parseRuby('窓[まど]を開[あ]けてください。')).toEqual([
       { base: '窓', ruby: 'まど' },
       { base: 'を' },

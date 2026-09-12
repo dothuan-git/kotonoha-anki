@@ -6,7 +6,7 @@ import type { MaturitySlice } from '@/lib/stats';
  * Chart 4 — the collection, split by how well it is known.
  *
  * Part-to-whole, so one stacked bar rather than five columns: the question is
- * what share of the collection has made it past §4's 21-day line, and a bar
+ * what share of the collection has made it past the 21-day line, and a bar
  * answers that without the reader adding anything up.
  *
  * The buckets are ordered, so they wear a single-hue ramp, light to dark.
@@ -45,7 +45,7 @@ export function MaturityBar({ slices }: { slices: MaturitySlice[] }) {
         The legend doubles as the value table. Five labels with a count each
         read better in a column than as direct labels crammed into segments
         that are often only a few pixels wide — and a label that would not fit
-        inside its segment does not get put there (§ marks: never clipped).
+        inside its segment does not get put there — labels are never clipped.
       */}
       <ul className="mt-3 space-y-1.5">
         {slices.map((slice) => (

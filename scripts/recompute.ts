@@ -1,5 +1,5 @@
 /**
- * Rebuilds every `card_states` row from `review_logs` (§5).
+ * Rebuilds every `card_states` row from `review_logs`.
  *
  * The point is not repair — it is the check that card state really is a
  * projection. If this reports drift on a collection nobody has touched, then
@@ -9,7 +9,7 @@
  *   npm run recompute -- --check # report only, write nothing
  *
  * Drift is expected exactly twice: after changing `request_retention` or any
- * other scheduler parameter (§4), which reschedules the whole collection by
+ * other scheduler parameter, which reschedules the whole collection by
  * design, and on rows written before the card state and its word shared one
  * creation timestamp.
  */

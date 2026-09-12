@@ -24,7 +24,7 @@ export function isRatingValue(n: number): n is RatingValue {
 /**
  * The slice of a `review_logs` row a replay needs. `id` is only a tie-break:
  * two devices can write the same `reviewed_at` for different cards, and the
- * fold must not depend on which arrived first (§8).
+ * fold must not depend on which arrived first.
  */
 export interface ReplayLog {
   id: string;
@@ -42,7 +42,7 @@ export function emptyCard(createdAt: Date): Card {
 }
 
 /**
- * §5 — the projection. `state(card) = logs.sortBy(reviewed_at).reduce(fsrs.next)`.
+ * The projection. `state(card) = logs.sortBy(reviewed_at).reduce(fsrs.next)`.
  *
  * Every card state in the app comes through here. Nothing accumulates state in
  * place, so replaying the same log always lands on the same card: ts-fsrs's
@@ -63,7 +63,7 @@ export function foldLogs(
 }
 
 /**
- * Chronological, with `id` breaking ties. Two devices reviewing offline (§8)
+ * Chronological, with `id` breaking ties. Two devices reviewing offline
  * can produce identical timestamps; without a total order the same log could
  * fold two ways.
  */

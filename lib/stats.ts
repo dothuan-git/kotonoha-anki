@@ -3,16 +3,16 @@ import { State } from '@/lib/fsrs/replay';
 import type { ConfusionPair } from '@/lib/confusion';
 
 /**
- * §10's four charts, as pure functions over rows.
+ * The four /stats charts, as pure functions over rows.
  *
- * Everything here buckets by the **study day** (§4 — 04:00 Asia/Ho_Chi_Minh),
+ * Everything here buckets by the **study day** (04:00 Asia/Ho_Chi_Minh),
  * not by the calendar day, because that is the day the caps are kept in. A
  * session that runs to half past midnight belongs to the day it started, and a
  * chart that put those reviews on the next column would disagree with the
  * "12/100 hôm nay" the reviewer showed while they were happening.
  *
  * Separate from `lib/db/stats.ts` on purpose: the bucketing is the part that
- * is easy to get subtly wrong, and it is the part worth testing (§12).
+ * is easy to get subtly wrong, and it is the part worth testing.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -102,7 +102,7 @@ export interface VolumeDay {
 /**
  * Chart 1 — how much was studied, per day.
  *
- * Cards are counted the way §4's caps count them (`getCountedCards`): once per
+ * Cards are counted the way the daily caps count them (`getCountedCards`): once per
  * day, in the bucket of their first showing. A new card walking `['1m','10m']`
  * writes three rows and is still one new card. `ratings` keeps the raw count
  * alongside, because the gap between them is the day's re-lapses and that is
@@ -143,8 +143,8 @@ export interface ForecastDay {
 /**
  * Chart 2 — what is coming.
  *
- * New cards are left out. Their `due` is the word's creation time (§5 seeds the
- * fold from it), so every one of them is "overdue" by construction; what
+ * New cards are left out. Their `due` is the word's creation time (the fold
+ * seeds from it), so every one of them is "overdue" by construction; what
  * actually releases them is the daily cap, not the clock. Putting them on a
  * forecast would say the next 300 days all happen tomorrow.
  */
@@ -188,12 +188,12 @@ export interface RetentionWeek {
  * cards that were *already known*: a rating on a card in `State.New` is the
  * first time it has ever been seen, so grading it Quên says nothing about
  * recall. Including those would drag the line down by exactly the rate at
- * which new words are being added, which is a chart about §4's caps rather
- * than about memory.
+ * which new words are being added, which is a chart about the daily caps
+ * rather than about memory.
  *
  * Weekly rather than daily because a day is 20–100 reviews and the noise
- * swamps the signal; §4 aims at `request_retention`, and the question is
- * whether the line sits near it.
+ * swamps the signal; the scheduler aims at `request_retention`, and the
+ * question is whether the line sits near it.
  */
 export function bucketRetention(
   logs: readonly StatLog[],
@@ -233,8 +233,8 @@ export function bucketRetention(
  * Chart 4's buckets, in order. Ordered, which is why the chart wears a
  * sequential ramp rather than four unrelated hues.
  *
- * The 21-day boundary is §4's: it is the stability at which a word's
- * production card unlocks, so it is already the line this collection draws
+ * The 21-day boundary is the same one a word's production card unlocks at,
+ * so it is already the line this collection draws
  * between "seen it" and "knows it".
  */
 export const MATURITY_BUCKETS = ['new', 'learning', 'young', 'mature', 'retired'] as const;
@@ -293,7 +293,7 @@ export interface StatsView {
   forecast: ForecastDay[];
   overdue: number;
   retention: RetentionWeek[];
-  /** §4's target, the line the retention chart is read against. */
+  /** The scheduler's target, the line the retention chart is read against. */
   requestRetention: number;
   maturity: MaturitySlice[];
   confusions: ConfusionPair[];

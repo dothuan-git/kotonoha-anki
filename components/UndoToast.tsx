@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { RATING_LABELS, UNDO_WINDOW_MS } from '@/lib/types';
 
 /**
- * §5's ten-second undo, as the prototype drew it.
+ * The ten-second undo, as the prototype drew it.
  *
  * The countdown is cosmetic. The window is enforced on the server against
  * `reviewed_at`, so a tab left open overnight cannot delete a log row from
