@@ -6,7 +6,7 @@ import { db } from '@/lib/db';
 import { getSettings, hydrateWords } from '@/lib/db/queries';
 import { cardStates, cards, reviewLogs, words } from '@/lib/db/schema';
 import { startOfNextStudyDay, startOfStudyDay } from '@/lib/fsrs/day';
-import { LEARN_AHEAD_MINUTES, schedulerParams } from '@/lib/fsrs/params';
+import { LEARN_AHEAD_MINUTES, LEECH_LAPSES, schedulerParams } from '@/lib/fsrs/params';
 import { buildQueue, type QueueCandidate, type QueueEntry } from '@/lib/fsrs/queue';
 import {
   State,
@@ -84,6 +84,7 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
       cardId: cards.id,
       wordId: cards.wordId,
       cardType: cards.cardType,
+      leechAckedAt: cards.leechAckedAt,
       due: cardStates.due,
       state: cardStates.state,
       createdAt: words.createdAt,
@@ -151,7 +152,10 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
  */
 async function hydrateQueue(
   queue: readonly QueueEntry[],
-  meta: Map<string, { cardType: ReviewItem['cardType']; createdAt: Date }>,
+  meta: Map<
+    string,
+    { cardType: ReviewItem['cardType']; leechAckedAt: Date | null; createdAt: Date }
+  >,
   params: FsrsParams,
   now: Date,
 ): Promise<ReviewItem[]> {
@@ -182,6 +186,7 @@ async function hydrateQueue(
       word,
       state: toStateView(folded),
       previews: toPreviews(folded, now, params),
+      leechAcked: card.leechAckedAt !== null,
     });
   }
   return items;
@@ -241,16 +246,24 @@ export async function applyReview(input: {
 }): Promise<RateResult> {
   const now = input.now ?? new Date();
 
+  // `active` is deliberately not part of this guard, though the queue filters
+  // on it. It decides what a session *hands you*; it does not decide whether a
+  // review that has already happened may be recorded. §4's leech rule
+  // deactivates a production card mid-session, and the rating that triggered it
+  // is at that moment sitting in the outbox — rejecting it would throw away a
+  // review the user actually did. A suspended word still rejects: §4 treats
+  // suspension as taking the word out of the collection, not out of rotation.
   const [available] = await db
     .select({
       id: cards.id,
       wordId: cards.wordId,
       cardType: cards.cardType,
+      leechAckedAt: cards.leechAckedAt,
       wordCreatedAt: words.createdAt,
     })
     .from(cards)
     .innerJoin(words, eq(words.id, cards.wordId))
-    .where(and(eq(cards.id, input.cardId), eq(cards.active, true), eq(words.suspended, false)))
+    .where(and(eq(cards.id, input.cardId), eq(words.suspended, false)))
     .limit(1);
   if (!available) throw new ReviewError('card-unavailable');
 
@@ -265,7 +278,11 @@ export async function applyReview(input: {
     .from(reviewLogs)
     .where(eq(reviewLogs.id, input.logId))
     .limit(1);
-  if (existing) return describe(input.cardId, folded.card, now, folded.params);
+  if (existing) {
+    return describe(input.cardId, folded.card, now, folded.params, {
+      leechAcked: available.leechAckedAt !== null,
+    });
+  }
 
   // The fold is ordered by reviewed_at, so a clock that went backwards would
   // silently reorder history. Nudge past the last entry instead.
@@ -304,7 +321,10 @@ export async function applyReview(input: {
       ? await unlockProductionCard(available.wordId, available.wordCreatedAt, next.card)
       : false;
 
-  return describe(input.cardId, next.card, reviewedAt, folded.params, unlockedProduction);
+  return describe(input.cardId, next.card, reviewedAt, folded.params, {
+    unlockedProduction,
+    leechAcked: available.leechAckedAt !== null,
+  });
 }
 
 function describe(
@@ -312,14 +332,15 @@ function describe(
   card: Card,
   now: Date,
   params: FsrsParams,
-  unlockedProduction = false,
+  flags: { unlockedProduction?: boolean; leechAcked: boolean },
 ): RateResult {
   return {
     cardId,
     state: toStateView(card),
     previews: toPreviews(card, now, params),
     repeat: staysInSession(card, now),
-    unlockedProduction,
+    unlockedProduction: flags.unlockedProduction ?? false,
+    leech: !flags.leechAcked && card.lapses >= LEECH_LAPSES,
   };
 }
 
@@ -460,6 +481,7 @@ export async function syncReviews(
   const rejected: SyncResult['rejected'] = [];
   const states: SyncResult['states'] = {};
   const unlocked: string[] = [];
+  const leeches = new Set<string>();
 
   for (const entry of ordered) {
     // A device clock that runs fast would otherwise schedule from the future
@@ -477,6 +499,9 @@ export async function syncReviews(
       applied.push(entry.id);
       states[entry.cardId] = { state: result.state, previews: result.previews };
       if (result.unlockedProduction) unlocked.push(entry.cardId);
+      // §4's prompt, for the card whose sixth lapse happened on another
+      // device. The one in front of you worked this out without a round trip.
+      if (result.leech) leeches.add(entry.cardId);
 
     } catch (error) {
       if (error instanceof ReviewError && PERMANENT.has(error.reason)) {
@@ -504,7 +529,14 @@ export async function syncReviews(
 
   // Counted against the server's own clock rather than the batch's, because
   // §4's caps are spent against the study day that is running now.
-  return { applied, rejected, states, unlocked, countedCards: await getCountedCards(now) };
+  return {
+    applied,
+    rejected,
+    states,
+    unlocked,
+    leeches: [...leeches],
+    countedCards: await getCountedCards(now),
+  };
 }
 
 /** §5 — recomputes one card from its log and stores the result. */

@@ -38,7 +38,11 @@ const word: WordView = {
 
 const CARD_ID = 'c0000000-0000-4000-8000-000000000001';
 
-function item(state = toStateView(emptyCard(created)), isNew = true): ReviewItem {
+function item(
+  state = toStateView(emptyCard(created)),
+  isNew = true,
+  leechAcked = false,
+): ReviewItem {
   return {
     cardId: CARD_ID,
     cardType: 'recognition',
@@ -46,6 +50,7 @@ function item(state = toStateView(emptyCard(created)), isNew = true): ReviewItem
     word,
     state,
     previews: { 1: '', 2: '', 3: '', 4: '' },
+    leechAcked,
   };
 }
 

@@ -30,11 +30,14 @@ export function ReviewEditPanel({
   saving,
   onCancel,
   onSave,
+  cancelLabel = 'Huỷ',
 }: {
   word: WordView;
   saving: boolean;
   onCancel: () => void;
   onSave: (patch: ReviewEdit) => void;
+  /** §4's leech prompt reuses this panel, where leaving it is not a cancel. */
+  cancelLabel?: string;
 }) {
   const [headword, setHeadword] = useState(word.headword);
   const [reading, setReading] = useState(word.reading);
@@ -86,7 +89,7 @@ export function ReviewEditPanel({
           className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)]"
         >
           <X className="h-3.5 w-3.5" />
-          Huỷ
+          {cancelLabel}
         </button>
         <button
           type="button"
