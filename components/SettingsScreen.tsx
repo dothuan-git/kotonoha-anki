@@ -41,8 +41,8 @@ export function SettingsScreen({
     <div className="w-full">
       <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">Cài đặt</h1>
       <p className="mt-1 text-xs text-[var(--text-muted)]">
-        Giới hạn mỗi ngày và mục tiêu ghi nhớ sẽ có hiệu lực khi bộ lập lịch hoạt động (giai đoạn
-        2).
+        Giới hạn mỗi ngày áp dụng cho phiên ôn tập kế tiếp. Đổi mục tiêu ghi nhớ sẽ tính lại lịch
+        của cả sổ từ — chạy “npm run recompute” sau khi đổi.
       </p>
 
       <section className="mt-5 space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-xs">
