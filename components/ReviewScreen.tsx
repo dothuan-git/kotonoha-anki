@@ -12,25 +12,33 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
-import { useCallback, useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 
 import { AnswerInput } from '@/components/AnswerInput';
 import { ReviewEditPanel, type ReviewEdit } from '@/components/ReviewEditPanel';
 import { Ruby } from '@/components/Ruby';
+import { SyncStatus } from '@/components/SyncStatus';
 import { UndoToast } from '@/components/UndoToast';
-import { rateCard, undoReview } from '@/lib/actions/review';
+import { undoReview } from '@/lib/actions/review';
 import { updateWord } from '@/lib/actions/words';
 import { playJapaneseAudio } from '@/lib/client/audio';
+import { useOnline } from '@/lib/client/online';
+import { enqueue, flush, pendingCount, takeBack } from '@/lib/client/outbox';
+import { chooseSession, loadSession, saveSession } from '@/lib/client/session';
 import { STUDY_TIME_ZONE } from '@/lib/fsrs/day';
 import { formatDueIn } from '@/lib/fsrs/format';
+import { countCard, rateLocally } from '@/lib/fsrs/local';
 import {
   RATING_LABELS,
   UNDO_WINDOW_MS,
   formatHanViet,
   formatPos,
+  tallyCounts,
+  type CountedCards,
   type DailyCounts,
   type ReviewItem,
   type SessionView,
+  type SyncResult,
   type WordView,
 } from '@/lib/types';
 
@@ -68,7 +76,16 @@ interface Undoable {
   item: ReviewItem;
   rating: Rating;
   expiresAt: number;
+  /**
+   * This rating is what put the card into today's tally, so undoing it takes
+   * the card back out. A repeat of a card already counted this morning did
+   * not, and must leave the count alone.
+   */
+  counted: boolean;
 }
+
+/** How often the outbox is checked while anything is waiting in it. */
+const FLUSH_INTERVAL_MS = 5_000;
 
 /**
  * The prototype's ReviewScreen, rebuilt on the real scheduler.
@@ -84,11 +101,20 @@ interface Undoable {
  * and asks you to type it; the answer goes through §6's exact matcher, a wrong
  * one can only be graded Quên, and "gõ nhầm" throws the attempt away without
  * writing a log at all.
+ *
+ * Phase 4 cut the server out of the loop. A rating is scheduled here, on the
+ * device, and goes into an outbox; `/api/sync` replays the outbox and hands
+ * back the authoritative fold, which replaces whatever was computed locally.
+ * There is no online path and offline path — there is one path, and being
+ * online only means it drains sooner. Airplane mode is therefore not a mode
+ * this screen knows about: it is what the ordinary path looks like when
+ * nothing is draining.
  */
-export function ReviewScreen({ session }: { session: SessionView }) {
-  const [queue, setQueue] = useState<ReviewItem[]>(session.items);
+export function ReviewScreen({ session: serverSession }: { session: SessionView }) {
+  const [session, setSession] = useState<SessionView>(serverSession);
+  const [queue, setQueue] = useState<ReviewItem[]>(serverSession.items);
   const [answered, setAnswered] = useState<Answered[]>([]);
-  const [counts, setCounts] = useState<DailyCounts>(session.counts);
+  const [countedCards, setCountedCards] = useState<CountedCards>(serverSession.countedCards);
   const [isRevealed, setIsRevealed] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   /** Bumped by "gõ nhầm" to remount the answer field with an empty value. */
@@ -100,8 +126,134 @@ export function ReviewScreen({ session }: { session: SessionView }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, startTransition] = useTransition();
 
+  /**
+   * Whether the resume decision has been made. Until it has, what is on screen
+   * is the server's payload, which may be a cached render of a session that
+   * was finished hours ago — so rating is held back rather than applied to a
+   * card that is about to be replaced.
+   */
+  const [ready, setReady] = useState(false);
+  const [pending, setPending] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const online = useOnline();
+
+  const counts = tallyCounts(countedCards);
   const currentWord = queue[0];
   const isProduction = currentWord?.cardType === 'production';
+
+  /**
+   * Applying what came back from /api/sync: the server folded each card's
+   * whole log, this screen only ever folded the slice it was handed, so the
+   * server wins outright (§8). Cards that have already left the queue need
+   * nothing — their state is on the server, which is where the next session
+   * reads it from.
+   */
+  const applySync = useCallback((result: SyncResult) => {
+    setCountedCards(result.countedCards);
+    setQueue((q) =>
+      q.map((item) => {
+        const authoritative = result.states[item.cardId];
+        return authoritative
+          ? { ...item, state: authoritative.state, previews: authoritative.previews }
+          : item;
+      }),
+    );
+
+    if (result.unlocked.length > 0) {
+      setNotice(`Đã mở ${result.unlocked.length} thẻ gõ mới — sẽ xuất hiện ở phiên sau.`);
+    }
+    if (result.rejected.length > 0) {
+      // Permanently refused: the card was deleted or suspended between the
+      // rating and the sync. Saying so is the honest option — the alternative
+      // is an outbox that quietly never empties.
+      setError(`${result.rejected.length} lượt ôn không gửi được (thẻ đã bị xoá hoặc tạm dừng).`);
+    }
+  }, []);
+
+  const sync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const result = await flush();
+      if (result) applySync(result);
+    } finally {
+      setSyncing(false);
+      setPending(await pendingCount());
+    }
+  }, [applySync]);
+
+  const syncRef = useRef(sync);
+  syncRef.current = sync;
+
+  /**
+   * §8's prefetch, and the resume decision.
+   *
+   * The day's cards, words and sentences already arrived in the payload that
+   * rendered this page, so prefetching them means keeping them. What takes a
+   * moment is deciding whether to believe them — see `chooseSession`.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const now = new Date();
+      const [stored, waiting] = await Promise.all([loadSession(now), pendingCount()]);
+      if (cancelled) return;
+
+      const chosen = chooseSession({
+        server: serverSession,
+        stored,
+        pendingCount: waiting,
+        online: typeof navigator === 'undefined' ? true : navigator.onLine,
+        now,
+      });
+
+      setSession(chosen.session);
+      setQueue(chosen.session.items);
+      setCountedCards(chosen.session.countedCards);
+      setPending(waiting);
+      setReady(true);
+      await saveSession(chosen.session, now);
+      if (!cancelled) await syncRef.current();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [serverSession]);
+
+  /**
+   * Keep the stored queue equal to what is left, not to what the day started
+   * as. Close the tab two stations early and the next open resumes here.
+   */
+  useEffect(() => {
+    if (!ready) return;
+    void saveSession({ ...session, items: queue, countedCards });
+  }, [ready, session, queue, countedCards]);
+
+  /**
+   * Drain the outbox. Entries are held back for §5's undo window, so a flush
+   * straight after a rating deliberately does nothing and this poll is what
+   * eventually sends it.
+   */
+  useEffect(() => {
+    if (!ready || pending === 0 || !online) return;
+    const id = setInterval(() => void sync(), FLUSH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [ready, pending, online, sync]);
+
+  /** Coming out of a tunnel, or back to the tab, is worth trying at once. */
+  useEffect(() => {
+    if (!ready) return;
+    const retry = () => {
+      if (document.visibilityState === 'visible') void sync();
+    };
+    window.addEventListener('online', retry);
+    document.addEventListener('visibilitychange', retry);
+    return () => {
+      window.removeEventListener('online', retry);
+      document.removeEventListener('visibilitychange', retry);
+    };
+  }, [ready, sync]);
 
   const handleReveal = useCallback(() => {
     if (!currentWord || isProduction) return;
@@ -130,60 +282,82 @@ export function ReviewScreen({ session }: { session: SessionView }) {
     setAttemptSeq((n) => n + 1);
   }, []);
 
+  /**
+   * One rating, scheduled here (§8) and queued for the server.
+   *
+   * Nothing is awaited. The card moves because the scheduler said so, not
+   * because a round trip came back — which is what makes the session work in
+   * a tunnel, and incidentally what makes it feel immediate on a good
+   * connection. What the server eventually says replaces this.
+   */
   const handleRate = useCallback(
     (rating: Rating) => {
       const item = queue[0];
-      if (!item) return;
+      if (!item || !ready) return;
       // A wrong production answer is a miss (§6); the buttons that would
       // grade it as anything else are not rendered, and not reachable by key.
       if (item.cardType === 'production' && attempt && !attempt.correct && rating !== 1) return;
 
-      // Generated here so a retried submit lands on the same row instead of
-      // logging the review twice (§3) — and so undo knows which row to delete.
+      // Generated here so a retried send lands on the same row instead of
+      // logging the review twice (§3) — and so undo knows which row to drop.
       const logId = crypto.randomUUID();
+      const now = new Date();
+      const { result, pending: entry } = rateLocally({
+        logId,
+        item,
+        rating,
+        now,
+        requestRetention: session.requestRetention,
+      });
 
       setError(null);
       setNotice(null);
       setIsRevealed(false);
       setAttempt(null);
       setEditing(false);
-      setQueue((q) => q.slice(1));
       setAnswered((a) => [...a, { logId, item, rating }]);
-
-      startTransition(async () => {
-        const result = await rateCard({ logId, cardId: item.cardId, rating });
-
-        if (!result.ok) {
-          setError(result.error);
-          setAnswered((a) => a.filter((x) => x.logId !== logId));
-          setQueue((q) => [item, ...q]);
-          return;
-        }
-
-        setCounts(result.data.counts);
-        setUndoable({ logId, item, rating, expiresAt: Date.now() + UNDO_WINDOW_MS });
-        if (result.data.unlockedProduction) {
-          setNotice(`Đã mở thẻ gõ cho ${item.word.headword} — sẽ xuất hiện ở phiên sau.`);
-        }
-        if (result.data.repeat) {
-          const updated: ReviewItem = {
-            ...item,
-            isNew: false,
-            state: result.data.state,
-            previews: result.data.previews,
-          };
-          setQueue((q) => [...q.slice(0, LEARNING_GAP), updated, ...q.slice(LEARNING_GAP)]);
-        }
+      setCountedCards((c) => countCard(c, item));
+      setQueue((q) => {
+        const rest = q.slice(1);
+        if (!result.repeat) return rest;
+        // A learning step puts the card back a couple of cards later rather
+        // than at the end: 1m and 10m are inside the session, not after it.
+        const updated: ReviewItem = {
+          ...item,
+          isNew: false,
+          state: result.state,
+          previews: result.previews,
+        };
+        return [...rest.slice(0, LEARNING_GAP), updated, ...rest.slice(LEARNING_GAP)];
       });
+      setUndoable({
+        logId,
+        item,
+        rating,
+        expiresAt: now.getTime() + UNDO_WINDOW_MS,
+        counted: countedCards[item.cardId] === undefined,
+      });
+
+      void enqueue(entry, now.getTime()).then(async () => setPending(await pendingCount()));
     },
-    [queue, attempt],
+    [queue, attempt, ready, session.requestRetention, countedCards],
   );
 
   /**
-   * §5's undo: the server deletes that one log row and refolds the card, and
-   * what comes back is the state the shorter log implies. The card goes back
-   * in front of you carrying it, rather than the values it had before — those
-   * were a different card's worth of history.
+   * §5's undo, which now has a cheap case and an expensive one.
+   *
+   * The cheap case is the common one: the rating is still in the outbox,
+   * because the flush holds entries back for exactly this window. Dropping it
+   * there means nothing was ever written, so there is no log row to delete and
+   * `review_logs` keeps the append-only property §3 asks of it. The card comes
+   * back carrying the state it had before — which is simply correct, since
+   * nothing happened to it.
+   *
+   * The expensive case is a rating that already left the device — flushed from
+   * another tab, or synced from another device. Then it costs the one deletion
+   * the table permits: the server drops that row by id, refolds, and hands
+   * back the state the shorter log implies. Not the values the client had
+   * cached; those were a different card's worth of history.
    */
   const handleUndo = useCallback(() => {
     const last = undoable;
@@ -192,24 +366,36 @@ export function ReviewScreen({ session }: { session: SessionView }) {
     setError(null);
     setNotice(null);
 
-    startTransition(async () => {
-      const result = await undoReview(last.logId);
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-
-      setCounts(result.data.counts);
+    const restore = (state: ReviewItem['state'], previews: ReviewItem['previews']) => {
       setAnswered((a) => a.filter((x) => x.logId !== last.logId));
       setIsRevealed(false);
       setAttempt(null);
       setEditing(false);
       setQueue((q) => [
-        { ...last.item, state: result.data.state, previews: result.data.previews },
+        { ...last.item, state, previews },
         // A learning step may have put this card back further down; the undone
         // review is the reason it is there, so that copy goes too.
         ...q.filter((i) => i.cardId !== last.item.cardId),
       ]);
+    };
+
+    startTransition(async () => {
+      if (await takeBack(last.logId)) {
+        setPending(await pendingCount());
+        if (last.counted) {
+          setCountedCards(({ [last.item.cardId]: _undone, ...rest }) => rest);
+        }
+        restore(last.item.state, last.item.previews);
+        return;
+      }
+
+      const result = await undoReview(last.logId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setCountedCards(result.data.countedCards);
+      restore(result.data.state, result.data.previews);
     });
   }, [undoable]);
 
@@ -257,13 +443,15 @@ export function ReviewScreen({ session }: { session: SessionView }) {
   }, [isRevealed, handleReveal, handleRate]);
 
   if (!currentWord) {
-    // The queue can be momentarily empty while the last rating is in flight: a
-    // learning step puts that card straight back. Showing the finished screen
-    // here would flash "done" and then take it away again.
-    if (saving) {
+    // Two reasons not to announce the day is over yet. The resume decision may
+    // still be pending, and the payload that rendered this page can be a
+    // cached one whose queue was emptied hours ago — saying "done" and then
+    // producing a card would be worse than a beat of waiting. An undo in
+    // flight is the other: it puts a card straight back.
+    if (!ready || saving) {
       return (
         <div className="w-full max-w-lg mx-auto py-16 px-6 text-center text-sm text-[var(--text-muted)]">
-          Đang lưu…
+          Đang tải…
         </div>
       );
     }
@@ -306,6 +494,8 @@ export function ReviewScreen({ session }: { session: SessionView }) {
 
         {/* Card mode & per-card controls */}
         <div className="flex items-center gap-2">
+          <SyncStatus online={online} pending={pending} syncing={syncing} />
+
           {/*
             The prototype made this a toggle. It is not a preference any more:
             recognition and production are two cards on the same word (§4), the

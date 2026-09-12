@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Kotonoha">
+  <!--
+    The hanko seal from KotonohaLogo, drawn as paths rather than set in type.
+    An icon is rasterised by the launcher, which has no idea what Shippori
+    Mincho is, so 言 is geometry here: the tick, the long stroke, two bars and
+    the box, in that order.
+  -->
+  <title>Kotonoha</title>
+  <rect width="512" height="512" rx="112" fill="#F6F3EC"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#B7D9B1" stroke-width="12"/>
+
+  <g fill="#35652E">
+    <rect x="236" y="142" width="40" height="22" rx="10"/>
+    <rect x="152" y="186" width="208" height="24" rx="12"/>
+    <rect x="186" y="238" width="140" height="20" rx="10"/>
+    <rect x="186" y="282" width="140" height="20" rx="10"/>
+  </g>
+  <rect x="186" y="330" width="140" height="84" rx="10" fill="none" stroke="#35652E" stroke-width="22"/>
+
+  <!-- The bamboo sprig, from the logo's own paths. -->
+  <g transform="translate(332 40) scale(5.6)" fill="#35652E">
+    <path d="M12 2C12 2 15 7 19 8C23 9 22 13 18 12C14 11 12 7 12 2Z" opacity="0.95"/>
+    <path d="M11 6C11 6 8 9 5 11C2 13 4 16 7 14C10 12 11 9 11 6Z" opacity="0.8"/>
+  </g>
+</svg>

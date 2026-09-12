@@ -1,0 +1,50 @@
+{
+  "id": "/",
+  "name": "Kotonoha",
+  "short_name": "Kotonoha",
+  "description": "Sổ tay từ vựng tiếng Nhật cá nhân.",
+  "lang": "vi",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F3EC",
+  "theme_color": "#F6F3EC",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/api/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "Thêm từ",
+      "short_name": "Thêm từ",
+      "url": "/add"
+    },
+    {
+      "name": "Kho từ",
+      "short_name": "Kho từ",
+      "url": "/words"
+    }
+  ]
+}

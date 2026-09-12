@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 
 import { AppNav } from '@/components/AppNav';
+import { ServiceWorkerRegistrar } from '@/components/ServiceWorkerRegistrar';
 import { ThemeScript } from '@/components/ThemeScript';
 
 import './globals.css';
@@ -8,6 +9,23 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Kotonoha',
   description: 'Sổ tay từ vựng tiếng Nhật cá nhân.',
+  manifest: '/manifest.webmanifest',
+  applicationName: 'Kotonoha',
+  /**
+   * The icons are SVG, which Chrome on Android installs from happily. iOS does
+   * not: `apple-touch-icon` has to be a PNG, so adding Kotonoha to an iOS home
+   * screen gives a screenshot-derived icon until a PNG is dropped into
+   * /public/icons and named here. The share target is Chrome-only anyway (§10),
+   * so Android is the platform this phase is actually for.
+   */
+  icons: {
+    icon: [{ url: '/icons/icon.svg', type: 'image/svg+xml' }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: 'Kotonoha',
+    statusBarStyle: 'default',
+  },
 };
 
 /**
@@ -19,7 +37,15 @@ export const dynamic = 'force-dynamic';
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#F6F3EC',
+  // Installed, the theme colour is the window chrome, so it follows the theme
+  // rather than sitting on one of them.
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#F6F3EC' },
+    { media: '(prefers-color-scheme: dark)', color: '#131713' },
+  ],
+  // The nav is fixed to the bottom edge; without this it sits under the home
+  // indicator once the app is installed.
+  viewportFit: 'cover',
 };
 
 const FONTS =
@@ -44,6 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main className="flex-1 px-4 pb-24 pt-4 sm:px-6">{children}</main>
           <AppNav />
         </div>
+        <ServiceWorkerRegistrar />
       </body>
     </html>
   );
