@@ -16,7 +16,7 @@ import {
   type RatingValue,
   type ReplayLog,
 } from '@/lib/fsrs/replay';
-import { staysInSession, toPreviews, toStateView } from '@/lib/fsrs/state';
+import { staysInSession, toCard, toPreviews, toStateView } from '@/lib/fsrs/state';
 import { UNDO_WINDOW_MS, tallyCounts } from '@/lib/types';
 import type {
   CardStateView,
@@ -477,6 +477,7 @@ export async function syncReviews(
       applied.push(entry.id);
       states[entry.cardId] = { state: result.state, previews: result.previews };
       if (result.unlockedProduction) unlocked.push(entry.cardId);
+
     } catch (error) {
       if (error instanceof ReviewError && PERMANENT.has(error.reason)) {
         rejected.push({ id: entry.id, reason: error.reason });
@@ -489,7 +490,19 @@ export async function syncReviews(
     }
   }
 
-  // Recomputed against the server's own clock rather than the batch's, because
+  // The interval previews came back relative to when each review happened,
+  // which for a batch off a week-old outbox is a week ago. The buttons they
+  // label are being pressed now, so they are recomputed against now.
+  if (applied.length > 0) {
+    const settings = await getSettings();
+    const params = schedulerParams(settings.requestRetention);
+    for (const cardId of Object.keys(states)) {
+      const entry = states[cardId];
+      if (entry) entry.previews = toPreviews(toCard(entry.state), now, params);
+    }
+  }
+
+  // Counted against the server's own clock rather than the batch's, because
   // §4's caps are spent against the study day that is running now.
   return { applied, rejected, states, unlocked, countedCards: await getCountedCards(now) };
 }

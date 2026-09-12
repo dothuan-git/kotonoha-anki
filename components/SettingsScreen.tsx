@@ -120,7 +120,7 @@ export function SettingsScreen({
             an account that is no longer signed in, and IndexedDB holding the
             day's queue. Both are cleared on the way out — see forgetLocalData.
           */}
-          <form action={signOutAction} onSubmit={() => void forgetLocalData()}>
+          <form action={signOutAction} onSubmit={forgetLocalData}>
             <button
               type="submit"
               className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
