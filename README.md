@@ -4,7 +4,7 @@ A private Japanese vocabulary trainer with Vietnamese meanings, built around a
 washi-paper, wabi-sabi aesthetic. Single user, no sharing. See
 [kotonoha-technical-plan.md](kotonoha-technical-plan.md) for the full design.
 
-## Status — Phase 3 (recall)
+## Status — Phase 4 (the train)
 
 Working: add a word (dictionary lookup, Hán Việt), the word list with search
 and inline edit, the kanji index, and the review session — FSRS scheduling,
@@ -12,13 +12,19 @@ the daily queue, recognition **and production** cards, kana input with §6
 answer matching, "gõ nhầm", the ten-second undo, editing a word mid-review,
 and session end.
 
+Phase 4 made the session work with no signal. It installs as a PWA, the day's
+queue is kept in IndexedDB, the scheduler runs on the device, ratings queue in
+an outbox and replay through `/api/sync`, and sharing Japanese text to
+Kotonoha from anywhere on the phone opens the add form with the word in it.
+
 Not built yet: `/stats` shows an empty state. It is four charts over
 `review_logs` and belongs to Phase 5; nothing on it is mocked.
 
 ## Stack
 
 Next.js 16 (App Router), TypeScript strict, Tailwind v4, Neon Postgres +
-Drizzle, Auth.js (Google, single allowlisted address), `ts-fsrs`, Vitest.
+Drizzle, Auth.js (Google, single allowlisted address), `ts-fsrs`, `idb`,
+Vitest.
 
 ## Setup
 
@@ -50,19 +56,24 @@ can.
 | `npm run recompute` | Rebuild every `card_states` row from `review_logs`; `-- --check` reports without writing |
 
 Layout note: `lib/answer.ts` is §6's matcher, and the only thing that decides
-whether a typed answer is right.
+whether a typed answer is right. `lib/client/outbox.ts` is the only thing that
+sends a review to the server.
 
 ## Layout
 
 ```
-app/          routes and route handlers (/api/lookup, auth)
+app/          routes and route handlers (/api/lookup, /api/sync, /api/share, auth)
 components/   client components, one per screen
 lib/db/       Drizzle schema, queries, and the review projection
-lib/fsrs/     scheduler params, log replay, queue order, the study day
+lib/fsrs/     scheduler params, log replay, queue order, the study day,
+              the card-state wire shape, the client-side scheduler
+lib/client/   IndexedDB, the offline outbox, the stored session
 lib/dict/     Jotoba client, tag→pos mapping, furigana conversion
 lib/actions/  server actions
 lib/ruby.ts   §7 ruby parser
+lib/share.ts  §10 share-target text extraction
 proxy.ts      auth redirect (Next 16's renamed middleware)
+public/       manifest, service worker, offline page, icons
 scripts/      Unihan seed, card-state recompute
 tests/        unit tests
 ```
@@ -154,20 +165,96 @@ rate you were adding words two months ago, so it is self-limiting — but if a
 backlog ever crowds out new words, that ordering in `buildSession` is where to
 change it.
 
+## How offline works
+
+- **There is one write path, not two.** Every rating goes into the outbox and
+  reaches the server through `/api/sync`, whether or not there is a
+  connection. Being online only means the queue drains sooner. The `rateCard`
+  server action is gone: a second path for the connected case is exactly the
+  thing that drifts from the first, and §8's guarantee is that an offline
+  review and an online one land on the same schedule.
+- **The scheduler runs on the device**, because learning steps leave no
+  choice. `Quên` on a new card means "again in a minute", and a minute is
+  inside the session — a client that could not schedule would have to drop the
+  card or lie about when it comes back. `lib/fsrs/local.ts` does it;
+  `tests/local.test.ts` proves it lands where the server's fold of the
+  resulting log lands.
+- **`CardStateView` is wider than `card_states`.** The table still stores only
+  §3's columns, and `learning_steps` still is not one of them. The wire shape
+  carries it anyway, along with `elapsed_days` and `scheduled_days`, because
+  they come free off the fold that just ran and the client has no log to refold
+  from. A card that forgets which of `['1m', '10m']` it is on goes back in ten
+  minutes instead of graduating to two days — every time, forever.
+- **Undo now has a cheap case.** The flush holds each entry for the length of
+  §5's window, so the usual undo drops a row that was never sent: nothing was
+  written, and `review_logs` keeps the append-only property §3 asks of it. The
+  server-side `undoReview` is still there for a rating that got out early —
+  flushed by another tab, synced from another device — and that is what the one
+  permitted deletion is spent on.
+- **The daily caps are kept by identity, not by count.** `SessionView` carries
+  which cards have been spent today and in which bucket, because a learning
+  card the server counted this morning must not spend a second slot when it
+  comes round again on the train.
+- **The server always wins.** Whatever `/api/sync` returns replaces what the
+  client scheduled. It is the only party that folded the card's whole log; the
+  client only ever folded the slice it was handed at session start. The one
+  place this bites is a device clock running fast — `syncReviews` clamps a
+  future `reviewed_at` to the server's now, and the corrected state comes back
+  in the same response.
+- **Two devices need no conflict resolution.** Because state is a fold (§5),
+  replaying both outboxes in `reviewed_at` order lands on the same card
+  whichever one reconnects first. `tests/local.test.ts` covers the ordering.
+
+### What the service worker does and does not cache
+
+Shell, hashed `_next/static` chunks, and the Google Fonts faces — a card set in
+a fallback sans-serif is a different card. Documents are cached network-first,
+so the reviewer opens offline.
+
+Not cached: `/api/*`, as §8 requires, and React's flight payloads. A cached
+`?_rsc=` response is a session rendered at some past moment; serving it as
+though it were current would hand back cards that were already answered. The
+cached document has the same problem, which is why it carries `session.now` and
+`chooseSession` refuses to believe a payload older than two minutes — see
+`lib/client/session.ts`.
+
+Signing out clears the cached pages and the stored queue. It never clears the
+outbox: those are reviews that have not reached the server, and §10 admits one
+address, so they can only belong to whoever signs back in.
+
+### Installing it
+
+`/manifest.webmanifest` declares the share target at `POST /api/share`, which
+303s to `/add?q=` with the run of Japanese pulled out of whatever the share
+sheet sent. It deliberately does not segment a shared sentence — §7 rules out
+browser-side tokenising, and guessing a word boundary here is the same mistake
+one layer up.
+
+**The icons are SVG.** Chrome on Android installs from them, which is the
+platform this phase is for — Web Share Target is Chrome-only. iOS wants a PNG
+`apple-touch-icon` and will use a screenshot until one exists; dropping
+`icons/apple-touch-icon.png` into `public/` and naming it in `app/layout.tsx`
+is the whole fix, if that ever matters.
+
+The service worker only registers in production. In development it unregisters
+anything already there, because a worker caching dev chunks that are rebuilt on
+every keystroke costs an afternoon.
+
 ## Notes for the next phase
 
-- **`review_logs` is append-only.** The single permitted deletion is the
-  10-second undo window (`undoReview`), by id, followed by a refold.
-- **Undo is server-enforced.** Phase 4's offline outbox will need the same
-  guard client-side, against the client's own `reviewed_at`, before a batch
-  leaves the device — an undone review must never reach `/api/sync` at all.
-- **`checkAnswer` is pure and client-only.** Phase 4 runs the session offline,
-  so answer matching has to work with no server; it already does, and the
-  rating it produces is the only thing that travels.
-- **`applyReview` is not inside the server action.** Phase 4's `/api/sync`
-  replays an offline batch through the same function, so an offline review and
-  an online one cannot drift apart. It is idempotent on the client-generated
-  log id, which is what makes outbox replay safe.
+- **`review_logs` is append-only.** Two permitted deletions now, both narrow:
+  `undoReview`'s 10-second window on the server, and the outbox entry that is
+  dropped before it is ever sent. The second one deletes nothing in Postgres at
+  all, which is the point.
+- **`/stats` is the last screen.** It reads `review_logs` directly — the log is
+  the source of truth (§5), so the charts do not need `card_states` for
+  anything but "due today".
+- **Leeches, confusion pairs and TTS are Phase 5.** §4's leech rule (flag at 6
+  lapses, deactivate the production card, never auto-suspend the word) has no
+  implementation yet; `card_states.lapses` is already correct and folded.
+- **`applyReview` is the one scheduling path.** Server action, sync replay and
+  recompute all go through it or through `foldLogs`. Anything Phase 5 adds that
+  writes a review should too.
 - **Jotoba does not return raw JMdict tags.** `lib/dict/pos.ts` maps its actual
   tagged enums; §9's `v5*`/`v1`/`vt` table does not apply. Test fixtures are
   verbatim live responses so the mapping cannot drift silently.
