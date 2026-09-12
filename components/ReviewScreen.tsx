@@ -120,6 +120,13 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   /** Bumped by "gõ nhầm" to remount the answer field with an empty value. */
   const [attemptSeq, setAttemptSeq] = useState(0);
+  /**
+   * How this one card is being asked, when that is not how the queue asked
+   * for it. The queue still decides which card is in front of you and which
+   * card the rating is written to; this decides only whether you type the
+   * answer or turn the card over, and it lasts one card.
+   */
+  const [modeOverride, setModeOverride] = useState<ReviewItem['cardType'] | null>(null);
   const [undoable, setUndoable] = useState<Undoable | null>(null);
   const [editing, setEditing] = useState(false);
   /** The leech prompt, shown once for the card that just crossed six lapses. */
@@ -142,7 +149,18 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
   const counts = tallyCounts(countedCards);
   const currentWord = queue[0];
-  const isProduction = currentWord?.cardType === 'production';
+  /**
+   * How the card is being asked — the queue's answer, unless overridden — and
+   * what that means on screen.
+   *
+   * Three arrangements, not two, because typing means a different question on
+   * each card. A production card typed is the whole point of it: the meaning
+   * alone, and you produce the word. A recognition card typed keeps its
+   * headword on screen and asks only for the reading, which is a self-imposed
+   * check on the card you were already being shown.
+   */
+  const typing = (modeOverride ?? currentWord?.cardType) === 'production';
+  const produceWord = typing && currentWord?.cardType === 'production';
 
   /**
    * Applying what came back from /api/sync: the server folded each card's
@@ -276,11 +294,32 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     };
   }, [ready, sync]);
 
+  /**
+   * The override lasts exactly one card. Both halves of "one card" matter: the
+   * card id, for the ordinary move to the next card, and the number answered,
+   * because a learning step can put the same card straight back — and that
+   * second showing is a new question, not the one you overrode.
+   */
+  useEffect(() => {
+    setModeOverride(null);
+  }, [currentWord?.cardId, answered.length]);
+
+  /**
+   * Ask this card the other way: type the answer instead of turning the card
+   * over, or the reverse. Only before the answer is on screen — afterwards
+   * there is nothing left to ask.
+   */
+  const toggleMode = useCallback(() => {
+    if (isRevealed) return;
+    setAttempt(null);
+    setModeOverride(typing ? 'recognition' : 'production');
+  }, [isRevealed, typing]);
+
   const handleReveal = useCallback(() => {
-    if (!currentWord || isProduction) return;
+    if (!currentWord || typing) return;
     setIsRevealed(true);
     playJapaneseAudio(currentWord.word.headword);
-  }, [currentWord, isProduction]);
+  }, [currentWord, typing]);
 
   /** A production card's answer arrives already judged; revealing is what follows. */
   const handleAnswer = useCallback(
@@ -565,10 +604,15 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const total = answered.length + queue.length;
   const done = answered.length;
   const hanViet = formatHanViet(word.kanji);
-  // The answer side of a production card stays hidden until it is answered —
-  // headword, Hán Việt and furigana all give it away.
-  const showAnswerSide = !isProduction || isRevealed;
-  const wrongAnswer = isProduction && attempt !== null && !attempt.correct;
+  // Only the card being asked to produce the word withholds it; a recognition
+  // card typed for its reading shows the headword all along, which is what
+  // makes it a reading test rather than a second production card.
+  const showAnswerSide = !produceWord || isRevealed;
+  // Quên-only belongs to the production card, not to the typing. Typing a
+  // recognition card is a test you set yourself, and failing a harder test than
+  // the card measures should not cost the card: the verdict is shown and all
+  // four grades stay open.
+  const wrongAnswer = currentWord.cardType === 'production' && attempt !== null && !attempt.correct;
 
   return (
     /*
@@ -599,26 +643,39 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           <SyncStatus online={online} pending={pending} syncing={syncing} />
 
           {/*
-            The prototype made this a toggle. It is not a preference any more:
-            recognition and production are two cards on the same word, the
-            queue decides which one is in front of you, and the label says
-            which it is.
+            The prototype's mode toggle, kept, but narrowed to what it can
+            honestly mean here: recognition and production are two cards on the
+            same word and the queue decides which one is in front of you, so
+            this changes how the card is asked, never which card the rating
+            lands on. Highlighted while the override is on, because then the
+            label is no longer the queue's word for this card.
           */}
-          <span
-            className="px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] text-xs font-medium flex items-center gap-1.5 text-[var(--text-secondary)]"
+          <button
+            type="button"
+            onClick={toggleMode}
+            disabled={isRevealed}
+            className={`px-2.5 py-1 min-w-[6.5rem] justify-center rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:cursor-default disabled:opacity-60 ${
+              modeOverride
+                ? 'bg-[var(--bamboo-subtle)] border-[var(--bamboo-border)] text-[var(--bamboo)] font-semibold'
+                : 'border-[var(--border-subtle)] text-[var(--text-secondary)] enabled:hover:border-[var(--border-strong)]'
+            } ${isRevealed ? '' : 'cursor-pointer'}`}
             title={
-              isProduction
-                ? 'Thẻ gõ — nhớ lại từ tiếng Nhật từ nghĩa tiếng Việt'
-                : 'Thẻ lật — nhận mặt từ'
+              isRevealed
+                ? 'Đáp án đã hiện — đổi cách hỏi ở thẻ sau'
+                : produceWord
+                  ? 'Thẻ gõ — nhớ lại từ tiếng Nhật từ nghĩa tiếng Việt. Bấm để lật thẻ này thay vì gõ.'
+                  : typing
+                    ? 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm để quay lại thẻ lật.'
+                    : 'Thẻ lật — nhận mặt từ. Bấm để gõ cách đọc cho thẻ này.'
             }
           >
-            {isProduction ? (
+            {typing ? (
               <Keyboard className="w-3.5 h-3.5" />
             ) : (
               <RotateCcw className="w-3.5 h-3.5" />
             )}
-            <span>{isProduction ? 'Thẻ gõ' : 'Thẻ lật'}</span>
-          </span>
+            <span>{produceWord ? 'Thẻ gõ' : typing ? 'Chế độ gõ' : 'Thẻ lật'}</span>
+          </button>
 
           {/* Editing before the answer is on screen would give a production card away. */}
           {isRevealed && (
@@ -640,7 +697,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             type="button"
             onClick={() => playJapaneseAudio(word.headword)}
             disabled={!showAnswerSide}
-            className="p-1.5 rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="p-1.5 rounded-lg border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)] cursor-pointer transition-[color,border-color,opacity] duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
             title={showAnswerSide ? 'Nghe phát âm' : 'Nghe phát âm sau khi trả lời'}
           >
             <Volume2 className="w-3.5 h-3.5" />
@@ -705,9 +762,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.99 }}
           transition={{ duration: 0.18, ease: 'easeOut' }}
-          onClick={!isRevealed && !isProduction ? handleReveal : undefined}
+          onClick={!isRevealed && !typing ? handleReveal : undefined}
           className={`w-full mt-3 flex-1 min-h-0 overflow-y-auto bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl p-5 sm:p-7 flex flex-col shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-colors ${
-            !isRevealed && !isProduction ? 'cursor-pointer hover:border-[var(--bamboo)]/50' : ''
+            !isRevealed && !typing ? 'cursor-pointer hover:border-[var(--bamboo)]/50' : ''
           }`}
         >
           {/* Card Header Tags */}
@@ -746,60 +803,110 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           </div>
 
           {/* Center: the prompt — the headword, or the meaning to produce it from */}
-          <div className="flex min-h-fit flex-1 flex-col justify-center py-6 text-center">
-            {showAnswerSide ? (
-              <>
-                <h1
-                  className={`text-5xl sm:text-6xl text-[var(--text-primary)] select-all transition-all ${
-                    fontStyle === 'mincho'
-                      ? 'font-jp-serif font-medium sm:font-semibold tracking-wide'
-                      : 'font-jp-sans font-bold tracking-tight'
-                  }`}
+          <div className="relative flex min-h-fit flex-1 flex-col justify-center py-6 text-center">
+            {/*
+              Switching into typing does not replace the word, it makes room:
+              the word steps up, and the field opens outward from the middle
+              underneath it.
+
+              The step up is the layout's own — a centred column with a field
+              added below it puts the word higher, and `layout` is what turns
+              that jump into a movement. Animating `y` by hand on top of it
+              would be a second, disagreeing answer to where the word goes.
+
+              `popLayout` everywhere below, rather than `wait`, for the same
+              reason: what is leaving drops out of the flow immediately, so the
+              word begins moving on the frame the field arrives instead of
+              waiting out a fade first. `wait` is what made this feel stepped.
+            */}
+            <motion.div
+              layout
+              transition={{ layout: { type: 'spring', stiffness: 240, damping: 30, mass: 0.8 } }}
+            >
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.div
+                  key={showAnswerSide ? 'word' : 'meaning'}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.14 }}
                 >
-                  {word.headword}
-                </h1>
+                  {showAnswerSide ? (
+                    <>
+                      <h1
+                        className={`text-5xl sm:text-6xl text-[var(--text-primary)] select-all transition-all ${
+                          fontStyle === 'mincho'
+                            ? 'font-jp-serif font-medium sm:font-semibold tracking-wide'
+                            : 'font-jp-sans font-bold tracking-tight'
+                        }`}
+                      >
+                        {word.headword}
+                      </h1>
 
-                {/* Hán Việt reading tag */}
-                {hanViet !== '—' && (
-                  <div className="mt-3">
-                    <span className="inline-block px-3 py-1 rounded-full bg-[var(--bg-muted)] text-[var(--text-secondary)] text-xs font-semibold tracking-wide border border-[var(--border-subtle)]">
-                      Hán Việt: {hanViet}
-                    </span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <span className="text-[11px] text-[var(--text-muted)] block font-medium">
-                  Nghĩa tiếng Việt
-                </span>
-                <p className="mt-1.5 text-3xl sm:text-4xl font-bold leading-snug text-[var(--text-primary)]">
-                  {word.meaning}
-                </p>
-                <p className="mt-2 text-xs text-[var(--text-muted)]">Gõ từ tiếng Nhật tương ứng</p>
-              </>
-            )}
+                      {/* Hán Việt reading tag */}
+                      {hanViet !== '—' && (
+                        <div className="mt-3">
+                          <span className="inline-block px-3 py-1 rounded-full bg-[var(--bg-muted)] text-[var(--text-secondary)] text-xs font-semibold tracking-wide border border-[var(--border-subtle)]">
+                            Hán Việt: {hanViet}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[11px] text-[var(--text-muted)] block font-medium">
+                        Nghĩa tiếng Việt
+                      </span>
+                      <p className="mt-1.5 text-3xl sm:text-4xl font-bold leading-snug text-[var(--text-primary)]">
+                        {word.meaning}
+                      </p>
+                      <p className="mt-2 text-xs text-[var(--text-muted)]">
+                        Gõ từ tiếng Nhật tương ứng
+                      </p>
+                    </>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </motion.div>
 
-            {/* Click to reveal prompt */}
-            {!isRevealed &&
-              (isProduction ? (
-                <AnswerInput
-                  // The input is uncontrolled, so it has to be remounted
-                  // rather than cleared. `done` matters as much as the card
-                  // id: on a short queue a learning step can put the same
-                  // card straight back, and without it React would reuse the
-                  // node with the previous attempt still typed in.
-                  key={`${currentWord.cardId}-${done}-${attemptSeq}`}
-                  word={word}
-                  disabled={saving}
-                  onAnswer={handleAnswer}
-                />
-              ) : (
-                <div className="mt-8 text-xs text-[var(--text-muted)] flex items-center justify-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-[var(--bamboo)]" />
-                  <span>Chạm hoặc bấm Phím cách để xem đáp án</span>
-                </div>
-              ))}
+            {/* The field, or the invitation to turn the card over */}
+            <AnimatePresence mode="popLayout" initial={false}>
+              {!isRevealed &&
+                (typing ? (
+                  <motion.div
+                    key="typing"
+                    initial={{ opacity: 0, clipPath: 'inset(0% 44% 0% 44%)' }}
+                    animate={{ opacity: 1, clipPath: 'inset(0% 0% 0% 0%)' }}
+                    exit={{ opacity: 0, clipPath: 'inset(0% 44% 0% 44%)' }}
+                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <AnswerInput
+                      // The input is uncontrolled, so it has to be remounted
+                      // rather than cleared. `done` matters as much as the card
+                      // id: on a short queue a learning step can put the same
+                      // card straight back, and without it React would reuse the
+                      // node with the previous attempt still typed in.
+                      key={`${currentWord.cardId}-${done}-${attemptSeq}`}
+                      word={word}
+                      expect={produceWord ? 'word' : 'reading'}
+                      disabled={saving}
+                      onAnswer={handleAnswer}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="hint"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.16 }}
+                    className="mt-8 text-xs text-[var(--text-muted)] flex items-center justify-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--bamboo)]" />
+                    <span>Chạm hoặc bấm Phím cách để xem đáp án</span>
+                  </motion.div>
+                ))}
+            </AnimatePresence>
           </div>
 
           {/* Revealed Content: Meaning, Furigana & Example Sentence */}
@@ -902,73 +1009,92 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       </AnimatePresence>
 
       {/* Bottom Rating Controls with Spring Press Animations */}
-      <div className="mt-3 pt-1">
-        {!isRevealed ? (
-          isProduction ? (
-            // The answer field carries its own submit; a reveal button here
-            // would be a way around typing.
-            <p className="py-3.5 text-center text-xs text-[var(--text-muted)]">
-              Gõ đáp án rồi bấm Enter
-            </p>
-          ) : (
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleReveal}
-              className="w-full py-3.5 rounded-xl bg-[var(--bamboo)] hover:bg-[var(--bamboo-hover)] text-white text-sm font-semibold tracking-wide transition-colors cursor-pointer shadow-xs"
-            >
-              Hiện đáp án (Phím cách)
-            </motion.button>
-          )
-        ) : wrongAnswer ? (
-          /* A near miss is a miss, so Quên is the only grade on offer.
-             The other button writes nothing at all. */
-          <div className="grid grid-cols-2 gap-2">
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => handleRate(1)}
-              className={`py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer flex flex-col items-center ${RATING_STYLES[1]}`}
-            >
-              <span>{RATING_LABELS[0]}</span>
-              <span className="text-[10px] opacity-70 font-normal mt-0.5">
-                {currentWord.previews[1]}
-              </span>
-            </motion.button>
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleMistype}
-              title="Bỏ qua lần gõ này, không ghi vào lịch sử ôn tập"
-              className="py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-muted)] transition-colors cursor-pointer flex flex-col items-center"
-            >
-              <span>Gõ nhầm</span>
-              <span className="text-[10px] opacity-70 font-normal mt-0.5">không tính</span>
-            </motion.button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-2">
-            {ALL_RATINGS.map((rating) => (
-              <motion.button
-                key={rating}
-                type="button"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleRate(rating)}
-                className={`py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer flex flex-col items-center ${RATING_STYLES[rating]}`}
-              >
-                <span>{RATING_LABELS[rating - 1]}</span>
-                {/* The prototype's caption. `currentWord.previews[rating]` holds
-                    what this rating actually schedules ("10 phút", "2 ngày") if
-                    that is ever worth more than the keyboard hint. */}
-                <span className="text-[10px] opacity-70 font-normal mt-0.5">Phím {rating}</span>
-              </motion.button>
-            ))}
-          </div>
-        )}
+      <div className="relative mt-3 pt-1">
+        {/*
+          Whatever is under the card opens the same way the field does, so a
+          mode switch reads as one movement instead of the card animating and
+          its button cutting.
+        */}
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.div
+            key={isRevealed ? (wrongAnswer ? 'miss' : 'ratings') : typing ? 'typing' : 'reveal'}
+            initial={{ opacity: 0, clipPath: 'inset(0% 44% 0% 44%)' }}
+            animate={{ opacity: 1, clipPath: 'inset(0% 0% 0% 0%)' }}
+            exit={{ opacity: 0, clipPath: 'inset(0% 44% 0% 44%)' }}
+            transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+            // The clip box is the border box, and the reveal button's shadow
+            // falls outside it. Four pixels of padding, taken straight back as
+            // margin, widen the box without moving anything in it.
+            className="p-1 -m-1"
+          >
+            {!isRevealed ? (
+              typing ? (
+                // The answer field carries its own submit; a reveal button here
+                // would be a way around typing.
+                <p className="py-3.5 text-center text-xs text-[var(--text-muted)]">
+                  Gõ đáp án rồi bấm Enter
+                </p>
+              ) : (
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleReveal}
+                  className="w-full py-3.5 rounded-xl bg-[var(--bamboo)] hover:bg-[var(--bamboo-hover)] text-white text-sm font-semibold tracking-wide transition-colors cursor-pointer shadow-xs"
+                >
+                  Hiện đáp án (Phím cách)
+                </motion.button>
+              )
+            ) : wrongAnswer ? (
+              /* A near miss is a miss, so Quên is the only grade on offer.
+                 The other button writes nothing at all. */
+              <div className="grid grid-cols-2 gap-2">
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleRate(1)}
+                  className={`py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer flex flex-col items-center ${RATING_STYLES[1]}`}
+                >
+                  <span>{RATING_LABELS[0]}</span>
+                  <span className="text-[10px] opacity-70 font-normal mt-0.5">
+                    {currentWord.previews[1]}
+                  </span>
+                </motion.button>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleMistype}
+                  title="Bỏ qua lần gõ này, không ghi vào lịch sử ôn tập"
+                  className="py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-muted)] transition-colors cursor-pointer flex flex-col items-center"
+                >
+                  <span>Gõ nhầm</span>
+                  <span className="text-[10px] opacity-70 font-normal mt-0.5">không tính</span>
+                </motion.button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-2">
+                {ALL_RATINGS.map((rating) => (
+                  <motion.button
+                    key={rating}
+                    type="button"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleRate(rating)}
+                    className={`py-2.5 px-2 rounded-xl font-semibold text-xs sm:text-sm transition-colors cursor-pointer flex flex-col items-center ${RATING_STYLES[rating]}`}
+                  >
+                    <span>{RATING_LABELS[rating - 1]}</span>
+                    {/* The prototype's caption. `currentWord.previews[rating]` holds
+                        what this rating actually schedules ("10 phút", "2 ngày") if
+                        that is ever worth more than the keyboard hint. */}
+                    <span className="text-[10px] opacity-70 font-normal mt-0.5">Phím {rating}</span>
+                  </motion.button>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );
