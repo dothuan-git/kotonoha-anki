@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { STALE_PAYLOAD_MS, chooseSession } from '@/lib/client/session';
+import { STALE_PAYLOAD_MS, chooseSession, isSessionView } from '@/lib/client/session';
 import type { SessionView } from '@/lib/types';
 
 /**
@@ -54,6 +54,24 @@ describe('chooseSession', () => {
     expect(chosen.source).toBe('server');
   });
 
+  /**
+   * The gap the pair rule opened once ratings stopped waiting for their twin:
+   * a word graded on one face already flushed within its own ten seconds, so
+   * by the time the tab reopens the outbox is empty even though the session
+   * is not. `pendingCount` alone can no longer tell "synced" from "finished".
+   */
+  it('resumes an unfinished stored session even with nothing pending', () => {
+    const midway: SessionView = { ...stored, items: [{ cardId: 'w1' } as never] };
+    const chosen = chooseSession({
+      server: fresh,
+      stored: midway,
+      pendingCount: 0,
+      online: true,
+      now: NOW,
+    });
+    expect(chosen).toEqual({ session: midway, source: 'resumed' });
+  });
+
   it('resumes when ratings are still waiting in the outbox', () => {
     // Not preference — the server's queue still contains cards that have been
     // reviewed, because it has not been told about them yet.
@@ -105,5 +123,49 @@ describe('chooseSession', () => {
       now: NOW,
     });
     expect(chosen.source).toBe('server');
+  });
+});
+
+/**
+ * The guard on the stored queue.
+ *
+ * This store is written by whatever build ran last, and a dev server compiles
+ * through type errors — so the one thing it must never do is hand the reviewer
+ * something that is not a session and take the screen down on load.
+ */
+describe('isSessionView', () => {
+  const valid: SessionView = {
+    now: '2026-02-01T09:00:00.000Z',
+    items: [],
+    countedCards: {},
+    limits: { newPerDay: 12, reviewsPerDay: 100 },
+    requestRetention: 0.9,
+    heldBack: { newCards: 0, reviewCards: 0 },
+    nextDue: null,
+    nextDayStart: '2026-02-02T21:00:00.000Z',
+    totalCards: 0,
+  };
+
+  it('accepts a session', () => {
+    expect(isSessionView(valid)).toBe(true);
+  });
+
+  /** The shape a half-finished build actually wrote: the session, wrapped. */
+  it('rejects a session wrapped in something else', () => {
+    expect(isSessionView({ session: valid, graded: {} })).toBe(false);
+  });
+
+  it('rejects a session missing what the first render reads', () => {
+    const { countedCards: _dropped, ...withoutCounts } = valid;
+    expect(isSessionView(withoutCounts)).toBe(false);
+    expect(isSessionView({ ...valid, items: undefined })).toBe(false);
+    expect(isSessionView({ ...valid, countedCards: null })).toBe(false);
+    expect(isSessionView({ ...valid, requestRetention: '0.9' })).toBe(false);
+  });
+
+  it('rejects nothing at all', () => {
+    expect(isSessionView(null)).toBe(false);
+    expect(isSessionView(undefined)).toBe(false);
+    expect(isSessionView('session')).toBe(false);
   });
 });

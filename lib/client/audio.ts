@@ -1,3 +1,5 @@
+import { rubyToReading } from '@/lib/ruby';
+
 /**
  * TTS, which is the platform's.
  *
@@ -56,7 +58,53 @@ export function hasJapaneseVoice(): boolean {
   return japaneseVoice() !== undefined;
 }
 
-/** Native Japanese speech synthesis helper */
+/**
+ * Speak a word, which means speak its *reading* and never its headword.
+ *
+ * 開く is あく or ひらく, both correct Japanese, and the voice picks for
+ * itself — it cannot know which of the two a card means, because a headword
+ * is not a pronunciation. The reading is one, and `words.reading` is
+ * `notNull`, so there is always one to hand.
+ *
+ * That the collection can hold 開く twice under two readings — see the
+ * `(headword, reading)` unique index — is the same fact from the other side:
+ * a headword does not identify a word here, so it cannot be what gets spoken.
+ *
+ * Sentences have the same problem and their own answer — `playSentenceAudio`,
+ * which reads them out of their stored ruby.
+ */
+export function playWordAudio(word: { reading: string }): void {
+  playJapaneseAudio(word.reading);
+}
+
+/**
+ * Speak an example sentence from its stored furigana, not from its kanji.
+ *
+ * The same problem as `playWordAudio`, one level up: 開く inside a sentence is
+ * あく or ひらく and the voice guesses, with no card beside it to consult. The
+ * ruby was written by hand when the sentence was added — `lib/ruby.ts` says
+ * why it has to be — so it is the only thing here that actually knows.
+ *
+ * The cost is real and worth stating. Kanji is what a TTS engine segments a
+ * sentence on, and a line of unbroken kana leaves it guessing where the words
+ * divide, so the phrasing comes out flatter than the kanji version would. For
+ * an app whose whole purpose is teaching readings that is the right trade: a
+ * reading that is flat and right beats one that is natural and wrong.
+ *
+ * Partial ruby degrades gracefully — an unannotated kanji is left as itself,
+ * so a half-annotated sentence is spoken no worse than it is today.
+ */
+export function playSentenceAudio(sentence: { jpRuby: string }): void {
+  playJapaneseAudio(rubyToReading(sentence.jpRuby));
+}
+
+/**
+ * Native Japanese speech synthesis helper.
+ *
+ * Takes text the caller has already decided is pronounceable — a sentence, or
+ * a reading. For a saved word use `playWordAudio`, which makes that decision
+ * once instead of at each call site.
+ */
 export function playJapaneseAudio(text: string): void {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 

@@ -18,7 +18,7 @@ import { useMemo, useState, useTransition } from 'react';
 
 import { Ruby } from '@/components/Ruby';
 import { deleteWord, updateWord } from '@/lib/actions/words';
-import { playJapaneseAudio } from '@/lib/client/audio';
+import { playWordAudio } from '@/lib/client/audio';
 import {
   JLPT_VALUES,
   POS_LABELS,
@@ -200,7 +200,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        playJapaneseAudio(word.headword);
+                        playWordAudio(word);
                       }}
                       aria-label={`Đọc ${word.headword}`}
                       className="cursor-pointer p-1 text-[var(--text-muted)] hover:text-[var(--bamboo)]"

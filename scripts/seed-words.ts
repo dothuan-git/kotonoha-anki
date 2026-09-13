@@ -38,7 +38,7 @@ const problems: string[] = [];
 
 console.log(`${N5_WORDS.length} words${dry ? ' (dry run — nothing will be written)' : ''}\n`);
 
-for (const seed of N5_WORDS) {
+for (const [deckPosition, seed] of N5_WORDS.entries()) {
   const label = `${seed.headword} (${seed.reading})`;
 
   const rubyProblem = checkSentence(seed);
@@ -75,7 +75,7 @@ for (const seed of N5_WORDS) {
 
   // No match means the reading in the seed file disagrees with the dictionary,
   // which is worth seeing rather than papering over: a wrong reading is a
-  // production card that marks a correct answer wrong.
+  // typed card that marks a correct answer wrong.
   if (!candidate) {
     problems.push(`${label}: Jotoba returned no candidate with this reading`);
     console.log(`  ✗ ${label} — no matching dictionary entry`);
@@ -116,6 +116,11 @@ for (const seed of N5_WORDS) {
       // Unihan already seeded these; insertWord leaves existing rows alone.
       hanViet: {},
       sentence: { ...seed.sentence, source: 'manual' },
+      // The deck's own order, not the order the inserts happened to finish in.
+      // Rows go in one at a time here so the clock would mostly separate them
+      // anyway — but a deck has an order its author meant, and this is the
+      // column that keeps it.
+      sortOrder: deckPosition,
     });
     added++;
     console.log(`  ✓ ${label} — ${pos} · ${seed.meaning}`);

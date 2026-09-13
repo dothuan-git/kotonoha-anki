@@ -1,4 +1,4 @@
-import { and, asc, eq, gte } from 'drizzle-orm';
+import { asc, eq, gte } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
 import { listConfusions } from '@/lib/db/confusions';
@@ -84,8 +84,11 @@ function selectLogsSince(since: Date): Promise<StatLog[]> {
 /**
  * The projected state of every card that is actually in rotation — the same
  * filter `buildSession` applies, so the forecast counts what a session would
- * hand you rather than what is merely in the table. A leeched production
- * card and a suspended word are both out.
+ * hand you rather than what is merely in the table. A suspended word is out.
+ *
+ * Cards, not showings. A card asked from both sides is still one thing coming
+ * due on one day, and a forecast that doubled every bar would be describing
+ * keystrokes rather than vocabulary.
  */
 function selectActiveStates(): Promise<{ due: Date; state: number; stability: number | null }[]> {
   return db
@@ -93,7 +96,7 @@ function selectActiveStates(): Promise<{ due: Date; state: number; stability: nu
     .from(cardStates)
     .innerJoin(cards, eq(cards.id, cardStates.cardId))
     .innerJoin(words, eq(words.id, cards.wordId))
-    .where(and(eq(cards.active, true), eq(words.suspended, false)));
+    .where(eq(words.suspended, false));
 }
 
 async function selectTotals(): Promise<StatsView['totals']> {

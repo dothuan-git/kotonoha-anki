@@ -233,9 +233,8 @@ export function bucketRetention(
  * Chart 4's buckets, in order. Ordered, which is why the chart wears a
  * sequential ramp rather than four unrelated hues.
  *
- * The 21-day boundary is the same one a word's production card unlocks at,
- * so it is already the line this collection draws
- * between "seen it" and "knows it".
+ * The 21-day boundary is where a word stops being something you are learning
+ * and starts being something you know — roughly four consecutive Được.
  */
 export const MATURITY_BUCKETS = ['new', 'learning', 'young', 'mature', 'retired'] as const;
 export type MaturityBucket = (typeof MATURITY_BUCKETS)[number];

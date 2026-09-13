@@ -8,9 +8,8 @@ import type { WordView } from '@/lib/types';
 
 /**
  * The leech prompt: shown once at six lapses on a card, asking for the
- * meaning to be rewritten or a note added. Once dismissed, the production
- * card goes `active = false` and recognition keeps running — the word is
- * never auto-deleted or auto-suspended.
+ * meaning to be rewritten or a note added. The word keeps running either way
+ * — it is never auto-deleted, auto-suspended, or taken out of rotation.
  *
  * So the prompt *is* the editor — a rewrite is the point, and an alert that
  * only told you to go and do one somewhere else would be an alert you
@@ -51,8 +50,8 @@ export function LeechPanel({
           </p>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
             Thường thì nghĩa đang ghi chưa khớp với cách bạn nhớ từ này. Viết lại nghĩa hoặc thêm
-            một ghi chú để phân biệt. Thẻ gõ của từ sẽ tạm nghỉ, thẻ lật vẫn chạy tiếp — từ không bị
-            xoá và cũng không bị tạm dừng.
+            một ghi chú để phân biệt. Từ vẫn tiếp tục xuất hiện — không bị xoá và cũng không bị tạm
+            dừng.
           </p>
         </div>
       </div>

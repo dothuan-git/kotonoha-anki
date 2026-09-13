@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 
-import type { PendingConfusion, PendingReview, SessionView } from '@/lib/types';
+import type { PriorGrade } from '@/lib/fsrs/pair';
+import type { PendingConfusion, PendingReview, ReviewItem, SessionView } from '@/lib/types';
 
 /**
  * The offline local store. Three things live here and nothing else.
@@ -54,11 +55,32 @@ export interface StoredSession {
   savedAt: number;
   /** The live session: what is left to review, and the caps spent so far. */
   session: SessionView;
+  /**
+   * What each word has been graded so far this session, by card.
+   *
+   * Here rather than in memory because a word is asked twice and graded once,
+   * and the second face has to know what the first one wrote. Reload between
+   * the two — a killed tab, a backgrounded phone — and without this the second
+   * face would write a review of its own instead of revising the one standing,
+   * which is the one thing the pair rule exists to prevent.
+   */
+  graded: Record<string, GradedCard>;
+}
+
+export interface GradedCard extends PriorGrade {
+  /** The showing as it stood *before* that grade — what a revision is applied to. */
+  item: ReviewItem;
 }
 
 const DB_NAME = 'kotonoha';
-/** 2 added `confusions`. Upgrades are additive; nothing existing moves. */
-const DB_VERSION = 2;
+/**
+ * 2 added `confusions`. 3 and 4 both dropped whatever was in `session`, which
+ * is the one store that may be thrown away: a stored queue from before a word
+ * was asked from both sides has no `face` on its items, and one written by a
+ * half-finished build can be anything at all. Losing it costs a reload. The
+ * outbox is never touched by an upgrade — losing one of those costs a review.
+ */
+const DB_VERSION = 4;
 
 /** The only session row. One person, one device-local queue at a time. */
 export const SESSION_KEY = 'current';
@@ -84,6 +106,10 @@ export function openLocalDb(): Promise<IDBPDatabase<KotonohaDB>> | null {
       }
       if (oldVersion < 2) {
         db.createObjectStore('confusions', { keyPath: 'id' });
+      }
+      if (oldVersion > 0 && oldVersion < 4) {
+        db.deleteObjectStore('session');
+        db.createObjectStore('session');
       }
     },
     // Another tab opened a newer version. Close so it is not blocked; this

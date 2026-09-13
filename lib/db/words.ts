@@ -19,12 +19,19 @@ export interface WordInsert {
   sentence: { jp: string; jpRuby: string; vi: string; source: 'ai' | 'manual' } | null;
   /** Overridable so a seed can backdate a word. Defaults to now. */
   createdAt?: Date;
+  /** Position within an import, breaking the tie when a batch shares one `createdAt`. */
+  sortOrder?: number;
+  /** The import this word came from, or null when it was typed in by hand. */
+  importBatchId?: string | null;
 }
 
 /**
- * Writes a word, its kanji links, an optional first sentence, and its
- * `recognition` card — a new word gets that card only; `production` is
- * unlocked at stability >= 21, `cloze` is opt-in.
+ * Writes a word, its kanji links, an optional first sentence, and its card.
+ *
+ * One card, always. The word is asked from both sides in a session — the
+ * Japanese and the meaning — but those are two showings of one schedule, not
+ * two cards, so there is nothing here to unlock later and nothing to wait for:
+ * a word added this morning is asked both ways this evening.
  *
  * Lives here rather than inside the server action so that a seed script
  * creates rows through exactly this path. The subtle part is not the insert —
@@ -58,6 +65,8 @@ export async function insertWord(data: WordInsert): Promise<string> {
       transitivity: data.transitivity,
       jlpt: data.jlpt,
       note: data.note,
+      sortOrder: data.sortOrder ?? 0,
+      importBatchId: data.importBatchId ?? null,
     }),
   ];
 
@@ -94,7 +103,7 @@ export async function insertWord(data: WordInsert): Promise<string> {
   }
 
   batch.push(
-    db.insert(cards).values({ id: cardId, wordId, cardType: 'recognition', active: true }),
+    db.insert(cards).values({ id: cardId, wordId }),
     // State 0 is ts-fsrs `State.New`. Due at creation so the card enters the
     // first session; the row is still a projection — an empty log folds to
     // exactly this, which is what lets `npm run recompute` reproduce it.

@@ -22,7 +22,7 @@ export interface ReviewEdit {
  * that changes what the card *is*. Part of speech and JLPT belong to the word,
  * not to the review, and they are two taps away on /words.
  *
- * Editing the reading rewrites what a production card accepts, which is
+ * Editing the reading rewrites what a typed answer accepts, which is
  * the whole point of being able to correct it here.
  */
 export function ReviewEditPanel({

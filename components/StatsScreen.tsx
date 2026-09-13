@@ -171,7 +171,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
 
         <ChartCard
           title="Độ chín của sổ từ"
-          caption="Các thẻ đang chạy, xếp theo độ bền trí nhớ. Mốc 21 ngày là mốc dùng để mở thẻ gõ."
+          caption="Các thẻ đang chạy, xếp theo độ bền trí nhớ. Từ 21 ngày trở lên coi như đã nhớ chắc."
           table={
             <DataTable
               head={['Nhóm', 'Thẻ']}
