@@ -76,14 +76,18 @@ export async function pendingCount(): Promise<number> {
  * Take a rating back before it is sent — the point at which it costs nothing.
  *
  * Two callers. Undo, which is the obvious one. And the pair rule: when a
- * word's second face is graded worse than its first, the first rating is
- * pulled back and the worse one queued in its place, which works precisely
- * because `flush` held it while the twin was outstanding.
+ * word's second face is graded worse than its first, this is tried first, on
+ * the chance the first rating is still sitting in its own ten-second window.
+ * When it is not — the ordinary case now that a rating leaves as soon as its
+ * own window closes, rather than waiting for its twin — the corrected rating
+ * is queued anyway, under the same id; `applyReview` on the server is what
+ * turns that into a replacement rather than a no-op.
  *
  * Returns true if the row was still here — in which case nothing was ever
  * written, there is no log to delete, and `review_logs` keeps its append-only
- * property. Returns false once the entry has been flushed, and the caller has
- * to decide what to do about a review the server already holds.
+ * property for this rating. Returns false once the entry has been flushed,
+ * and the caller has to decide what to do about a review the server already
+ * holds.
  *
  * An undone review must never reach /api/sync at all — this is the guard
  * that makes that true.
@@ -107,38 +111,32 @@ export async function takeBack(logId: string): Promise<boolean> {
 /**
  * POST what is ready to /api/sync and drop what the server took.
  *
- * Two reasons an entry is held back, and neither puts it at risk: it is
- * already durable in IndexedDB, and the next flush sends it.
+ * One entry is held back, and it puts nothing at risk: it is already durable
+ * in IndexedDB, and the next flush sends it. That is the undo window — the
+ * toast is still up and the rating can still be taken back, so not sending it
+ * means the common undo deletes a local row instead of a committed one.
  *
- * The first is the undo window. The toast is still up and the rating can still
- * be taken back, so not sending it means the common undo deletes a local row
- * instead of a committed one.
- *
- * The second is the pair. A word is asked twice in a session and graded once,
- * so while the other face is still somewhere in the queue this rating is not
- * final — its twin may come back worse and replace it. Held here, that
- * replacement is a local swap; sent, it would cost a deletion from a table
- * that only permits one. `hold` is the set of cards still to be asked.
+ * A word's pair used to hold a rating back too, for as long as its twin was
+ * still somewhere in the queue: sent, a worse second answer would have cost
+ * the one deletion `review_logs` permits. It no longer does — `applyReview`
+ * now accepts a review under an id it already has, priced differently, as a
+ * correction rather than a duplicate, so the pair rule reaches the server the
+ * same way an ordinary rating does: queued, and durable while it waits.
  *
  * Returns null when there was nothing to do.
  */
-export function flush(
-  hold: ReadonlySet<string> = new Set(),
-  now = Date.now(),
-): Promise<SyncResult | null> {
-  inFlight ??= run(hold, now).finally(() => {
+export function flush(now = Date.now()): Promise<SyncResult | null> {
+  inFlight ??= run(now).finally(() => {
     inFlight = null;
   });
   return inFlight;
 }
 
-async function run(hold: ReadonlySet<string>, now: number): Promise<SyncResult | null> {
+async function run(now: number): Promise<SyncResult | null> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
 
   const all = await pending();
-  const ready = all.filter(
-    (entry) => now - entry.queuedAt >= UNDO_WINDOW_MS && !hold.has(entry.cardId),
-  );
+  const ready = all.filter((entry) => now - entry.queuedAt >= UNDO_WINDOW_MS);
   const confusions = await pendingConfusions();
   if (ready.length === 0 && confusions.length === 0) return null;
 

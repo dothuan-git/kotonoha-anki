@@ -54,6 +54,24 @@ describe('chooseSession', () => {
     expect(chosen.source).toBe('server');
   });
 
+  /**
+   * The gap the pair rule opened once ratings stopped waiting for their twin:
+   * a word graded on one face already flushed within its own ten seconds, so
+   * by the time the tab reopens the outbox is empty even though the session
+   * is not. `pendingCount` alone can no longer tell "synced" from "finished".
+   */
+  it('resumes an unfinished stored session even with nothing pending', () => {
+    const midway: SessionView = { ...stored, items: [{ cardId: 'w1' } as never] };
+    const chosen = chooseSession({
+      server: fresh,
+      stored: midway,
+      pendingCount: 0,
+      online: true,
+      now: NOW,
+    });
+    expect(chosen).toEqual({ session: midway, source: 'resumed' });
+  });
+
   it('resumes when ratings are still waiting in the outbox', () => {
     // Not preference — the server's queue still contains cards that have been
     // reviewed, because it has not been told about them yet.

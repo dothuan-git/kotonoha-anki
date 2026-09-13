@@ -115,21 +115,30 @@ export type SessionSource = 'server' | 'resumed';
  * Which queue the session should open with.
  *
  * Pure, and separate from the storage above, because it is the part that is
- * easy to get subtly wrong. The rule is "server always wins", and the two
- * exceptions are both cases where the thing that arrived is not
+ * easy to get subtly wrong. The rule is "server always wins", and the three
+ * exceptions are all cases where the thing that arrived is not
  * actually the server's current view:
  *
+ * - **The stored queue is not finished.** A word graded on only one face has
+ *   already left its mark on `card_states` — ratings are no longer held back
+ *   for their twin, see `flush` — so a fresh due-query would not deal that
+ *   word again, and the pairing itself lives only in the stored session, not
+ *   in anything a fresh query can reconstruct. Unfinished is unfinished
+ *   whether or not anything happens to be sitting in the outbox right now.
  * - **Ratings are still in the outbox.** The server has not seen them, so its
  *   queue still contains cards that have been reviewed. Resuming is not
  *   preferring the client — it is declining to believe a view that is known to
- *   be behind.
+ *   be behind. Kept as its own check for the tail of a finished session: the
+ *   last rating or two can still be inside their own undo window with the
+ *   queue already empty.
  * - **The payload is stale.** A document served from the service worker cache
  *   carries an old render. Believing it would replay a session that was
  *   finished hours ago.
  *
- * Anything else takes the server's queue, including the ordinary case of
- * opening the app with a stored session from earlier in the day and nothing
- * pending — that session was synced, and the server's view already reflects it.
+ * Anything else takes the server's queue: the ordinary case of opening the app
+ * with a finished stored session from earlier in the day — that session was
+ * synced, and the server's view already reflects it — or no stored session
+ * at all.
  */
 export function chooseSession(input: {
   server: SessionView;
@@ -142,7 +151,8 @@ export function chooseSession(input: {
   if (!stored) return { session: server, source: 'server' };
 
   const stale = input.now.getTime() - Date.parse(server.now) > STALE_PAYLOAD_MS;
-  if (input.pendingCount > 0 || stale || !input.online) {
+  const unfinished = stored.items.length > 0;
+  if (unfinished || input.pendingCount > 0 || stale || !input.online) {
     return { session: stored, source: 'resumed' };
   }
   return { session: server, source: 'server' };

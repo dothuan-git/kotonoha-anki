@@ -179,16 +179,21 @@ because a word you can read but cannot produce is not a word you knew.
 
 1. The first face answered writes the review, exactly as a single-card session
    always did — scheduled on the device, queued in the outbox, learning steps,
-   undo toast.
-2. That entry is **held back from the flush** while its twin is still in the
-   queue, on top of the ordinary undo-window hold.
-3. The second face, if it is worse, takes the entry back and queues itself in
-   its place. Because nothing was ever sent, the correction costs no deletion
-   and `review_logs` keeps its append-only property. If it is as good or
-   better, nothing is written and the screen says so.
-4. Quit mid-pair and the grade you gave stands; the held entry flushes on the
-   next open. The half-graded words ride in the stored session, so a reload
-   between the two showings still revises rather than writing a second review.
+   undo toast. It leaves the outbox after its own ten-second undo window, same
+   as any other rating — it does not wait for its twin.
+2. The second face, if it is worse, corrects it: `takeBack` is tried first, on
+   the chance the first rating is still inside its own window, and if not, the
+   corrected rating is queued anyway under the same `review_logs.id`.
+   `applyReview` on the server treats a review under an id it has already
+   seen, priced differently, as this correction rather than a duplicate — one
+   delete, one insert, in the same transaction, and only once it has checked
+   the row being replaced is still the card's latest review. If the second
+   face is as good or better, nothing is written and the screen says so.
+3. Quit mid-pair and the grade you gave stands; a queued correction flushes on
+   the next open like any other rating. The half-graded words ride in the
+   stored session, and `chooseSession` resumes an unfinished one even with an
+   empty outbox — the first face's rating reaching the server on its own no
+   longer means the session did.
 
 A card put back by a **learning step** wears the same face it was just asked
 from, and that is an ordinary second review rather than a revision — folding it
@@ -224,12 +229,14 @@ describing keystrokes rather than vocabulary.
   client has no log to refold from. A card that forgets which of `['1m',
   '10m']` it is on goes back in ten minutes instead of graduating to two
   days — every time, forever.
-- **Undo now has a cheap case.** The flush holds each entry for the length of
+- **Undo has a cheap case.** The flush holds each entry for the length of
   the undo window, so the usual undo drops a row that was never sent: nothing
   was written, and `review_logs` keeps its append-only property. The
   server-side `undoReview` is still there for a rating that got out early —
   flushed by another tab, synced from another device — and that is what the one
-  permitted deletion is spent on.
+  time-boxed deletion is spent on. A pair correction is a related but
+  different write — see "One word, one grade a day" — an upsert by id rather
+  than a deletion, and not bounded by the ten-second window at all.
 - **The daily caps are kept by identity, not by count.** `SessionView` carries
   which cards have been spent today and in which bucket, because a learning
   card the server counted this morning must not spend a second slot when it
@@ -407,10 +414,13 @@ is why the previous version silently fell back to the default voice.
   headword plus the dictionary result, validated with Zod, retried once on a
   parse failure, and never blocking the save. The add form has the fields;
   nothing fills them.
-- **`review_logs` is still append-only.** Two permitted deletions, both narrow:
-  `undoReview`'s 10-second window on the server, and the outbox entry dropped
-  before it is ever sent. `confusions` is append-only on the same terms and has
-  no deletion at all.
+- **`review_logs` is still append-only, mostly.** Two things that look like an
+  exception and one that is not: `undoReview`'s 10-second window on the
+  server deletes a row outright, and dropping an unsent outbox entry deletes
+  nothing at all because nothing was written. What's genuinely new is
+  `applyReview`'s pair correction — a real delete-then-insert, unbounded by
+  time, guarded by "still the card's latest review" instead. `confusions` is
+  append-only on the original, unqualified terms and has no deletion at all.
 - **`applyReview` is the one scheduling path.** Server action, sync replay and
   recompute all go through it or through `foldLogs`. Anything that writes a
   review should too.

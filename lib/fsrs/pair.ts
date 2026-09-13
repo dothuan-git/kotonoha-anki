@@ -53,10 +53,11 @@ export function worseOf(a: RatingValue, b: RatingValue): RatingValue {
  * nothing at all is written. The card has had its review today.
  *
  * `replace` — the second answer was worse, so it becomes the word's grade.
- * The first row is taken back and the worse one written in its place, which
- * is why the outbox holds a card's rating back while its twin is still
- * unanswered: taken back before it was ever sent, the correction costs no
- * deletion and `review_logs` keeps its append-only property.
+ * Cheap if the first row has not reached the server yet — taken back before
+ * it was ever sent, which costs no deletion. Once it has, the corrected
+ * rating is simply queued under the same id, and `applyReview` on the server
+ * is what turns "a review under an id it has already seen, priced
+ * differently" into a replacement rather than a duplicate.
  */
 export type PairOutcome =
   | { action: 'keep' }

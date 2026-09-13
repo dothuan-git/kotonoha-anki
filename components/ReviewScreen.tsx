@@ -230,18 +230,24 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       });
     }
     if (result.rejected.length > 0) {
-      // Permanently refused: the card was deleted or suspended between the
-      // rating and the sync. Saying so is the honest option — the alternative
-      // is an outbox that quietly never empties.
-      setError(`${result.rejected.length} lượt ôn không gửi được (thẻ đã bị xoá hoặc tạm dừng).`);
+      // Permanently refused, for one of two reasons: the card was deleted or
+      // suspended between the rating and the sync, or a pair correction lost
+      // the race against a newer real review of the same card. Naming just
+      // the first would be wrong for the second, so this stays general.
+      // Saying so at all is the honest option — the alternative is an outbox
+      // that quietly never empties.
+      setError(`${result.rejected.length} lượt ôn không gửi được.`);
     }
   }, []);
 
   const sync = useCallback(async () => {
     setSyncing(true);
     try {
-      // Every card still in the queue may yet be revised by its other face.
-      const result = await flush(new Set(queueRef.current.map((item) => item.cardId)));
+      // A word still in the queue may yet be revised by its other face, but
+      // that no longer holds the rating back — see `flush`. A correction
+      // reaches the server the same way this one did, queued under the same
+      // id, whenever its own turn comes.
+      const result = await flush();
       if (result) applySync(result);
     } finally {
       setSyncing(false);
@@ -282,9 +288,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
       // Half-graded words belong to the queue they were graded in. Resuming
       // keeps them, so a word's second face still revises the review its first
-      // one wrote. Taking the server's queue instead means every rating had
-      // already been flushed — which it cannot have been with a pair
-      // outstanding, since those are held back — so there is nothing to carry.
+      // one wrote — `chooseSession` resumes an unfinished stored session
+      // precisely so this is never dropped just because the first face's
+      // rating already reached the server on its own.
       const resumed = chosen.source === 'resumed' ? (stored?.graded ?? {}) : {};
 
       setSession(chosen.session);
@@ -505,19 +511,15 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         });
 
         void (async () => {
-          const tookBack = await takeBack(prior.logId);
-          // Almost always true — the hold is there precisely for this. If it
-          // is not, the rating reached the server while this card was still in
-          // the queue (another tab, another device), and the honest repair is
-          // a second review rather than a silent no-op: the id has to be new,
-          // or the server's insert would collide and keep the better grade.
-          const id = tookBack ? prior.logId : crypto.randomUUID();
-          await enqueue({ ...entry, id }, now.getTime());
-          // Undo has to point at the row that exists, not the one this
-          // correction expected to reuse.
-          if (id !== prior.logId) {
-            setUndoable((u) => (u && u.logId === prior.logId ? { ...u, logId: id } : u));
-          }
+          // Try the free path first, on the chance the first face's rating is
+          // still sitting inside its own ten-second window. Once that window
+          // has closed — the ordinary case, since a rating no longer waits
+          // for its twin to leave the outbox — `takeBack` finds nothing, and
+          // `entry` is queued anyway under the same id: `applyReview` on the
+          // server now knows a review under an id it has already seen, priced
+          // differently, is this correction rather than a duplicate.
+          await takeBack(prior.logId);
+          await enqueue(entry, now.getTime());
           setPending(await pendingCount());
         })();
         return;
