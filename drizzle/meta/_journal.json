@@ -15,6 +15,13 @@
       "when": 1789190325391,
       "tag": "0001_leeches_and_confusions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789259643776,
+      "tag": "0002_model_cleanup",
+      "breakpoints": true
     }
   ]
 }

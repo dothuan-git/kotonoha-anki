@@ -30,13 +30,11 @@ export const POS_VALUES = [
 
 export const TRANSITIVITY_VALUES = ['transitive', 'intransitive'] as const;
 export const JLPT_VALUES = ['N5', 'N4', 'N3', 'N2', 'N1'] as const;
-export const CARD_TYPE_VALUES = ['recognition', 'production', 'cloze'] as const;
 export const SENTENCE_SOURCE_VALUES = ['ai', 'manual'] as const;
 
 export const posEnum = pgEnum('pos', POS_VALUES);
 export const transitivityEnum = pgEnum('transitivity', TRANSITIVITY_VALUES);
 export const jlptEnum = pgEnum('jlpt', JLPT_VALUES);
-export const cardTypeEnum = pgEnum('card_type', CARD_TYPE_VALUES);
 export const sentenceSourceEnum = pgEnum('sentence_source', SENTENCE_SOURCE_VALUES);
 
 export const words = pgTable(
@@ -52,13 +50,52 @@ export const words = pgTable(
     note: text('note'),
     suspended: boolean('suspended').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Tie-break for the order new cards are introduced in, within one
+     * `createdAt`. Zero for everything added a word at a time — one word per
+     * timestamp leaves nothing to break — and the row's position in the file
+     * for an import, which stamps a whole batch faster than the clock ticks
+     * and would otherwise reach the reviewer in an arbitrary order.
+     */
+    sortOrder: integer('sort_order').notNull().default(0),
+    /**
+     * Which import produced this word, or null if it was typed in by hand.
+     * Provenance has to be written at insert time or it does not exist: once
+     * a thousand rows are in the table there is no telling afterwards which
+     * file they came from, and no way to take just those back out.
+     */
+    importBatchId: uuid('import_batch_id').references(() => importBatches.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     // The same headword can legitimately recur with a different reading
     // (開ける/あける vs 開ける/ひらける), so the identity is the pair.
     uniqueIndex('words_headword_reading_idx').on(t.headword, t.reading),
+    // The order new cards are introduced in, which is also the order the
+    // bounded new-card query walks: it reads the first N rows of this index
+    // rather than sorting the collection.
+    index('words_intro_idx').on(t.createdAt, t.sortOrder),
+    index('words_import_batch_idx').on(t.importBatchId),
   ],
 );
+
+/**
+ * One row per bulk import, so an import can be recognised and undone as a unit.
+ *
+ * Deliberately not a log of what happened — it is the handle the words hang
+ * off. Deleting a batch row leaves its words in place (`set null`); throwing
+ * away the words is a separate, explicit act, because "undo that import" and
+ * "stop tracking where these came from" are different intentions and only one
+ * of them destroys vocabulary.
+ */
+export const importBatches = pgTable('import_batches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** Filename, deck name, or whatever the user will recognise it by. */
+  source: text('source').notNull(),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const kanji = pgTable('kanji', {
   char: text('char').primaryKey(),
@@ -100,9 +137,23 @@ export const sentences = pgTable(
     source: sentenceSourceEnum('source'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('sentences_word_idx').on(t.wordId)],
+  // One example per word, enforced. The editor has only ever updated "the
+  // first" sentence for a word and the add form only ever writes one, so a
+  // second row could never be edited or deleted from the UI — it would just
+  // sit there. A constraint is cheaper than the screen that would be needed to
+  // make 1:N real.
+  (t) => [uniqueIndex('sentences_word_idx').on(t.wordId)],
 );
 
+/**
+ * The scheduling identity — one row per word, the thing `review_logs` and
+ * `card_states` hang off.
+ *
+ * It carried a `card_type` until the model settled on one card asked from both
+ * sides, and an `active` flag that was written `true` at insert and never once
+ * set to false: `words.suspended` was always the thing that decided what a
+ * session deals. Both are gone.
+ */
 export const cards = pgTable(
   'cards',
   {
@@ -110,8 +161,6 @@ export const cards = pgTable(
     wordId: uuid('word_id')
       .notNull()
       .references(() => words.id, { onDelete: 'cascade' }),
-    cardType: cardTypeEnum('card_type').notNull(),
-    active: boolean('active').notNull().default(true),
     /**
      * The leech flag, acknowledged. Not derived: `card_states.lapses` says
      * when a card *is* a leech, and the log says it the same way a year from
@@ -120,7 +169,13 @@ export const cards = pgTable(
      */
     leechAckedAt: timestamp('leech_acked_at', { withTimezone: true }),
   },
-  (t) => [uniqueIndex('cards_word_type_idx').on(t.wordId, t.cardType)],
+  // One card per word, enforced.
+  //
+  // Not only tidiness: it is what lets the session queries apply their caps as
+  // a SQL `LIMIT`. `buildQueue` drops a second card for a word it has already
+  // taken, so a bounded query could otherwise ask for twelve rows and yield
+  // fewer than twelve cards. With one card per word that cannot happen.
+  (t) => [uniqueIndex('cards_word_idx').on(t.wordId)],
 );
 
 /**
@@ -205,6 +260,12 @@ export const dictCache = pgTable('dict_cache', {
   /** The normalised lookup query, not necessarily a saved headword. */
   headword: text('headword').primaryKey(),
   payload: jsonb('payload').notNull(),
+  /**
+   * Written, and deliberately never read: there is no TTL, because a
+   * dictionary entry does not go stale. It is kept as the one handle for
+   * invalidating by age if Jotoba's shape ever changes under us — without it a
+   * bad cache can only be dropped wholesale.
+   */
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -218,6 +279,7 @@ export const settings = pgTable('settings', {
 });
 
 export type Word = typeof words.$inferSelect;
+export type ImportBatch = typeof importBatches.$inferSelect;
 export type NewWord = typeof words.$inferInsert;
 export type Kanji = typeof kanji.$inferSelect;
 export type Sentence = typeof sentences.$inferSelect;

@@ -19,6 +19,10 @@ export interface WordInsert {
   sentence: { jp: string; jpRuby: string; vi: string; source: 'ai' | 'manual' } | null;
   /** Overridable so a seed can backdate a word. Defaults to now. */
   createdAt?: Date;
+  /** Position within an import, breaking the tie when a batch shares one `createdAt`. */
+  sortOrder?: number;
+  /** The import this word came from, or null when it was typed in by hand. */
+  importBatchId?: string | null;
 }
 
 /**
@@ -61,6 +65,8 @@ export async function insertWord(data: WordInsert): Promise<string> {
       transitivity: data.transitivity,
       jlpt: data.jlpt,
       note: data.note,
+      sortOrder: data.sortOrder ?? 0,
+      importBatchId: data.importBatchId ?? null,
     }),
   ];
 
@@ -97,7 +103,7 @@ export async function insertWord(data: WordInsert): Promise<string> {
   }
 
   batch.push(
-    db.insert(cards).values({ id: cardId, wordId, cardType: 'recognition', active: true }),
+    db.insert(cards).values({ id: cardId, wordId }),
     // State 0 is ts-fsrs `State.New`. Due at creation so the card enters the
     // first session; the row is still a projection — an empty log folds to
     // exactly this, which is what lets `npm run recompute` reproduce it.
