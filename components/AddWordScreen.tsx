@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Bot, Check, Sparkles, UserCheck, Volume2, VolumeX } from 'lucide-react';
+import { ArrowRight, Bot, Check, Sparkles, Upload, UserCheck, Volume2, VolumeX } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
@@ -190,13 +190,22 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <div className="mb-4">
-        <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
-          Thêm từ vựng mới
-        </h1>
-        <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Nhập từ tiếng Nhật (ví dụ: 開ける, 勉強), hệ thống sẽ tra từ điển để gợi ý cách đọc, từ loại và Hán Việt.
-        </p>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
+            Thêm từ vựng mới
+          </h1>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            Nhập từ tiếng Nhật (ví dụ: 開ける, 勉強), hệ thống sẽ tra từ điển để gợi ý cách đọc, từ loại và Hán Việt.
+          </p>
+        </div>
+        <Link
+          href="/add/bulk"
+          className="mt-1 flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--bamboo)] hover:text-[var(--bamboo)]"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Nhập hàng loạt
+        </Link>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

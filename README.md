@@ -64,7 +64,8 @@ thing that sends a review to the server.
 ## Layout
 
 ```
-app/          routes and route handlers (/api/lookup, /api/sync, /api/share, auth)
+app/          routes and route handlers (/api/lookup, /api/sync, /api/share,
+              /api/import, auth)
 components/   client components, one per screen
 components/stats/  the charts, built from elements and inline SVG
 lib/db/       Drizzle schema, queries, the review projection, the /stats reads
@@ -75,6 +76,7 @@ lib/client/   IndexedDB, the offline outbox, the stored session, the TTS check
 lib/dict/     Jotoba client, tag→pos mapping, furigana conversion
 lib/actions/  server actions
 lib/ruby.ts   the ruby parser
+lib/import.ts the bulk-import file parser, pure and database-free
 lib/share.ts  share-target text extraction
 lib/stats.ts  the four /stats charts as pure functions over rows
 lib/confusion.ts  confusion-pair resolution, through the answer normaliser
@@ -406,6 +408,106 @@ add form checks at save time and says so, and carries a speaker button to hear
 the word once while adding it. `lib/client/audio.ts` also waits for
 `voiceschanged` — an early `getVoices()` returns an empty list in Chrome, which
 is why the previous version silently fell back to the default voice.
+
+## How bulk import works
+
+`/add/bulk` takes a `.json` file of words, shows what it will do, and writes
+only after you agree. The whole thing is one batch row, so it can be taken back
+out as a unit.
+
+- **The parser is pure and lives in `lib/import.ts`.** It touches no database,
+  which is what lets `tests/import.test.ts` cover it properly and what lets the
+  same function produce the preview and the rows that are actually written —
+  there is no second parser to disagree with the first.
+- **The file is uploaded twice.** `POST /api/import` with `dryRun=1` returns the
+  preview; the client keeps the `File` and posts the same bytes again to
+  commit. No half-finished import is parked on the server between the two, and
+  the duplicate check is made fresh both times. It is a route handler rather
+  than a server action because server action bodies are capped at 1 MB.
+- **`sentence.jp` is derived from `jpRuby`, never read from the file.** The seed
+  script checks that a hand-typed pair agrees; here nobody typed them, and the
+  plain text disagreeing with the furigana is the likeliest thing for a
+  generated file to get subtly wrong. Deriving it removes the failure mode
+  rather than reporting it.
+- **A reading containing kanji is refused.** The review screen speaks that
+  field, so the mistake would surface only as the wrong audio, months later.
+- **Duplicates are found before the insert, not caught after it.** One query on
+  `(headword, reading)` marks them, so the preview can say what will be skipped
+  *before* you agree. The unique index is still behind the write.
+- **The whole batch shares one `created_at`**, stamped faster than the clock
+  ticks, so `sort_order` — the row's position in the file — is the only thing
+  carrying your ordering into the new-card queue. A rejected row still spends
+  its position rather than shifting everything after it.
+- **`insertWords` chunks twenty words per `db.batch`.** Neon applies a batch as
+  one transaction, so a bad row takes its nineteen neighbours with it; a failed
+  chunk is retried one word at a time to find out which, and only that row is
+  reported as failed.
+- **Undo deletes the words, then the batch.** `words.import_batch_id` is
+  `on delete set null` on purpose: dropping the batch row is "stop tracking
+  where these came from", and throwing away the vocabulary is a separate,
+  explicit act. Cascades take the sentences, cards and review history — which
+  is why the screen asks first.
+
+### The prompt that generates the file
+
+Paste this into Claude, then your word list. Keep it in step with
+`lib/import.ts` if the format changes.
+
+````
+Generate a JSON file to bulk-import Japanese vocabulary into my Anki-style app.
+
+Output ONE JSON code block and nothing else — no commentary before or after.
+
+Shape:
+{
+  "source": "<short name for this batch, e.g. the textbook lesson>",
+  "words": [ { …one object per word, in the order I gave them… } ]
+}
+
+Fields per word:
+
+- "headword"  (required) The word as written in Japanese — kanji if it has kanji.
+- "reading"   (required) The reading in HIRAGANA ONLY (katakana for loanwords).
+              Never any kanji here. The app speaks this field aloud.
+- "meaning"   (required) The Vietnamese meaning. Several senses separated by commas.
+- "pos"       (required) EXACTLY one of these English strings:
+                "Noun", "Verb 1", "Verb 2", "Verb 3", "I-adjective",
+                "Na-adjective", "Adverb", "Particle", "Conjunction",
+                "Counter", "Expression"
+              Verb 1 = godan/五段 (飲む, 書く). Verb 2 = ichidan/一段 (食べる, 見る).
+              Verb 3 = irregular (する, 来る, and every 〜する compound verb).
+              A noun like 勉強 that takes する stays "Noun".
+- "transitivity" (verbs only, omit otherwise) "transitive" or "intransitive".
+- "jlpt"      (optional) One of "N5", "N4", "N3", "N2", "N1".
+- "note"      (optional) A short Vietnamese usage note. Omit if you have nothing useful.
+- "hanViet"   (optional) Object mapping each kanji in the headword to its Hán Việt
+              reading(s), lowercase, as an array: { "勉": ["miễn"], "強": ["cường"] }.
+- "sentence"  (optional but please include one) An example sentence:
+              { "jpRuby": "<sentence with furigana>", "vi": "<Vietnamese translation>" }
+
+Furigana format for "jpRuby" — this is the part to get exactly right:
+
+  Put the reading in square brackets immediately after each kanji run.
+  A bracket group annotates ONLY the kanji directly before it, never the
+  okurigana or the kana around it.
+
+    毎日[まいにち]日本語[にほんご]を勉強[べんきょう]します。
+    窓[まど]を開[あ]けてください。        ← 開[あ], NOT 開ける[あける]
+    友[とも]達[だち]                      ← WRONG, write 友達[ともだち]
+
+  A run of adjacent kanji is annotated as one group with its whole reading.
+  Kana needs no brackets. Do NOT include a separate plain-text version of the
+  sentence — the app derives it.
+
+Rules:
+- Keep my order. The app introduces the words in the order they appear in the file.
+- Every word exactly once. Do not invent words I did not give you.
+- Keep sentences short and at or below the word's JLPT level, and make sure each
+  sentence actually uses its headword.
+- Valid JSON: double quotes, no trailing commas, no comments.
+
+Here are the words:
+````
 
 ## Notes for whoever picks this up
 
