@@ -41,12 +41,19 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
   commit. Nothing half-finished is parked on the server between them, and the
   duplicate check is made fresh both times. It is a route handler rather than a
   server action because server action bodies are capped at 1 MB.
+- **Words can be struck off in the preview.** The X on a row drops it and the
+  arrow puts it back; the commit post carries an `exclude` field, a JSON array
+  of the file positions to skip, and `applyExclusions` clears their `data` so
+  the insert never sees them. Positions travel rather than words: the server
+  re-parses the same bytes, so nothing about the row has to be trusted from the
+  round trip.
 - **Duplicates are reported before the insert**, by one query on
   `(headword, reading)`, so the preview can say what will be skipped. The
   unique index is still behind the write.
 - **The batch shares one `created_at`**, so `sort_order` — the row's position
   in the file — is what carries your ordering into the new-card queue. A
-  rejected row spends its position rather than shifting everything after it.
+  rejected or struck-off row spends its position rather than shifting
+  everything after it.
 - **Writes are chunked twenty words per `db.batch`.** Neon applies a batch as
   one transaction, so a failed chunk is retried one word at a time and only the
   offending row is reported.

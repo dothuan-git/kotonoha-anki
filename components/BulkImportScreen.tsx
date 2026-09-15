@@ -1,11 +1,12 @@
 'use client';
 
-import { ArrowLeft, Check, FileJson, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Check, FileJson, Trash2, Undo2, Upload, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useRef, useState, useTransition } from 'react';
+import { useMemo, useRef, useState, useTransition } from 'react';
 
 import { deleteImportBatch } from '@/lib/actions/imports';
+import { applyExclusions, countRows } from '@/lib/import';
 import type { ImportReport, PreviewRow, RowStatus } from '@/lib/import';
 import type { ImportBatchView } from '@/lib/types';
 
@@ -15,17 +16,26 @@ const STATUS_STYLE: Record<RowStatus, { label: string; className: string }> = {
   ok: { label: 'Sẽ nhập', className: 'text-[var(--bamboo)]' },
   duplicate: { label: 'Bỏ qua', className: 'text-[var(--warning)]' },
   invalid: { label: 'Lỗi', className: 'text-[var(--danger)]' },
+  excluded: { label: 'Đã bỏ', className: 'text-[var(--text-muted)]' },
 };
 
 /**
  * Posts the file and returns the report, or throws with the server's
  * Vietnamese reason. The same bytes go up twice — once to preview, once to
  * commit — so the server never holds a half-finished import between them.
+ * Only the list of struck-off rows travels with the second post.
  */
-async function postImport(file: File, dryRun: boolean): Promise<ImportReport> {
+async function postImport(
+  file: File,
+  dryRun: boolean,
+  excluded: ReadonlySet<number>,
+): Promise<ImportReport> {
   const body = new FormData();
   body.set('file', file);
   body.set('dryRun', dryRun ? '1' : '0');
+  // By file position: the server re-parses the same bytes, so the index names
+  // the same row there.
+  body.set('exclude', JSON.stringify([...excluded]));
 
   const res = await fetch('/api/import', { method: 'POST', body });
   const data = (await res.json()) as Partial<ImportReport> & { error?: string };
@@ -41,12 +51,16 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
   const [report, setReport] = useState<ImportReport | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
+  // File positions the user struck off in the preview. Cleared with the file,
+  // because the next file's row 3 is a different word.
+  const [excluded, setExcluded] = useState<ReadonlySet<number>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
   function reset() {
     setFile(null);
     setReport(null);
     setError(null);
+    setExcluded(new Set());
     setStatus('idle');
     if (fileRef.current) fileRef.current.value = '';
   }
@@ -57,10 +71,11 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
     setFile(picked);
     setReport(null);
     setError(null);
+    setExcluded(new Set());
     setStatus('reading');
 
     try {
-      setReport(await postImport(picked, true));
+      setReport(await postImport(picked, true, new Set()));
       setStatus('previewing');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không đọc được tệp');
@@ -75,7 +90,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
     setError(null);
 
     try {
-      setReport(await postImport(file, false));
+      setReport(await postImport(file, false, excluded));
       setStatus('done');
       // The batch list is server-rendered; the new row is not in this render.
       router.refresh();
@@ -85,8 +100,26 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
     }
   }
 
-  const counts = report?.counts;
-  const canImport = status === 'previewing' && (counts?.ok ?? 0) > 0;
+  /** Toggling costs nothing until the import runs: nothing is written yet. */
+  function toggleExcluded(index: number) {
+    if (status !== 'previewing') return;
+
+    setExcluded((current) => {
+      const next = new Set(current);
+      if (!next.delete(index)) next.add(index);
+      return next;
+    });
+  }
+
+  // Struck-off rows are folded in here rather than asked of the server again:
+  // the same function decides it on both sides, and re-uploading the file on
+  // every click would be a lot of traffic for a local decision.
+  const rows: PreviewRow[] = useMemo(
+    () => (report ? applyExclusions(report.rows, excluded) : []),
+    [report, excluded],
+  );
+  const counts = useMemo(() => countRows(rows), [rows]);
+  const canImport = status === 'previewing' && counts.ok > 0;
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -134,7 +167,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
         </p>
       )}
 
-      {report && counts && (
+      {report && (
         <section className="mt-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
@@ -145,6 +178,13 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
                 className="text-[var(--warning)]"
               />
               <Summary label="Lỗi" value={counts.invalid} className="text-[var(--danger)]" />
+              {counts.excluded > 0 && (
+                <Summary
+                  label="Đã bỏ"
+                  value={counts.excluded}
+                  className="text-[var(--text-secondary)]"
+                />
+              )}
             </div>
 
             {status === 'done' ? (
@@ -174,8 +214,13 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
           </div>
 
           <ul className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-            {report.rows.map((row) => (
-              <PreviewItem key={row.index} row={row} />
+            {rows.map((row) => (
+              <PreviewItem
+                key={row.index}
+                row={row}
+                editable={status === 'previewing'}
+                onToggle={() => toggleExcluded(row.index)}
+              />
             ))}
           </ul>
         </section>
@@ -202,17 +247,36 @@ function Summary({
   );
 }
 
-function PreviewItem({ row }: { row: PreviewRow }) {
+/**
+ * One previewed row. Only a row that would actually be written can be struck
+ * off — a duplicate or an invalid row is already being skipped, and offering
+ * to remove it again would say nothing.
+ */
+function PreviewItem({
+  row,
+  editable,
+  onToggle,
+}: {
+  row: PreviewRow;
+  editable: boolean;
+  onToggle: () => void;
+}) {
   const style = STATUS_STYLE[row.status];
+  const removable = row.status === 'ok' || row.status === 'excluded';
+  const dropped = row.status === 'excluded';
 
   return (
-    <li className="flex items-baseline gap-3 px-3.5 py-2.5">
+    <li className={`flex items-baseline gap-3 px-3.5 py-2.5 ${dropped ? 'opacity-55' : ''}`}>
       <span className="w-6 shrink-0 text-right text-[11px] tabular-nums text-[var(--text-muted)]">
         {row.index + 1}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <span className="font-jp-serif text-base font-semibold text-[var(--text-primary)]">
+          <span
+            className={`font-jp-serif text-base font-semibold text-[var(--text-primary)] ${
+              dropped ? 'line-through' : ''
+            }`}
+          >
             {row.headword || '—'}
           </span>
           {row.reading && (
@@ -229,6 +293,20 @@ function PreviewItem({ row }: { row: PreviewRow }) {
       <span className={`shrink-0 text-[11px] font-semibold ${style.className}`}>
         {style.label}
       </span>
+      {removable && editable && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={
+            dropped
+              ? `Nhập lại ${row.headword}`
+              : `Bỏ ${row.headword} khỏi lần nhập này`
+          }
+          className="shrink-0 self-center cursor-pointer rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--danger-subtle)] hover:text-[var(--danger)]"
+        >
+          {dropped ? <Undo2 className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+        </button>
+      )}
     </li>
   );
 }

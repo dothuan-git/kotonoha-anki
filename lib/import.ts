@@ -25,7 +25,7 @@ import {
  */
 export const MAX_IMPORT_ROWS = 1000;
 
-export type RowStatus = 'ok' | 'invalid' | 'duplicate';
+export type RowStatus = 'ok' | 'invalid' | 'duplicate' | 'excluded';
 
 /**
  * One row of the file, judged. `index` is its position in the file and becomes
@@ -33,12 +33,13 @@ export type RowStatus = 'ok' | 'invalid' | 'duplicate';
  * queue — a whole batch shares one `created_at`, so nothing else can.
  *
  * The text fields are kept even for a rejected row: the preview has to name
- * the word it is refusing. `data` is absent for exactly those rows.
+ * the word it is refusing. `data` is present only on a row that will be
+ * written — not on a rejected one, nor on one the user struck off.
  */
 export interface ParsedRow {
   index: number;
   status: RowStatus;
-  /** Vietnamese, shown in the preview. Present unless the row is `ok`. */
+  /** Vietnamese, shown in the preview. Present on a row the parser refused. */
   reason?: string;
   headword: string;
   reading: string;
@@ -321,11 +322,42 @@ export function pairKey(word: { headword: string; reading: string }): string {
   return `${word.headword} ${word.reading}`;
 }
 
-/** Preview totals, and what decides whether the import button does anything. */
-export function countRows(rows: readonly ParsedRow[]): Record<RowStatus, number> {
+/**
+ * Drops the rows the user struck off in the preview.
+ *
+ * Kept here, beside the parser, so the rows that reach `insertWord` are still
+ * the output of one function. The row stays in the list with its position
+ * intact — `sortOrder` is the file's order, and a removed word spends its
+ * place the same way a rejected one does.
+ */
+export function applyExclusions(
+  rows: readonly ParsedRow[],
+  excluded: ReadonlySet<number>,
+): ParsedRow[] {
+  if (excluded.size === 0) return [...rows];
+
+  // No reason: the row carries the "Đã bỏ" label and a button to put it back,
+  // which says more than a sentence would.
+  return rows.map((row) =>
+    row.status === 'ok' && excluded.has(row.index)
+      ? { ...row, status: 'excluded' as const, data: undefined }
+      : row,
+  );
+}
+
+/**
+ * Preview totals, and what decides whether the import button does anything.
+ *
+ * Takes anything with a status so the preview screen can retally its own rows
+ * as they are struck off, without asking the server again.
+ */
+export function countRows(
+  rows: readonly { status: RowStatus }[],
+): Record<RowStatus, number> {
   return {
     ok: rows.filter((r) => r.status === 'ok').length,
     duplicate: rows.filter((r) => r.status === 'duplicate').length,
     invalid: rows.filter((r) => r.status === 'invalid').length,
+    excluded: rows.filter((r) => r.status === 'excluded').length,
   };
 }
