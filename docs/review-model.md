@@ -90,6 +90,27 @@ boundary, not the calendar day. A key taken off `toISOString()` would label
 every column a day early, consistently enough to look correct;
 `tests/stats.test.ts` pins 03:59 against 04:00.
 
+## The recap
+
+When the queue empties, the completion screen lists the words graded `Quên` or
+`Khó` — headword, reading, meaning — and copies them as RFC 4180 CSV. Three
+columns, no header, quoted, because a Vietnamese meaning carrying a comma
+("mở, bật") silently becomes two columns otherwise.
+
+It is folded from the session's *showings*, not from the review standing for
+each word (`lib/recap.ts`). The two disagree, and the difference is the point:
+a word forgotten at 09:00 and walked back through `1m → 10m` ends the day with
+a `Được` against it, which is right for the scheduler and wrong for a list of
+what you did not know. Every showing counts, and `worseOf` — the same
+comparator the pair rule uses — picks which grade survives.
+
+Client-side, off `answered`, rather than a query over `review_logs`: a rating
+can still be sitting in the outbox, and the session most worth recapping is the
+one taken with no signal. It is scoped to the **study day**, not to the
+session, and rides in the stored session under `missed` so that finishing the
+morning's cards and reopening at noon still shows them. An undo inside its ten
+seconds takes the word back out.
+
 ## Leeches and confusions
 
 **Leeches.** At six lapses a card raises a prompt **once**. The lapse count is

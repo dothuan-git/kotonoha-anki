@@ -1,5 +1,6 @@
 import { SESSION_KEY, openLocalDb, type GradedCard, type StoredSession } from '@/lib/client/db';
 import { startOfStudyDay } from '@/lib/fsrs/day';
+import type { MissedWord } from '@/lib/recap';
 import type { SessionView } from '@/lib/types';
 
 /**
@@ -28,6 +29,7 @@ export const STALE_PAYLOAD_MS = 2 * 60_000;
 export async function saveSession(
   session: SessionView,
   graded: Record<string, GradedCard> = {},
+  missed: MissedWord[] = [],
   now = new Date(),
 ): Promise<void> {
   const db = openLocalDb();
@@ -38,6 +40,7 @@ export async function saveSession(
       savedAt: now.getTime(),
       session,
       graded,
+      missed,
     };
     await (await db).put('session', stored, SESSION_KEY);
   } catch (error) {
@@ -61,7 +64,11 @@ export async function saveSession(
  */
 export async function loadSession(
   now = new Date(),
-): Promise<{ session: SessionView; graded: Record<string, GradedCard> } | null> {
+): Promise<{
+  session: SessionView;
+  graded: Record<string, GradedCard>;
+  missed: MissedWord[];
+} | null> {
   const db = openLocalDb();
   if (!db) return null;
   try {
@@ -73,7 +80,15 @@ export async function loadSession(
       await clearSession();
       return null;
     }
-    return { session: stored.session, graded: stored.graded ?? {} };
+    return {
+      session: stored.session,
+      graded: stored.graded ?? {},
+      // Not shape-checked like the session above. A recap built by another
+      // build is four strings and a number that only ever reach a list and a
+      // clipboard, so the worst a stale one can do is read oddly — and it is
+      // dropped with the rest of the record the moment the study day turns.
+      missed: stored.missed ?? [],
+    };
   } catch (error) {
     console.error('[session] could not read', error);
     return null;

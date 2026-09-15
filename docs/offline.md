@@ -44,6 +44,11 @@ ratings per POST: a week offline fits comfortably, and a corrupt outbox cannot
 ask the server to replay forever. Wrong answers that might be confusions ride
 along in the same request.
 
+The stored session also carries `missed`, the day's recap. It is the one thing
+in that record scoped to the **study day** rather than to the session, so it
+survives being handed a fresh server queue — `dayStart` already expires it at
+rollover, and nothing else has to.
+
 Signing out clears cached pages and the stored queue, but never the outbox —
 those are reviews that have not reached the server, and only one address can
 sign in.

@@ -3,6 +3,7 @@
 import {
   Check,
   CheckCircle2,
+  Copy,
   Keyboard,
   Pencil,
   RotateCcw,
@@ -12,7 +13,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import { AnswerInput } from '@/components/AnswerInput';
 import { LeechPanel } from '@/components/LeechPanel';
@@ -31,6 +32,7 @@ import { STUDY_TIME_ZONE } from '@/lib/fsrs/day';
 import { formatDueIn } from '@/lib/fsrs/format';
 import { countCard, rateLocally } from '@/lib/fsrs/local';
 import { resolvePair, revises, type PriorGrade } from '@/lib/fsrs/pair';
+import { mergeMissed, missedWords, toCsv, type MissedWord } from '@/lib/recap';
 import {
   RATING_LABELS,
   UNDO_WINDOW_MS,
@@ -160,6 +162,15 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    * only one. See `lib/fsrs/pair.ts`.
    */
   const [graded, setGraded] = useState<Record<string, PriorGrade & { item: ReviewItem }>>({});
+  /**
+   * The recap this study day already had before this session opened.
+   *
+   * Read once, on mount, and never written to again — what this session adds
+   * is derived from `answered` instead, so an undo takes a word back out of
+   * the list the same tick it takes back the review. Sessions earlier in the
+   * day are past undoing, which is exactly why they can be a flat list.
+   */
+  const [dayMissed, setDayMissed] = useState<MissedWord[]>([]);
   const [undoable, setUndoable] = useState<Undoable | null>(null);
   const [editing, setEditing] = useState(false);
   /** The leech prompt, shown once for the card that just crossed six lapses. */
@@ -181,6 +192,19 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const online = useOnline();
 
   const counts = tallyCounts(countedCards);
+  /**
+   * The day's recap: every word graded Quên or Khó, this session's and the
+   * ones before it folded together.
+   *
+   * Over `answered` rather than `graded` on purpose. `graded` holds the review
+   * the scheduler is acting on, and a learning step overwrites it — forget a
+   * word at 09:00, walk it back through 1m and 10m, and what stands is a
+   * "Được" for a word you plainly did not know. Every showing counts here.
+   */
+  const missed = useMemo(
+    () => mergeMissed(dayMissed, missedWords(answered)),
+    [dayMissed, answered],
+  );
   const currentWord = queue[0];
   /**
    * Which way round this showing is asked, and what it wants typed.
@@ -292,14 +316,21 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       // precisely so this is never dropped just because the first face's
       // rating already reached the server on its own.
       const resumed = chosen.source === 'resumed' ? (stored?.graded ?? {}) : {};
+      // The recap is kept whichever queue won, unlike `graded` above. A word
+      // half-graded belongs to the session it was dealt in; a word forgotten
+      // belongs to the day. Dropping it on a fresh server queue would empty
+      // the recap in precisely the case it exists for — finish the morning's
+      // cards, come back at noon to nothing due.
+      const earlier = stored?.missed ?? [];
 
       setSession(chosen.session);
       setQueue(chosen.session.items);
       setCountedCards(chosen.session.countedCards);
       setGraded(resumed);
+      setDayMissed(earlier);
       setPending(waiting);
       setReady(true);
-      await saveSession(chosen.session, resumed, now);
+      await saveSession(chosen.session, resumed, earlier, now);
       if (!cancelled) await syncRef.current();
     })();
 
@@ -314,8 +345,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    */
   useEffect(() => {
     if (!ready) return;
-    void saveSession({ ...session, items: queue, countedCards }, graded);
-  }, [ready, session, queue, countedCards, graded]);
+    void saveSession({ ...session, items: queue, countedCards }, graded, missed);
+  }, [ready, session, queue, countedCards, graded, missed]);
 
   /**
    * Drain the outbox. Entries are held back for the undo window, so a flush
@@ -759,9 +790,18 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         title="Phiên ôn tập đã hoàn thành"
         body={summarise(answered, counts, session)}
         session={session}
+        missed={missed}
       />
     ) : (
-      <Finished title={emptyTitle(session)} body={emptyBody(session)} session={session} />
+      // The recap rides the empty screen too. Reopening at noon with nothing
+      // due is not an empty day — it is a finished one, and the words it cost
+      // are still the answer to "what should I look at again".
+      <Finished
+        title={emptyTitle(session)}
+        body={emptyBody(session)}
+        session={session}
+        missed={missed}
+      />
     );
   }
 
@@ -1410,10 +1450,12 @@ function Finished({
   title,
   body,
   session,
+  missed,
 }: {
   title: string;
   body: string;
   session: SessionView;
+  missed: MissedWord[];
 }) {
   return (
     <motion.div
@@ -1439,6 +1481,8 @@ function Finished({
         Hạn mức mới lúc {formatRollover(new Date(session.nextDayStart))} ngày mai.
       </p>
 
+      {missed.length > 0 && <Recap words={missed} />}
+
       <div className="mt-8 flex items-center justify-center gap-3">
         <Link
           href="/add"
@@ -1449,6 +1493,100 @@ function Finished({
         </Link>
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * The day's misses, and a way to take them somewhere else.
+ *
+ * Three fields and no fourth. The grade is not a column because the list is
+ * already ordered by it — Quên before Khó — and a badge on every row would
+ * make the loudest thing on the screen the scoring rather than the words.
+ *
+ * The CSV is on the page whether or not the button works. `navigator.clipboard`
+ * is absent outside a secure context and can reject inside one, and a copy
+ * button that fails silently on a list you are about to close is a list lost.
+ */
+function Recap({ words }: { words: MissedWord[] }) {
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const csv = toCsv(words);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(csv);
+      setCopyFailed(false);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setCopyFailed(true);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 text-left shadow-xs">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Cần ôn thêm</h3>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-muted)]">
+            {words.length} từ bạn chấm Quên hoặc Khó hôm nay.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+            copied
+              ? 'border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-[var(--bamboo)]'
+              : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]'
+          }`}
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <span>{copied ? 'Đã sao chép' : 'Sao chép CSV'}</span>
+        </button>
+      </div>
+
+      {copyFailed && (
+        <p className="mt-2 text-[11px] text-[var(--danger)]">
+          Không sao chép được — hãy mở “Xem CSV” bên dưới và chọn thủ công.
+        </p>
+      )}
+
+      <ul className="mt-3 divide-y divide-[var(--border-subtle)]">
+        {words.map((word) => (
+          <li key={word.cardId} className="flex items-baseline justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <p className="font-jp-serif text-base text-[var(--text-primary)]">{word.headword}</p>
+              {/* A kana-only word is its own reading; printing it twice reads
+                  as a mistake rather than as a fact about the word. */}
+              {word.reading !== word.headword && (
+                <p className="mt-0.5 font-jp-sans text-xs text-[var(--text-muted)]">
+                  {word.reading}
+                </p>
+              )}
+            </div>
+            <p className="max-w-[55%] shrink-0 text-right text-xs text-[var(--text-secondary)]">
+              {word.meaning}
+            </p>
+          </li>
+        ))}
+      </ul>
+
+      <details className="mt-3 border-t border-[var(--border-subtle)] pt-2">
+        <summary className="cursor-pointer text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+          Xem CSV
+        </summary>
+        <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-[var(--bg-muted)] p-2 text-[11px] whitespace-pre text-[var(--text-secondary)]">
+          {csv}
+        </pre>
+      </details>
+    </section>
   );
 }
 
