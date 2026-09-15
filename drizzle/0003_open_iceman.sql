@@ -1,0 +1,1 @@
+ALTER TABLE "settings" ADD COLUMN "unlimited_per_day" boolean DEFAULT false NOT NULL;

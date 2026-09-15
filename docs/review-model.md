@@ -90,6 +90,16 @@ boundary, not the calendar day. A key taken off `toISOString()` would label
 every column a day early, consistently enough to look correct;
 `tests/stats.test.ts` pins 03:59 against 04:00.
 
+Both caps can be lifted together from `/settings` —
+`settings.unlimitedPerDay`. One switch rather than one per cap: lifting only
+the review cap or only the new-card cap does not clear a backlog, it moves it
+from one pile to the other. The stored numbers are kept rather than cleared,
+so switching the flag back off restores the caps they were set to.
+`lib/db/review.ts` stands a large constant (`NO_CAP`) in for the limit
+wherever a real number is required — a SQL `LIMIT`, `buildQueue`'s
+arithmetic — rather than threading "no limit" through as a special case in
+either place.
+
 ## The recap
 
 When the queue empties, the completion screen lists the words graded `Quên` or

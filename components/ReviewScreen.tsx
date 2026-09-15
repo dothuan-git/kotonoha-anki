@@ -1596,10 +1596,16 @@ function summarise(answered: Answered[], counts: DailyCounts, session: SessionVi
   const cards = new Set(answered.map((a) => a.item.cardId)).size;
   const forgotten = answered.filter((a) => a.rating === 1).length;
   const forgot = forgotten > 0 ? `, ${forgotten} lượt quên` : '';
+  // A lifted cap has no "/N" to report against — the count stands alone.
+  const newLine = session.limits.unlimited
+    ? `${counts.newCards} từ mới`
+    : `${counts.newCards}/${session.limits.newPerDay} từ mới`;
+  const reviewLine = session.limits.unlimited
+    ? `${counts.reviewCards} lượt ôn`
+    : `${counts.reviewCards}/${session.limits.reviewsPerDay} lượt ôn`;
   return (
     `${cards} từ, ${answered.length} lượt chấm${forgot}. ` +
-    `Hôm nay đã học ${counts.newCards}/${session.limits.newPerDay} từ mới và ` +
-    `${counts.reviewCards}/${session.limits.reviewsPerDay} lượt ôn.`
+    `Hôm nay đã học ${newLine} và ${reviewLine}.`
   );
 }
 

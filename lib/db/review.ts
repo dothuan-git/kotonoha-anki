@@ -115,6 +115,18 @@ async function scanRotation(now: Date): Promise<{
 
 /** Every card is asked from both sides, so a session is twice its cards long. */
 const FACES_PER_CARD = 2;
+
+/**
+ * Stands in for "no cap" wherever a limit has to be a real number — a
+ * `LIMIT` clause, `buildQueue`'s arithmetic. Never reached by an actual
+ * collection, so it behaves exactly like infinity without needing either
+ * caller to special-case it.
+ */
+const NO_CAP = 1_000_000;
+
+function dailyLimit(spent: number, perDay: number, unlimited: boolean): number {
+  return unlimited ? NO_CAP : Math.max(0, perDay - spent);
+}
 type CardRow = { cardId: string; wordId: string; createdAt: Date };
 
 /**
@@ -169,8 +181,8 @@ export async function countDueToday(now = new Date()): Promise<number> {
   ]);
   const counts = tallyCounts(countedCards);
 
-  const reviewLimit = Math.max(0, settings.reviewsPerDay - counts.reviewCards);
-  const newLimit = Math.max(0, settings.newPerDay - counts.newCards);
+  const reviewLimit = dailyLimit(counts.reviewCards, settings.reviewsPerDay, settings.unlimitedPerDay);
+  const newLimit = dailyLimit(counts.newCards, settings.newPerDay, settings.unlimitedPerDay);
   return (
     (Math.min(scan.dueReviews, reviewLimit) + Math.min(scan.newCards, newLimit)) * FACES_PER_CARD
   );
@@ -189,8 +201,8 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
   const params = schedulerParams(settings.requestRetention);
   const counts = tallyCounts(countedCards);
 
-  const reviewLimit = Math.max(0, settings.reviewsPerDay - counts.reviewCards);
-  const newLimit = Math.max(0, settings.newPerDay - counts.newCards);
+  const reviewLimit = dailyLimit(counts.reviewCards, settings.reviewsPerDay, settings.unlimitedPerDay);
+  const newLimit = dailyLimit(counts.newCards, settings.newPerDay, settings.unlimitedPerDay);
 
   // Only what the caps can actually release, in the order the caps would
   // release it: most overdue first, and new cards in the order they were
@@ -258,7 +270,11 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
     now: now.toISOString(),
     items,
     countedCards,
-    limits: { newPerDay: settings.newPerDay, reviewsPerDay: settings.reviewsPerDay },
+    limits: {
+      newPerDay: settings.newPerDay,
+      reviewsPerDay: settings.reviewsPerDay,
+      unlimited: settings.unlimitedPerDay,
+    },
     requestRetention: settings.requestRetention,
     // From the scan, not from the queue: the rows the caps held back were
     // never fetched, so what is waiting has to be counted by the side that
