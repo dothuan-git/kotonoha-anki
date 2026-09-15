@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 
 import type { PriorGrade } from '@/lib/fsrs/pair';
+import type { MissedWord } from '@/lib/recap';
 import type { PendingConfusion, PendingReview, ReviewItem, SessionView } from '@/lib/types';
 
 /**
@@ -65,6 +66,21 @@ export interface StoredSession {
    * which is the one thing the pair rule exists to prevent.
    */
   graded: Record<string, GradedCard>;
+  /**
+   * The words graded Quên or Khó so far *today*, across every session the day
+   * has held.
+   *
+   * Scoped to the study day rather than to the session, which is what makes it
+   * different from `graded` above: finishing the morning's cards and coming
+   * back at noon deals a fresh queue and resets `graded`, and the recap has to
+   * survive that or it only ever answers for the session you are looking at.
+   * The day boundary is already enforced by `dayStart`, so nothing else has to
+   * expire it.
+   *
+   * Optional because a record written before the recap existed has no such
+   * field, and this store is deliberately never migrated.
+   */
+  missed?: MissedWord[];
 }
 
 export interface GradedCard extends PriorGrade {

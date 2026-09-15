@@ -274,6 +274,14 @@ export const settings = pgTable('settings', {
   id: integer('id').primaryKey().default(1),
   newPerDay: integer('new_per_day').notNull().default(12),
   reviewsPerDay: integer('reviews_per_day').notNull().default(100),
+  /**
+   * One switch for both caps — a day with 1000 due and a 100 cap does not
+   * shed those extra 900, it defers them, and studying only new *or* only
+   * review unlimited would just move the backlog from one pile to the other.
+   * `newPerDay` / `reviewsPerDay` are kept rather than cleared while this is
+   * on, so turning it back off restores the caps that were set before.
+   */
+  unlimitedPerDay: boolean('unlimited_per_day').notNull().default(false),
   requestRetention: real('request_retention').notNull().default(0.9),
   theme: text('theme').notNull().default('light'),
 });

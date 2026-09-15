@@ -234,7 +234,13 @@ export interface SessionView {
   now: string;
   items: ReviewItem[];
   countedCards: CountedCards;
-  limits: { newPerDay: number; reviewsPerDay: number };
+  /**
+   * `newPerDay` / `reviewsPerDay` are what the caps are set to whether or not
+   * they are active — kept so the UI can still show the number `unlimited`
+   * would fall back to if turned off. One flag for both: lifting only one cap
+   * just moves the backlog from new cards to reviews or back.
+   */
+  limits: { newPerDay: number; reviewsPerDay: number; unlimited: boolean };
   /**
    * The only user-movable scheduler knob, carried so the client can build
    * the same `FSRSParameters` the server would — the scheduler runs in the

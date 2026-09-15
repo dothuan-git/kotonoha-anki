@@ -15,6 +15,7 @@ const schema = z.object({
   newPerDay: z.number().int().min(0).max(100),
   reviewsPerDay: z.number().int().min(0).max(1000),
   requestRetention: z.number().min(0.7).max(0.99),
+  unlimitedPerDay: z.boolean(),
 });
 
 export async function saveSettings(input: z.input<typeof schema>) {
