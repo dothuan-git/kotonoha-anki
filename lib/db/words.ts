@@ -25,6 +25,9 @@ export interface WordInsert {
   importBatchId?: string | null;
 }
 
+type Statement = Parameters<typeof db.batch>[0][number];
+type Batch = [Statement, ...Statement[]];
+
 /**
  * Writes a word, its kanji links, an optional first sentence, and its card.
  *
@@ -48,12 +51,25 @@ export interface WordInsert {
  * Throws on a duplicate (headword, reading); callers decide what that means.
  */
 export async function insertWord(data: WordInsert): Promise<string> {
+  const { wordId, statements } = wordStatements(data);
+  await db.batch(statements as Batch);
+  return wordId;
+}
+
+/**
+ * The rows one word is made of, built but not sent.
+ *
+ * Split out so a bulk import writes through exactly the same statements as the
+ * add form rather than a second, drifting copy of them — the ids have to be
+ * generated up front anyway, which is what makes the statements portable
+ * between one batch and a shared one.
+ */
+function wordStatements(data: WordInsert): { wordId: string; statements: Statement[] } {
   const wordId = randomUUID();
   const cardId = randomUUID();
   const chars = extractKanji(data.headword);
   const createdAt = data.createdAt ?? new Date();
 
-  type Statement = Parameters<typeof db.batch>[0][number];
   const batch: Statement[] = [
     db.insert(words).values({
       id: wordId,
@@ -110,8 +126,57 @@ export async function insertWord(data: WordInsert): Promise<string> {
     db.insert(cardStates).values({ cardId, due: createdAt, state: 0, reps: 0, lapses: 0 }),
   );
 
-  await db.batch(batch as [Statement, ...Statement[]]);
-  return wordId;
+  return { wordId, statements: batch };
+}
+
+/**
+ * How many words share one round trip. A word is five or six statements, so a
+ * chunk of twenty is a request of about a hundred — enough to make a
+ * three-hundred-word import fifteen round trips instead of three hundred,
+ * small enough that a rollback costs little.
+ */
+const IMPORT_CHUNK_SIZE = 20;
+
+export interface InsertOutcome {
+  /** Position in the array handed in, so a failure can be named in the file. */
+  index: number;
+  wordId?: string;
+  error?: unknown;
+}
+
+/**
+ * Writes many words, chunked.
+ *
+ * Neon applies a `db.batch` as one transaction, which is what makes the chunk
+ * fast and also means one bad row takes its nineteen neighbours down with it.
+ * So a failed chunk is retried a word at a time: the import gives up only on
+ * the row that actually failed, and the caller learns which one. Duplicates are
+ * filtered out before this point, so the slow path should stay rare.
+ */
+export async function insertWords(rows: readonly WordInsert[]): Promise<InsertOutcome[]> {
+  const outcomes: InsertOutcome[] = [];
+
+  for (let start = 0; start < rows.length; start += IMPORT_CHUNK_SIZE) {
+    const chunk = rows.slice(start, start + IMPORT_CHUNK_SIZE);
+    const built = chunk.map(wordStatements);
+
+    try {
+      await db.batch(built.flatMap((b) => b.statements) as Batch);
+      built.forEach((b, i) => outcomes.push({ index: start + i, wordId: b.wordId }));
+    } catch {
+      // The whole chunk rolled back, including the rows that were fine. Nothing
+      // was committed, so the ids built above are simply discarded.
+      for (const [i, row] of chunk.entries()) {
+        try {
+          outcomes.push({ index: start + i, wordId: await insertWord(row) });
+        } catch (error) {
+          outcomes.push({ index: start + i, error });
+        }
+      }
+    }
+  }
+
+  return outcomes;
 }
 
 /** Stored lowercase to match Unihan; display uppercases via formatHanViet. */

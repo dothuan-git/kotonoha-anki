@@ -52,6 +52,18 @@ export interface WordView {
   sentences: SentenceView[];
 }
 
+/**
+ * One past bulk import, as /add/bulk lists it. `wordCount` is how many of its
+ * words survive now, not how many the file held.
+ */
+export interface ImportBatchView {
+  id: string;
+  source: string;
+  note: string | null;
+  createdAt: string;
+  wordCount: number;
+}
+
 export interface KanjiView {
   char: string;
   hanViet: string[];
