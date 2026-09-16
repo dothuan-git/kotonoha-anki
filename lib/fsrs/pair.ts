@@ -29,16 +29,33 @@ export interface PriorGrade {
   face: Face;
 }
 
+/** A showing as this rule needs to see it: which side, and why it is here. */
+export interface Showing {
+  face: Face;
+  /**
+   * This showing is a card put back by a learning step, not one of the two the
+   * day dealt.
+   */
+  repeat?: boolean;
+}
+
 /**
  * Does this showing revise the review already standing, or add one?
  *
- * Only the *other* face revises. A card put back by a learning step comes
- * round again wearing the same face, and that is an ordinary second review —
- * 1m then 10m is how a lapsed card is meant to walk, and collapsing it into
- * the first rating would leave the card stuck at its lapse forever.
+ * A learning-step repeat always adds. 1m then 10m is how a lapsed card walks
+ * out of its lapse, and collapsing the second step into the first rating would
+ * leave it stuck there forever. Otherwise the pair rule applies: only the
+ * *other* face of the word revises what the first one wrote.
+ *
+ * The flag is what decides it, not the face. A repeat wears the face it was
+ * dealt with, so as long as it came straight back the face said the same
+ * thing — but a step long enough to put the repeat behind the word's other
+ * face made that reading wrong, and silently: the step would be read as the
+ * second half of the pair and the card would stop walking.
  */
-export function revises(prior: PriorGrade, face: Face): boolean {
-  return prior.face !== face;
+export function revises(prior: PriorGrade, showing: Showing): boolean {
+  if (showing.repeat) return false;
+  return prior.face !== showing.face;
 }
 
 /** Again < Hard < Good < Easy, which is already the numbering. */

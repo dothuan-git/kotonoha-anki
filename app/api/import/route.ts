@@ -6,6 +6,7 @@ import { createImportBatch, deleteImportBatch, findExistingPairs } from '@/lib/d
 import { insertWords } from '@/lib/db/words';
 import type { WordInsert } from '@/lib/db/words';
 import {
+  applyExclusions,
   countRows,
   pairKey,
   parseImport,
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
   }
 
   const dryRun = form.get('dryRun') !== '0';
+  const excluded = parseExclusions(form.get('exclude'));
 
   let text: string;
   try {
@@ -76,14 +78,15 @@ export async function POST(request: Request) {
   }
   const { source, note, rows } = parsed.result;
 
-  let marked: ParsedRow[];
+  let checked: ParsedRow[];
   try {
-    marked = await markDuplicates(rows);
+    checked = await markDuplicates(rows);
   } catch (error) {
     console.error('[import] duplicate check failed', error);
     return NextResponse.json({ error: 'Không kiểm tra được từ trùng' }, { status: 503 });
   }
 
+  const marked = applyExclusions(checked, excluded);
   const counts = countRows(marked);
 
   if (dryRun) {
@@ -169,6 +172,31 @@ async function commit(
   }
 
   return { batchId, count };
+}
+
+/**
+ * The rows the user struck off in the preview, by file position.
+ *
+ * Positions rather than words: the file is re-parsed on commit, so the index
+ * means the same row both times, and nothing about the word itself has to be
+ * trusted from the round trip. A malformed field is read as "nothing was
+ * removed" — the preview is still shown before anything is written, so the
+ * worst it can do is import a word the user asked to drop, which the batch
+ * undo covers.
+ */
+function parseExclusions(raw: FormDataEntryValue | null): ReadonlySet<number> {
+  if (typeof raw !== 'string' || raw === '') return new Set();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error('[import] unreadable exclude field');
+    return new Set();
+  }
+
+  if (!Array.isArray(parsed)) return new Set();
+  return new Set(parsed.filter((i): i is number => Number.isInteger(i)));
 }
 
 function stripExtension(filename: string): string {

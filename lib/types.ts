@@ -192,6 +192,16 @@ export interface ReviewItem {
    * one bit the log cannot supply, which is why it rides along.
    */
   leechAcked: boolean;
+  /**
+   * Put back into the queue by a learning step rather than dealt by the day.
+   *
+   * Set on the device and never by the server, which deals each card exactly
+   * twice and knows nothing about the steps walked after that. It is on the
+   * wire shape regardless because the session is stored and resumed, and a
+   * repeat that came back from storage without it would be read as the word's
+   * other face — see `revises()`.
+   */
+  repeat?: boolean;
 }
 
 /** Six lapses, and the prompt has not been shown yet. */

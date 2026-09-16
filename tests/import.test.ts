@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_IMPORT_ROWS, countRows, parseImport } from '@/lib/import';
+import { MAX_IMPORT_ROWS, applyExclusions, countRows, parseImport } from '@/lib/import';
 
 /**
  * The import file is written by a language model, so the interesting cases are
@@ -192,7 +192,37 @@ describe('parseImport — the file as a whole', () => {
   it('counts what the preview has to say out loud', () => {
     const outcome = parseImport(JSON.stringify([VALID, VALID, { headword: '猫' }]), 'test');
     if (!outcome.ok) throw new Error(outcome.error);
-    expect(countRows(outcome.result.rows)).toEqual({ ok: 1, duplicate: 0, invalid: 2 });
+    expect(countRows(outcome.result.rows)).toEqual({
+      ok: 1,
+      duplicate: 0,
+      invalid: 2,
+      excluded: 0,
+    });
+  });
+
+  it('drops the rows struck off in the preview, and only those', () => {
+    const cat = { headword: '猫', reading: 'ねこ', meaning: 'con mèo', pos: 'Noun' };
+    const dog = { headword: '犬', reading: 'いぬ', meaning: 'con chó', pos: 'Noun' };
+    const outcome = parseImport(JSON.stringify([cat, dog]), 'test');
+    if (!outcome.ok) throw new Error(outcome.error);
+
+    const rows = applyExclusions(outcome.result.rows, new Set([0]));
+
+    // No `data` on an excluded row is what actually keeps it out of the insert.
+    expect(rows[0]?.status).toBe('excluded');
+    expect(rows[0]?.data).toBeUndefined();
+    expect(rows[1]?.status).toBe('ok');
+    expect(rows[1]?.data?.headword).toBe('犬');
+    // The position is spent either way, so the survivors keep the file's order.
+    expect(rows[1]?.data?.sortOrder).toBe(1);
+  });
+
+  it('leaves a row it cannot import alone rather than restyling it', () => {
+    const outcome = parseImport(JSON.stringify([{ headword: '猫' }]), 'test');
+    if (!outcome.ok) throw new Error(outcome.error);
+
+    const rows = applyExclusions(outcome.result.rows, new Set([0, 99]));
+    expect(rows[0]?.status).toBe('invalid');
   });
 
   const fileCases: Array<{ name: string; text: string; error: string }> = [

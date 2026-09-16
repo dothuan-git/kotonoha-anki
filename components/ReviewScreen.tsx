@@ -32,6 +32,7 @@ import { STUDY_TIME_ZONE } from '@/lib/fsrs/day';
 import { formatDueIn } from '@/lib/fsrs/format';
 import { countCard, rateLocally } from '@/lib/fsrs/local';
 import { resolvePair, revises, type PriorGrade } from '@/lib/fsrs/pair';
+import { repeatSlot } from '@/lib/fsrs/queue';
 import { mergeMissed, missedWords, toCsv, type MissedWord } from '@/lib/recap';
 import {
   RATING_LABELS,
@@ -49,8 +50,6 @@ import {
 
 type Rating = 1 | 2 | 3 | 4;
 
-/** How many other cards a learning card waits behind before it comes round again. */
-const LEARNING_GAP = 2;
 
 /** The prototype's rating row, unchanged. */
 const RATING_STYLES: Record<Rating, string> = {
@@ -111,8 +110,8 @@ const FLUSH_INTERVAL_MS = 5_000;
  * that the deck is no longer a fixed array. The server builds the day once —
  * the caps are the whole day, there is no "study more" — each rating goes
  * back as a server action that returns the authoritative state, and a card
- * put back by a learning step re-enters the queue a couple of cards later
- * rather than advancing an index that only moves forward.
+ * put back by a learning step re-enters the queue as far down as its step is
+ * long, rather than advancing an index that only moves forward.
  *
  * A word is asked twice in a session and graded once. The queue deals each
  * card from both sides — the Japanese word, and its meaning — shuffled and
@@ -448,10 +447,11 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
       const now = new Date();
       // The review standing for this word, if this showing revises it rather
-      // than adding to it — a learning-step repeat wears the same face and is
-      // an ordinary second review.
+      // than adding to it — a learning-step repeat is an ordinary second
+      // review wherever in the queue it landed, which is why `item.repeat`
+      // and not the face is what `revises` reads.
       const standing = graded[item.cardId];
-      const prior = standing && revises(standing, item.face) ? standing : undefined;
+      const prior = standing && revises(standing, item) ? standing : undefined;
 
       setError(null);
       setNotice(null);
@@ -459,14 +459,19 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       setAttempt(null);
       setEditing(false);
 
-      /** Drop the showing that was just answered, and put it back if it repeats. */
+      /**
+       * Drop the showing that was just answered, and put it back if it repeats.
+       *
+       * Where it goes is the card's own step, spent in showings — `repeatSlot`.
+       * `state.due` is the scheduler's answer and is not negotiated here; this
+       * only decides which questions fill the wait.
+       */
       const advance = (repeat: ReviewItem | null) => {
         setQueue((q) => {
           const rest = q.slice(1);
           if (!repeat) return rest;
-          // A learning step puts the card back a couple of cards later rather
-          // than at the end: 1m and 10m are inside the session, not after it.
-          return [...rest.slice(0, LEARNING_GAP), repeat, ...rest.slice(LEARNING_GAP)];
+          const at = repeatSlot(new Date(repeat.state.due).getTime() - now.getTime(), rest.length);
+          return [...rest.slice(0, at), { ...repeat, repeat: true }, ...rest.slice(at)];
         });
       };
 
@@ -530,6 +535,17 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           result.repeat
             ? { ...item, isNew: false, state: result.state, previews: result.previews }
             : null,
+        );
+        // The first face's own repeat may still be waiting further down the
+        // queue, carrying the state this correction has just replaced. The log
+        // it will write is a rating and a time, so the server's fold is right
+        // either way; this is so the buttons it comes back wearing are.
+        setQueue((q) =>
+          q.map((showing) =>
+            showing.cardId === item.cardId
+              ? { ...showing, state: result.state, previews: result.previews }
+              : showing,
+          ),
         );
         setUndoable({
           logId: prior.logId,

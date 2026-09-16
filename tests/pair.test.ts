@@ -33,19 +33,28 @@ describe('worseOf', () => {
 describe('revises', () => {
   /** The point of the pair: the other side of the same word. */
   it('the other face revises the review standing', () => {
-    expect(revises(prior(3, 'word'), 'meaning')).toBe(true);
-    expect(revises(prior(3, 'meaning'), 'word')).toBe(true);
+    expect(revises(prior(3, 'word'), { face: 'meaning' })).toBe(true);
+    expect(revises(prior(3, 'meaning'), { face: 'word' })).toBe(true);
   });
 
   /**
-   * A card put back by a learning step comes round wearing the same face, and
-   * that is an ordinary second review. Folding it into the first rating would
-   * leave a lapsed card stuck at its lapse: 1m then 10m is how it is meant to
-   * walk out of one.
+   * A card put back by a learning step is an ordinary second review. Folding
+   * it into the first rating would leave a lapsed card stuck at its lapse: 1m
+   * then 10m is how it is meant to walk out of one.
    */
   it('the same face again is a new review, not a revision', () => {
-    expect(revises(prior(1, 'word'), 'word')).toBe(false);
-    expect(revises(prior(1, 'meaning'), 'meaning')).toBe(false);
+    expect(revises(prior(1, 'word'), { face: 'word' })).toBe(false);
+    expect(revises(prior(1, 'meaning'), { face: 'meaning' })).toBe(false);
+  });
+
+  /**
+   * A step long enough to land behind the word's other face — 6m or 10m in a
+   * session of any length — comes round with the *other* face standing. The
+   * flag is what keeps it a step rather than the second half of the pair.
+   */
+  it('a repeat adds a review even when the other face went first', () => {
+    expect(revises(prior(2, 'meaning'), { face: 'word', repeat: true })).toBe(false);
+    expect(revises(prior(2, 'word'), { face: 'meaning', repeat: true })).toBe(false);
   });
 });
 
