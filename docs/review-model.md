@@ -20,10 +20,19 @@ the **worse** of the two answers. `lib/fsrs/pair.ts` holds the rule:
 3. Quitting mid-pair leaves the grade you gave; the correction flushes on the
    next open.
 
-A card put back by a **learning step** wears the same face and is an ordinary
-second review, not a correction — folding it into the first rating would leave
-a lapsed card stuck at its lapse instead of walking 1m → 10m out of it.
-`revises()` is what distinguishes them.
+A card put back by a **learning step** is an ordinary second review, not a
+correction — folding it into the first rating would leave a lapsed card stuck
+at its lapse instead of walking 1m → 10m out of it. `revises()` is what
+distinguishes them, and it reads the repeat flag the screen sets rather than
+the face: a step long enough to land behind the word's other face would
+otherwise be mistaken for the second half of the pair.
+
+**Where the repeat lands** is `repeatSlot()` in `lib/fsrs/queue.ts`. The step
+is a time and the queue is a list, so the step is spent in showings — roughly
+`(due − now) / 20s` other questions, never fewer than two, and the end of the
+day when the day is shorter than the step. Nothing about `state.due` is
+negotiated here; only which questions fill the wait. Before this, every repeat
+came back two cards later, which made Hard feel like no interval at all.
 
 ## Answering
 

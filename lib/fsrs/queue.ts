@@ -153,3 +153,38 @@ function mulberry32(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/**
+ * How long one showing takes, near enough to turn a due time into a position.
+ *
+ * A rough constant on purpose. The alternative — measuring the session's own
+ * pace and adapting — would make the same rating land in a different place
+ * depending on how the last few cards went, which is a lot of machinery for a
+ * queue position nobody can verify anyway.
+ */
+export const SHOWING_SECONDS = 20;
+
+/** No repeat comes back closer than this, however short its step. */
+export const MIN_REPEAT_GAP = 2;
+
+/**
+ * Where a card put back by a learning step goes in the queue.
+ *
+ * The step is a *time* — 1m, 6m, 10m — and the queue is a list, so the two
+ * have to be reconciled by something. Standing the card back up two cards
+ * later, which is what this used to do, honoured the list and ignored the
+ * time: every step felt the same, and Hard on a card you had just seen put it
+ * back in front of you before you had finished reading the next word.
+ *
+ * So the step is spent in showings instead: roughly as many other questions as
+ * fit in the gap, and if the day is shorter than that, the end of the day.
+ * Which is the honest answer — a 10m step at the end of a four-card session
+ * cannot be served inside the session at all.
+ *
+ * `remaining` is the queue with the answered showing already dropped, so the
+ * result is clamped to it: an index equal to its length appends.
+ */
+export function repeatSlot(dueInMs: number, remaining: number): number {
+  const slots = Math.round(dueInMs / (SHOWING_SECONDS * 1000));
+  return Math.min(Math.max(slots, MIN_REPEAT_GAP), Math.max(0, remaining));
+}

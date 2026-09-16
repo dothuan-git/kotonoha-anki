@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { startOfNextStudyDay, startOfStudyDay } from '@/lib/fsrs/day';
 import {
+  MIN_REPEAT_GAP,
   MIN_SIBLING_GAP,
+  SHOWING_SECONDS,
   buildQueue,
   expandFaces,
+  repeatSlot,
   type QueueCandidate,
   type QueueEntry,
 } from '@/lib/fsrs/queue';
@@ -214,5 +217,33 @@ describe('expandFaces', () => {
     const inOrder = entries(12).flatMap((e) => [`${e.cardId}:word`, `${e.cardId}:meaning`]);
     const shuffled = expandFaces(entries(12), 5).map((s) => `${s.cardId}:${s.face}`);
     expect(shuffled).not.toEqual(inOrder);
+  });
+});
+
+describe('repeatSlot — a learning step spent in showings', () => {
+  const minutes = (n: number) => n * 60_000;
+  /** Long enough that nothing in here is clamped by the end of the day. */
+  const LONG_DAY = 200;
+
+  it('puts a longer step further back', () => {
+    const again = repeatSlot(minutes(1), LONG_DAY);
+    const hard = repeatSlot(minutes(6), LONG_DAY);
+    const good = repeatSlot(minutes(10), LONG_DAY);
+
+    expect(again).toBeLessThan(hard);
+    expect(hard).toBeLessThan(good);
+    // The point of the change: Hard is no longer two cards away.
+    expect(hard).toBe(Math.round(minutes(6) / (SHOWING_SECONDS * 1000)));
+  });
+
+  it('keeps even the shortest step a couple of cards away', () => {
+    expect(repeatSlot(0, LONG_DAY)).toBe(MIN_REPEAT_GAP);
+    expect(repeatSlot(-minutes(5), LONG_DAY)).toBe(MIN_REPEAT_GAP);
+  });
+
+  it('falls back to the end of the day when the step outlasts it', () => {
+    expect(repeatSlot(minutes(10), 4)).toBe(4);
+    // An index equal to the length appends rather than dropping the card.
+    expect(repeatSlot(minutes(10), 0)).toBe(0);
   });
 });
