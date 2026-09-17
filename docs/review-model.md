@@ -42,7 +42,9 @@ came back two cards later, which made Hard feel like no interval at all.
   studying, not a property of the card. It is session state, so a reload starts
   back on flip cards. A typed meaning card accepts the kanji *or* the kana; a
   typed Japanese card asks only for the reading, since accepting the headword
-  there would mark the prompt correct.
+  there would mark the prompt correct. Esc switches between the two, and is
+  the one shortcut that works with the answer field focused — which is where
+  you are standing when you want out of it.
 - **Matching is exact** (`lib/answer.ts`): NFKC, katakana folded to hiragana, ー
   expanded to the preceding vowel (コーヒー → こおひい), punctuation stripped. No
   edit distance anywhere — in an SRS a near miss is a miss, and じ/ぢ stay apart.

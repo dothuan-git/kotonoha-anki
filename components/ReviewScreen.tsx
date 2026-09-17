@@ -764,6 +764,21 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   // Keyboard shortcut support
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape switches the answer mode, and is the one shortcut that has to
+      // work with the answer field focused — which is exactly where you are
+      // when you want to leave typing. It is safe to read before the guard
+      // below because no field on this screen takes an Escape: the only
+      // thing it would otherwise be cancelling is IME composition, which
+      // `isComposing` leaves alone. `toggleMode` ignores a revealed card, so
+      // Escape does nothing while the edit or leech panel is open.
+      if (e.key === 'Escape' && !e.isComposing) {
+        if (!isRevealed) {
+          e.preventDefault();
+          toggleMode();
+        }
+        return;
+      }
+
       if (document.activeElement?.tagName === 'INPUT') return;
 
       if (e.code === 'Space' && !isRevealed) {
@@ -779,7 +794,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRevealed, handleReveal, handleRate]);
+  }, [isRevealed, handleReveal, handleRate, toggleMode]);
 
   if (!currentWord) {
     // Two reasons not to announce the day is over yet. The resume decision may
@@ -909,11 +924,11 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
                 ? 'Đáp án đã hiện — đổi cách trả lời ở thẻ sau'
                 : typing
                   ? asking
-                    ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm để quay lại thẻ lật.'
-                    : 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm để quay lại thẻ lật.'
+                    ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm hoặc Esc để quay lại thẻ lật.'
+                    : 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm hoặc Esc để quay lại thẻ lật.'
                   : asking
-                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm để chuyển sang gõ đáp án.'
-                    : 'Thẻ lật — nhận mặt từ. Bấm để chuyển sang gõ cách đọc.'
+                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm hoặc Esc để chuyển sang gõ đáp án.'
+                    : 'Thẻ lật — nhận mặt từ. Bấm hoặc Esc để chuyển sang gõ cách đọc.'
             }
           >
             <Keyboard className="w-3.5 h-3.5" />
