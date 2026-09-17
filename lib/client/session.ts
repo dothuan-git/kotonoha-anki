@@ -105,11 +105,11 @@ export function isSessionView(value: unknown): value is SessionView {
   const v = value as Partial<SessionView>;
   return (
     Array.isArray(v.items) &&
+    Array.isArray(v.next) &&
     typeof v.now === 'string' &&
-    typeof v.countedCards === 'object' &&
-    v.countedCards !== null &&
-    typeof v.limits === 'object' &&
-    v.limits !== null &&
+    // Also what rejects a record written before the per-session change: the
+    // old shape carried `limits` and `countedCards` and no session size.
+    typeof v.cardsPerSession === 'number' &&
     typeof v.requestRetention === 'number'
   );
 }

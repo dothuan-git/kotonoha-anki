@@ -8,7 +8,7 @@ import { syncReviews } from '@/lib/db/review';
 export const runtime = 'nodejs';
 
 /**
- * How many ratings one POST may carry. A day's caps are 12 + 100, so a device
+ * How many ratings one POST may carry. A session is fifty cards, so a device
  * that has been offline for a week still fits comfortably; the bound is here
  * so a corrupt outbox cannot ask the server to replay forever in one request.
  */

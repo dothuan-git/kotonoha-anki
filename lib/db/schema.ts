@@ -269,19 +269,19 @@ export const dictCache = pgTable('dict_cache', {
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Single row, id = 1. Daily caps and app preferences. */
+/** Single row, id = 1. Session size and app preferences. */
 export const settings = pgTable('settings', {
   id: integer('id').primaryKey().default(1),
-  newPerDay: integer('new_per_day').notNull().default(12),
-  reviewsPerDay: integer('reviews_per_day').notNull().default(100),
   /**
-   * One switch for both caps — a day with 1000 due and a 100 cap does not
-   * shed those extra 900, it defers them, and studying only new *or* only
-   * review unlimited would just move the backlog from one pile to the other.
-   * `newPerDay` / `reviewsPerDay` are kept rather than cleared while this is
-   * on, so turning it back off restores the caps that were set before.
+   * How many cards one session may deal. Cards, not showings — every card is
+   * asked from both sides, so 50 here is a hundred showings.
+   *
+   * Per session rather than per day: finishing a session and opening the app
+   * again deals the next one, because a card that was rated has a future `due`
+   * and simply is not in the next query. There is no daily ceiling and nothing
+   * to wait for at the rollover.
    */
-  unlimitedPerDay: boolean('unlimited_per_day').notNull().default(false),
+  cardsPerSession: integer('cards_per_session').notNull().default(50),
   requestRetention: real('request_retention').notNull().default(0.9),
   theme: text('theme').notNull().default('light'),
 });

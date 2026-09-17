@@ -29,7 +29,7 @@ settings  dict_cache             (standalone)
 | `review_logs` | **Append-only.** Every rating | The source of truth for scheduling and for three of the four `/stats` charts. `id` is generated on the device so replay is idempotent. |
 | `confusions` | **Append-only.** Wrong answers that named another word you own | Directional. What was typed is not stored — a confusion is a pair of words. |
 | `dict_cache` | Jotoba responses by normalised query | No TTL; a dictionary entry does not go stale. |
-| `settings` | Single row, `id = 1` | Daily caps, `request_retention`, theme. |
+| `settings` | Single row, `id = 1` | `cards_per_session`, `request_retention`, theme. |
 
 ## Invariants
 
@@ -45,8 +45,8 @@ settings  dict_cache             (standalone)
 - **`applyReview` / `foldLogs` is the one scheduling path.** Sync replay and
   `npm run recompute` both go through it.
 - **One card per word, one sentence per word**, both enforced by unique
-  indexes. The bounded session queries rely on the first: a `LIMIT 12` on cards
-  is twelve words.
+  indexes. The bounded session queries rely on the first: a `LIMIT 50` on cards
+  is fifty words.
 - **`learning_steps` is deliberately not stored.** It is a step index the log
   already determines; a stored copy would be a second source of truth. Anything
   needing a real FSRS `Card` folds the log first.

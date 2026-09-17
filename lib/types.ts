@@ -212,56 +212,44 @@ export function isLeech(item: {
   return !item.leechAcked && item.state.lapses >= LEECH_LAPSES;
 }
 
-/** Distinct cards studied since the study day began, split by the two daily caps. */
-export interface DailyCounts {
+/** Work that exists now but did not fit the session in hand. */
+export interface RemainingWork {
   newCards: number;
   reviewCards: number;
-}
-
-/**
- * Which cards have already been spent against the daily caps today, and in
- * which bucket. A card counts once: a new card walking its learning steps
- * writes several log rows the same day and must not also eat a review slot.
- *
- * The totals alone are not enough offline. The client has to keep the caps
- * honest by itself, and rating a learning card the server already counted
- * this morning must not add a second slot — so it needs the identities, not a
- * number.
- */
-export type CountedCards = Record<string, 'new' | 'review'>;
-
-export function tallyCounts(counted: CountedCards): DailyCounts {
-  let newCards = 0;
-  let reviewCards = 0;
-  for (const bucket of Object.values(counted)) {
-    if (bucket === 'new') newCards++;
-    else reviewCards++;
-  }
-  return { newCards, reviewCards };
 }
 
 export interface SessionView {
   now: string;
   items: ReviewItem[];
-  countedCards: CountedCards;
   /**
-   * `newPerDay` / `reviewsPerDay` are what the caps are set to whether or not
-   * they are active — kept so the UI can still show the number `unlimited`
-   * would fall back to if turned off. One flag for both: lifting only one cap
-   * just moves the backlog from new cards to reviews or back.
+   * The session after this one, dealt ahead of being asked for.
+   *
+   * The client cannot build a queue — it holds no words, sentences or logs for
+   * cards it was never handed — so without this, finishing a session offline
+   * would end the day. Empty once nothing more is waiting.
    */
-  limits: { newPerDay: number; reviewsPerDay: number; unlimited: boolean };
+  next: ReviewItem[];
+  /** `settings.cardsPerSession`, carried for the finish screen's copy. */
+  cardsPerSession: number;
   /**
    * The only user-movable scheduler knob, carried so the client can build
    * the same `FSRSParameters` the server would — the scheduler runs in the
    * browser during the session.
    */
   requestRetention: number;
-  /** Cards that were due but did not fit today's caps — why the session is short. */
-  heldBack: DailyCounts;
+  /**
+   * Due and new cards that exist but did not fit this session — why the
+   * session is the length it is.
+   *
+   * A lower bound. It is counted when the session is built, so it knows
+   * nothing about reviews that fall due while you work, and nothing about the
+   * learning cards the session makes for itself every time you answer Quên.
+   * Fine for colouring the finish screen's copy; never gate the next session
+   * on it.
+   */
+  remaining: RemainingWork;
   /** Earliest due date among active cards outside this session. */
   nextDue: string | null;
-  nextDayStart: string;
   totalCards: number;
 }
 
@@ -344,7 +332,6 @@ export interface SyncResult {
    * whose sixth lapse was rated on another device.
    */
   leeches: string[];
-  countedCards: CountedCards;
 }
 
 /**
@@ -363,5 +350,4 @@ export interface UndoResult {
   cardId: string;
   state: CardStateView;
   previews: RatingPreviews;
-  countedCards: CountedCards;
 }

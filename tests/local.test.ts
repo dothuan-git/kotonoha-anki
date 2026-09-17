@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { countCard, rateLocally } from '@/lib/fsrs/local';
+import { rateLocally } from '@/lib/fsrs/local';
 import { schedulerParams } from '@/lib/fsrs/params';
 import { emptyCard, foldLogs, type RatingValue, type ReplayLog } from '@/lib/fsrs/replay';
 import { toCard, toStateView } from '@/lib/fsrs/state';
-import type { CountedCards, ReviewItem, WordView } from '@/lib/types';
+import type { ReviewItem, WordView } from '@/lib/types';
 
 /**
  * The load-bearing claim behind offline review: the session can run on the
@@ -210,23 +210,4 @@ describe('rateLocally', () => {
     expect(easy.result.repeat).toBe(false);
   });
 
-});
-
-describe('countCard', () => {
-  it('counts a first-ever showing against the new cap', () => {
-    expect(countCard({}, item())).toEqual({ [CARD_ID]: 'new' });
-  });
-
-  it('counts anything else against the review cap', () => {
-    expect(countCard({}, item(undefined, false))).toEqual({ [CARD_ID]: 'review' });
-  });
-
-  /**
-   * A new card walking its learning steps writes several rows the same day
-   * and must not also spend a review slot.
-   */
-  it('leaves a card that is already counted alone', () => {
-    const counted: CountedCards = { [CARD_ID]: 'new' };
-    expect(countCard(counted, item(undefined, false))).toBe(counted);
-  });
 });

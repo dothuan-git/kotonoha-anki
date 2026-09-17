@@ -8,11 +8,12 @@ import {
   buildQueue,
   expandFaces,
   repeatSlot,
+  sessionSlots,
   type QueueCandidate,
   type QueueEntry,
 } from '@/lib/fsrs/queue';
 
-/** The queue order, with the caps and the same-word rule applied. */
+/** The queue order, with the session budget and the same-word rule applied. */
 
 function review(id: string, minutesOverdue: number, wordId = `w-${id}`): QueueCandidate {
   return { cardId: id, wordId, order: -minutesOverdue };
@@ -24,14 +25,90 @@ function fresh(id: string, createdOrder: number, wordId = `w-${id}`): QueueCandi
 
 const NO_LIMIT = 1000;
 
+/** `buildQueue` with the streams a case does not care about left empty. */
+function build(input: {
+  learning?: readonly QueueCandidate[];
+  reviews?: readonly QueueCandidate[];
+  news?: readonly QueueCandidate[];
+  cap?: number;
+}): QueueEntry[] {
+  return buildQueue({
+    learning: input.learning ?? [],
+    reviews: input.reviews ?? [],
+    news: input.news ?? [],
+    cap: input.cap ?? NO_LIMIT,
+  });
+}
+
+/** How one session's budget is split, with no rows involved. */
+describe('sessionSlots', () => {
+  const slots = (dueReviews: number, newCards: number, learning = 0, cap = 50) =>
+    sessionSlots({ dueReviews, newCards, learning, cap });
+
+  it('gives a fresh collection the whole session', () => {
+    // Nothing is due, so the reserve does not cap what new words may take.
+    expect(slots(0, 100)).toEqual({ reviews: 0, news: 50 });
+  });
+
+  it('holds a fifth back for new words', () => {
+    expect(slots(80, 100)).toEqual({ reviews: 40, news: 10 });
+  });
+
+  it('gives unfilled review slots to new words', () => {
+    expect(slots(20, 100)).toEqual({ reviews: 20, news: 30 });
+  });
+
+  it('never burns a reserve larger than the new words waiting', () => {
+    expect(slots(80, 0)).toEqual({ reviews: 50, news: 0 });
+    expect(slots(80, 3)).toEqual({ reviews: 47, news: 3 });
+  });
+
+  it('stops introducing new words once two sessions behind', () => {
+    // 100 due at a cap of 50 is exactly the threshold, and is not yet behind.
+    expect(slots(99, 100)).toEqual({ reviews: 40, news: 10 });
+    expect(slots(100, 100)).toEqual({ reviews: 40, news: 10 });
+    expect(slots(101, 100)).toEqual({ reviews: 50, news: 0 });
+  });
+
+  it('lets learning cards displace the budget rather than add to it', () => {
+    // Thirty free riders leave twenty slots, split as any twenty would be.
+    expect(slots(80, 100, 30)).toEqual({ reviews: 16, news: 4 });
+    // More learning cards than the cap leaves nothing for anything else.
+    expect(slots(80, 100, 60)).toEqual({ reviews: 0, news: 0 });
+  });
+
+  it('deals nothing at a budget of zero', () => {
+    expect(slots(80, 100, 0, 0)).toEqual({ reviews: 0, news: 0 });
+  });
+
+  it('still reserves a new slot at the smallest allowed budget', () => {
+    // The floor `lib/actions/settings.ts` pins: below five, the reserve would
+    // round to zero and new words would silently never appear. Ten due is the
+    // most a cap of five can carry without the backlog brake firing.
+    expect(slots(10, 100, 0, 5)).toEqual({ reviews: 4, news: 1 });
+  });
+
+  it('never deals more than the budget, whatever the mix', () => {
+    for (const cap of [5, 13, 50, 200]) {
+      for (const due of [0, 1, 7, 50, 500]) {
+        for (const unseen of [0, 1, 7, 50, 500]) {
+          for (const learning of [0, 3, 40]) {
+            const s = sessionSlots({ dueReviews: due, newCards: unseen, learning, cap });
+            expect(s.reviews + s.news + Math.min(learning, cap)).toBeLessThanOrEqual(cap);
+            expect(s.reviews).toBeLessThanOrEqual(due);
+            expect(s.news).toBeLessThanOrEqual(unseen);
+            expect(s.reviews).toBeGreaterThanOrEqual(0);
+            expect(s.news).toBeGreaterThanOrEqual(0);
+          }
+        }
+      }
+    }
+  });
+});
+
 describe('buildQueue', () => {
   it('puts the most overdue review first', () => {
-    const queue = buildQueue({
-      reviews: [review('a', 10), review('b', 600), review('c', 120)],
-      news: [],
-      reviewLimit: NO_LIMIT,
-      newLimit: NO_LIMIT,
-    });
+    const queue = build({ reviews: [review('a', 10), review('b', 600), review('c', 120)] });
     expect(queue.map((q) => q.cardId)).toEqual(['b', 'c', 'a']);
   });
 
@@ -39,7 +116,7 @@ describe('buildQueue', () => {
     const reviews = Array.from({ length: 12 }, (_, i) => review(`r${i}`, 100 - i));
     const news = Array.from({ length: 4 }, (_, i) => fresh(`n${i}`, i));
 
-    const queue = buildQueue({ reviews, news, reviewLimit: NO_LIMIT, newLimit: NO_LIMIT });
+    const queue = build({ reviews, news });
     const positions = queue.flatMap((q, i) => (q.isNew ? [i] : []));
 
     expect(positions).toEqual([5, 11, 14, 15]);
@@ -50,74 +127,108 @@ describe('buildQueue', () => {
 
   it('runs new cards consecutively when there is nothing to interleave them among', () => {
     const news = Array.from({ length: 3 }, (_, i) => fresh(`n${i}`, i));
-    const queue = buildQueue({ reviews: [], news, reviewLimit: NO_LIMIT, newLimit: NO_LIMIT });
-    expect(queue.map((q) => q.cardId)).toEqual(['n0', 'n1', 'n2']);
+    expect(build({ news }).map((q) => q.cardId)).toEqual(['n0', 'n1', 'n2']);
   });
 
   it('introduces new cards oldest first', () => {
-    const queue = buildQueue({
-      reviews: [],
-      news: [fresh('b', 200), fresh('a', 100), fresh('c', 300)],
-      reviewLimit: NO_LIMIT,
-      newLimit: NO_LIMIT,
-    });
+    const queue = build({ news: [fresh('b', 200), fresh('a', 100), fresh('c', 300)] });
     expect(queue.map((q) => q.cardId)).toEqual(['a', 'b', 'c']);
   });
 
-  it('applies each cap independently', () => {
+  it('splits one budget between the two streams', () => {
     const reviews = Array.from({ length: 20 }, (_, i) => review(`r${i}`, 100 - i));
     const news = Array.from({ length: 20 }, (_, i) => fresh(`n${i}`, i));
 
-    const queue = buildQueue({ reviews, news, reviewLimit: 7, newLimit: 2 });
-    expect(queue.filter((q) => !q.isNew)).toHaveLength(7);
+    const queue = build({ reviews, news, cap: 10 });
+    expect(queue.filter((q) => !q.isNew)).toHaveLength(8);
     expect(queue.filter((q) => q.isNew)).toHaveLength(2);
+    expect(queue).toHaveLength(10);
   });
 
-  it('yields nothing once a cap is spent', () => {
-    const queue = buildQueue({
-      reviews: [review('r0', 10)],
-      news: [fresh('n0', 1)],
-      reviewLimit: 0,
-      newLimit: 0,
-    });
-    expect(queue).toEqual([]);
+  it('yields nothing once the budget is spent', () => {
+    expect(build({ reviews: [review('r0', 10)], news: [fresh('n0', 1)], cap: 0 })).toEqual([]);
   });
 
   /** Never show two cards from the same word in one session. */
   it('never shows two cards from the same word', () => {
-    const queue = buildQueue({
+    const queue = build({
       reviews: [review('recognition', 50, 'word-1')],
       news: [fresh('production', 1, 'word-1'), fresh('other', 2, 'word-2')],
-      reviewLimit: NO_LIMIT,
-      newLimit: NO_LIMIT,
     });
     expect(queue.map((q) => q.cardId)).toEqual(['recognition', 'other']);
   });
 
   it('lets the due card win that collision, not the unseen one', () => {
-    const queue = buildQueue({
+    const queue = build({
       reviews: [review('due', 5, 'word-1')],
       news: [fresh('unseen', 1, 'word-1')],
-      reviewLimit: NO_LIMIT,
-      newLimit: NO_LIMIT,
     });
     expect(queue).toEqual([{ cardId: 'due', wordId: 'word-1', isNew: false }]);
   });
 
+  it('lets a learning card win that collision over a merely due one', () => {
+    const queue = build({
+      learning: [review('stepping', 1, 'word-1')],
+      reviews: [review('due', 500, 'word-1')],
+    });
+    expect(queue.map((q) => q.cardId)).toEqual(['stepping']);
+  });
+
   it('orders deterministically when two cards are equally overdue', () => {
     const tie = [review('b', 30), review('a', 30)];
-    expect(buildQueue({ reviews: tie, news: [], reviewLimit: NO_LIMIT, newLimit: NO_LIMIT })).toEqual(
-      buildQueue({
-        reviews: [...tie].reverse(),
-        news: [],
-        reviewLimit: NO_LIMIT,
-        newLimit: NO_LIMIT,
-      }),
-    );
+    expect(build({ reviews: tie })).toEqual(build({ reviews: [...tie].reverse() }));
   });
 });
 
-/** The 04:00 rollover the caps are counted against. */
+/**
+ * Learning cards ride free in the sense that the budget cannot drop them — a
+ * card mid-way through its steps is mid-thought. They still spend the budget,
+ * so a session stays the length the setting promises.
+ */
+describe('buildQueue with learning cards', () => {
+  it('deals them even when the budget is zero', () => {
+    const queue = buildQueue({
+      learning: [review('l0', 1), review('l1', 2)],
+      reviews: [review('r0', 500)],
+      news: [fresh('n0', 1)],
+      cap: 0,
+    });
+    expect(queue.map((q) => q.cardId)).toEqual(['l1', 'l0']);
+  });
+
+  it('displaces the rest of the session rather than adding to it', () => {
+    const learning = Array.from({ length: 10 }, (_, i) => review(`l${i}`, 1 + i));
+    const reviews = Array.from({ length: 60 }, (_, i) => review(`r${i}`, 1000 - i));
+    const news = Array.from({ length: 20 }, (_, i) => fresh(`n${i}`, i));
+
+    const queue = buildQueue({ learning, reviews, news, cap: 50 });
+
+    // Ten free riders, then a forty-slot budget split 32/8.
+    expect(queue).toHaveLength(50);
+    expect(queue.filter((q) => q.isNew)).toHaveLength(8);
+  });
+
+  it('keeps the merged review stream most-overdue-first', () => {
+    const queue = buildQueue({
+      learning: [review('soon', -5)],
+      reviews: [review('ancient', 900), review('recent', 10)],
+      news: [],
+      cap: 50,
+    });
+    // The learning card is due five minutes out, so it sorts last.
+    expect(queue.map((q) => q.cardId)).toEqual(['ancient', 'recent', 'soon']);
+  });
+
+  it('spaces new cards among free riders as it would among reviews', () => {
+    const learning = Array.from({ length: 10 }, (_, i) => review(`l${i}`, 10 - i));
+    const news = Array.from({ length: 2 }, (_, i) => fresh(`n${i}`, i));
+
+    const queue = buildQueue({ learning, reviews: [], news, cap: 50 });
+    expect(queue.flatMap((q, i) => (q.isNew ? [i] : []))).toEqual([5, 11]);
+  });
+});
+
+/** The 04:00 rollover /stats buckets against, and the queue shuffle is seeded by. */
 describe('startOfStudyDay', () => {
   it('keeps a session that ran past midnight on the day it began', () => {
     // 03:30 on the 12th, Asia/Ho_Chi_Minh (UTC+7) — still the 11th's session.

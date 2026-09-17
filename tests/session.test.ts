@@ -14,22 +14,21 @@ import type { SessionView } from '@/lib/types';
 
 const NOW = new Date('2026-03-01T10:00:00.000Z');
 
-function session(now: Date, label: string): SessionView {
+function session(now: Date): SessionView {
   return {
     now: now.toISOString(),
     items: [],
-    countedCards: { [label]: 'review' },
-    limits: { newPerDay: 12, reviewsPerDay: 100, unlimited: false },
+    next: [],
+    cardsPerSession: 50,
     requestRetention: 0.9,
-    heldBack: { newCards: 0, reviewCards: 0 },
+    remaining: { newCards: 0, reviewCards: 0 },
     nextDue: null,
-    nextDayStart: '2026-03-01T21:00:00.000Z',
     totalCards: 0,
   };
 }
 
-const fresh = session(NOW, 'server');
-const stored = session(new Date('2026-03-01T06:00:00.000Z'), 'stored');
+const fresh = session(NOW);
+const stored = session(new Date('2026-03-01T06:00:00.000Z'));
 
 describe('chooseSession', () => {
   it('takes the server when there is nothing stored', () => {
@@ -102,7 +101,7 @@ describe('chooseSession', () => {
    * thing that distinguishes it from a live render.
    */
   it('resumes when the payload is a stale cached render', () => {
-    const cached = session(new Date(NOW.getTime() - STALE_PAYLOAD_MS - 1_000), 'cached');
+    const cached = session(new Date(NOW.getTime() - STALE_PAYLOAD_MS - 1_000));
     const chosen = chooseSession({
       server: cached,
       stored,
@@ -114,7 +113,7 @@ describe('chooseSession', () => {
   });
 
   it('still believes a payload that is merely a few seconds old', () => {
-    const slow = session(new Date(NOW.getTime() - 5_000), 'slow');
+    const slow = session(new Date(NOW.getTime() - 5_000));
     const chosen = chooseSession({
       server: slow,
       stored,
@@ -137,12 +136,11 @@ describe('isSessionView', () => {
   const valid: SessionView = {
     now: '2026-02-01T09:00:00.000Z',
     items: [],
-    countedCards: {},
-    limits: { newPerDay: 12, reviewsPerDay: 100, unlimited: false },
+    next: [],
+    cardsPerSession: 50,
     requestRetention: 0.9,
-    heldBack: { newCards: 0, reviewCards: 0 },
+    remaining: { newCards: 0, reviewCards: 0 },
     nextDue: null,
-    nextDayStart: '2026-02-02T21:00:00.000Z',
     totalCards: 0,
   };
 
@@ -156,11 +154,30 @@ describe('isSessionView', () => {
   });
 
   it('rejects a session missing what the first render reads', () => {
-    const { countedCards: _dropped, ...withoutCounts } = valid;
-    expect(isSessionView(withoutCounts)).toBe(false);
+    const { cardsPerSession: _dropped, ...withoutSize } = valid;
+    expect(isSessionView(withoutSize)).toBe(false);
     expect(isSessionView({ ...valid, items: undefined })).toBe(false);
-    expect(isSessionView({ ...valid, countedCards: null })).toBe(false);
+    expect(isSessionView({ ...valid, next: undefined })).toBe(false);
     expect(isSessionView({ ...valid, requestRetention: '0.9' })).toBe(false);
+  });
+
+  /**
+   * The store survives a deploy, so the guard has to reject what the build
+   * before this one wrote — a record with daily caps and no session size.
+   */
+  it('rejects a session written before the per-session change', () => {
+    expect(
+      isSessionView({
+        now: '2026-02-01T09:00:00.000Z',
+        items: [],
+        countedCards: {},
+        limits: { newPerDay: 12, reviewsPerDay: 100, unlimited: false },
+        requestRetention: 0.9,
+        heldBack: { newCards: 0, reviewCards: 0 },
+        nextDayStart: '2026-02-02T21:00:00.000Z',
+        totalCards: 0,
+      }),
+    ).toBe(false);
   });
 
   it('rejects nothing at all', () => {

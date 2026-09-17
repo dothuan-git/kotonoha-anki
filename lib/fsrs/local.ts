@@ -2,7 +2,7 @@ import { schedulerParams } from '@/lib/fsrs/params';
 import { applyRating, type RatingValue } from '@/lib/fsrs/replay';
 import { staysInSession, toCard, toPreviews, toStateView } from '@/lib/fsrs/state';
 import { isLeech } from '@/lib/types';
-import type { CountedCards, PendingReview, RateResult, ReviewItem } from '@/lib/types';
+import type { PendingReview, RateResult, ReviewItem } from '@/lib/types';
 
 /**
  * The scheduler, run on the device.
@@ -63,18 +63,4 @@ export function rateLocally(input: {
       reviewedAt: reviewedAt.toISOString(),
     },
   };
-}
-
-/**
- * The daily caps, kept offline.
- *
- * A card counts once for the day, in the bucket it was first shown in. The
- * server's own definition, applied to the same books — which is why the
- * session carries the identities rather than two totals: a learning card the
- * server already counted this morning must not spend a second slot when it
- * comes round again on the train.
- */
-export function countCard(counted: CountedCards, item: ReviewItem): CountedCards {
-  if (counted[item.cardId]) return counted;
-  return { ...counted, [item.cardId]: item.isNew ? 'new' : 'review' };
 }

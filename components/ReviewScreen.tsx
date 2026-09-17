@@ -6,6 +6,7 @@ import {
   Copy,
   Keyboard,
   Pencil,
+  Play,
   Sparkles,
   Volume2,
   X,
@@ -21,15 +22,22 @@ import { Ruby } from '@/components/Ruby';
 import { SyncStatus } from '@/components/SyncStatus';
 import { UndoToast } from '@/components/UndoToast';
 import { acknowledgeLeech } from '@/lib/actions/leech';
-import { undoReview } from '@/lib/actions/review';
+import { startSession, undoReview } from '@/lib/actions/review';
 import { updateWord } from '@/lib/actions/words';
 import { playSentenceAudio, playWordAudio } from '@/lib/client/audio';
 import { useOnline } from '@/lib/client/online';
-import { enqueue, flush, noteConfusion, pendingCount, takeBack } from '@/lib/client/outbox';
+import {
+  enqueue,
+  flush,
+  noteConfusion,
+  pending as pendingEntries,
+  pendingCount,
+  takeBack,
+} from '@/lib/client/outbox';
 import { chooseSession, loadSession, saveSession } from '@/lib/client/session';
-import { STUDY_TIME_ZONE } from '@/lib/fsrs/day';
 import { formatDueIn } from '@/lib/fsrs/format';
-import { countCard, rateLocally } from '@/lib/fsrs/local';
+import { rateLocally } from '@/lib/fsrs/local';
+import { dropUnsettled, finishState, type FinishState } from '@/lib/session-end';
 import { resolvePair, revises, type PriorGrade } from '@/lib/fsrs/pair';
 import { repeatSlot } from '@/lib/fsrs/queue';
 import { mergeMissed, missedWords, toCsv, type MissedWord } from '@/lib/recap';
@@ -38,9 +46,7 @@ import {
   UNDO_WINDOW_MS,
   formatHanViet,
   formatPos,
-  tallyCounts,
-  type CountedCards,
-  type DailyCounts,
+  type RemainingWork,
   type ReviewItem,
   type SessionView,
   type SyncResult,
@@ -85,12 +91,6 @@ interface Undoable {
   rating: Rating;
   expiresAt: number;
   /**
-   * This rating is what put the card into today's tally, so undoing it takes
-   * the card back out. A repeat of a card already counted this morning did
-   * not, and must leave the count alone.
-   */
-  counted: boolean;
-  /**
    * This rating replaced a better one from the word's other face, so undoing
    * it does not mean "no review": it means the grade the word had before this
    * showing revised it. Absent on an ordinary first-face rating, which has
@@ -106,9 +106,9 @@ const FLUSH_INTERVAL_MS = 5_000;
  * The prototype's ReviewScreen, rebuilt on the real scheduler.
  *
  * Layout, copy and animation follow the prototype; what changed underneath is
- * that the deck is no longer a fixed array. The server builds the day once —
- * the caps are the whole day, there is no "study more" — each rating goes
- * back as a server action that returns the authoritative state, and a card
+ * that the deck is no longer a fixed array. The server deals one session at a
+ * time — finishing one and asking for the next is the whole of "study more"
+ * — each rating is scheduled on the device and outboxed, and a card
  * put back by a learning step re-enters the queue as far down as its step is
  * long, rather than advancing an index that only moves forward.
  *
@@ -136,7 +136,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const [session, setSession] = useState<SessionView>(serverSession);
   const [queue, setQueue] = useState<ReviewItem[]>(serverSession.items);
   const [answered, setAnswered] = useState<Answered[]>([]);
-  const [countedCards, setCountedCards] = useState<CountedCards>(serverSession.countedCards);
   const [isRevealed, setIsRevealed] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   /** Bumped by "gõ nhầm" to remount the answer field with an empty value. */
@@ -166,14 +165,18 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    */
   const [graded, setGraded] = useState<Record<string, PriorGrade & { item: ReviewItem }>>({});
   /**
-   * The recap this study day already had before this session opened.
+   * What this session recorded before the last reload.
    *
-   * Read once, on mount, and never written to again — what this session adds
-   * is derived from `answered` instead, so an undo takes a word back out of
-   * the list the same tick it takes back the review. Sessions earlier in the
-   * day are past undoing, which is exactly why they can be a flat list.
+   * `answered` is not persisted, so without this a reload mid-session would
+   * empty the recap of everything answered before it. Read on mount and never
+   * written to again — what this session adds since is derived from
+   * `answered` instead, so an undo takes a word back out of the list the same
+   * tick it takes back the review.
+   *
+   * Reset whenever a new session is dealt, which is what scopes the recap to
+   * the session rather than to the study day.
    */
-  const [dayMissed, setDayMissed] = useState<MissedWord[]>([]);
+  const [carriedMissed, setCarriedMissed] = useState<MissedWord[]>([]);
   const [undoable, setUndoable] = useState<Undoable | null>(null);
   const [editing, setEditing] = useState(false);
   /** The leech prompt, shown once for the card that just crossed six lapses. */
@@ -192,12 +195,14 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  /** A next session is being fetched. Its own flag, so the finish screen stays up. */
+  const [nextPending, setNextPending] = useState(false);
+  /** The last next-session attempt came back holding only cards still in flight. */
+  const [unsettled, setUnsettled] = useState(false);
   const online = useOnline();
-
-  const counts = tallyCounts(countedCards);
   /**
-   * The day's recap: every word graded Quên or Khó, this session's and the
-   * ones before it folded together.
+   * This session's recap: every word graded Quên or Khó, the half recorded
+   * before the last reload folded together with the half recorded since.
    *
    * Over `answered` rather than `graded` on purpose. `graded` holds the review
    * the scheduler is acting on, and a learning step overwrites it — forget a
@@ -205,8 +210,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    * "Được" for a word you plainly did not know. Every showing counts here.
    */
   const missed = useMemo(
-    () => mergeMissed(dayMissed, missedWords(answered)),
-    [dayMissed, answered],
+    () => mergeMissed(carriedMissed, missedWords(answered)),
+    [carriedMissed, answered],
   );
   const currentWord = queue[0];
   /**
@@ -233,7 +238,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    * reads it from.
    */
   const applySync = useCallback((result: SyncResult) => {
-    setCountedCards(result.countedCards);
     setQueue((q) =>
       q.map((item) => {
         const authoritative = result.states[item.cardId];
@@ -318,18 +322,16 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       // precisely so this is never dropped just because the first face's
       // rating already reached the server on its own.
       const resumed = chosen.source === 'resumed' ? (stored?.graded ?? {}) : {};
-      // The recap is kept whichever queue won, unlike `graded` above. A word
-      // half-graded belongs to the session it was dealt in; a word forgotten
-      // belongs to the day. Dropping it on a fresh server queue would empty
-      // the recap in precisely the case it exists for — finish the morning's
-      // cards, come back at noon to nothing due.
-      const earlier = stored?.missed ?? [];
+      // Governed by the same condition as `graded` above, and for the same
+      // reason: both belong to the session they were recorded in. A fresh
+      // server queue is a new session, and a new session starts with an empty
+      // recap.
+      const earlier = chosen.source === 'resumed' ? (stored?.missed ?? []) : [];
 
       setSession(chosen.session);
       setQueue(chosen.session.items);
-      setCountedCards(chosen.session.countedCards);
       setGraded(resumed);
-      setDayMissed(earlier);
+      setCarriedMissed(earlier);
       setPending(waiting);
       setReady(true);
       await saveSession(chosen.session, resumed, earlier, now);
@@ -347,8 +349,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    */
   useEffect(() => {
     if (!ready) return;
-    void saveSession({ ...session, items: queue, countedCards }, graded, missed);
-  }, [ready, session, queue, countedCards, graded, missed]);
+    void saveSession({ ...session, items: queue }, graded, missed);
+  }, [ready, session, queue, graded, missed]);
 
   /**
    * Drain the outbox. Entries are held back for the undo window, so a flush
@@ -492,7 +494,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           // watching nothing happen to the schedule deserves an explanation.
           if (rating !== prior.rating) {
             setNotice(
-              `Đã giữ điểm "${RATING_LABELS[prior.rating - 1]}" của mặt trước — mỗi từ tính một lần mỗi ngày.`,
+              `Đã giữ điểm "${RATING_LABELS[prior.rating - 1]}" của mặt trước — mỗi từ chỉ chấm một lần trong phiên.`,
             );
           }
           // Nothing was written, so there is nothing to take back. Any prompt
@@ -546,7 +548,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           rating: outcome.rating,
           expiresAt: now.getTime() + UNDO_WINDOW_MS,
           // The first face already spent the card's slot for today.
-          counted: false,
           reinstate: prior,
         });
 
@@ -584,7 +585,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       // both halves — see `rateLocally`.
       setLeeched(result.leech ? { ...item, state: result.state } : null);
       setAnswered((a) => [...a, { logId, item, rating }]);
-      setCountedCards((c) => countCard(c, item));
       setGraded((g) => ({ ...g, [item.cardId]: { logId, rating, item, face: item.face } }));
       advance(
         result.repeat
@@ -596,12 +596,11 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         item,
         rating,
         expiresAt: now.getTime() + UNDO_WINDOW_MS,
-        counted: countedCards[item.cardId] === undefined,
       });
 
       void enqueue(entry, now.getTime()).then(async () => setPending(await pendingCount()));
     },
-    [queue, attempt, graded, ready, session.requestRetention, countedCards],
+    [queue, attempt, graded, ready, session.requestRetention],
   );
 
   /**
@@ -672,9 +671,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
         setPending(await pendingCount());
         setGraded(({ [last.item.cardId]: _ungraded, ...rest }) => rest);
-        if (last.counted) {
-          setCountedCards(({ [last.item.cardId]: _undone, ...rest }) => rest);
-        }
         restore(last.item.state, last.item.previews);
         return;
       }
@@ -684,7 +680,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         setError(result.error);
         return;
       }
-      setCountedCards(result.data.countedCards);
       restore(result.data.state, result.data.previews);
     });
   }, [undoable, session.requestRetention]);
@@ -761,6 +756,91 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     [leeched],
   );
 
+  /**
+   * Replace the finished session with the next one.
+   *
+   * Promoted from the lookahead the server sent when it can be — that is what
+   * makes a second session work on a train — and fetched otherwise.
+   *
+   * Both paths filter through `dropUnsettled`. `flush` holds a rating back for
+   * the length of the undo window, so the tail of the session that just ended
+   * is still local, and a card the server has not heard about still has its
+   * old `due` in the past: without the filter it would be dealt straight back
+   * and could be rated twice.
+   *
+   * `chooseSession` is deliberately not consulted. It adjudicates a page
+   * payload of unknown freshness against storage, and neither doubt applies to
+   * a queue the user just asked for; worse, it returns the stored session
+   * while anything is pending, which here is the empty one that just ended.
+   */
+  const handleNextSession = useCallback(() => {
+    if (!ready || nextPending) return;
+    setNextPending(true);
+    setError(null);
+    setNotice(null);
+
+    void (async () => {
+      try {
+        const held = new Set([
+          ...(await pendingEntries()).map((entry) => entry.cardId),
+          // Already flushed, but answered in the session that just ended.
+          ...Object.keys(graded),
+        ]);
+
+        let dealt: SessionView;
+        if (session.next.length > 0) {
+          // The held-back session, promoted in place. Its own lookahead is
+          // spent; the next one after it comes from the server. `remaining`
+          // has to be spent with it — it was counted against the session that
+          // just ended, and these cards are part of what it was counting.
+          dealt = {
+            ...session,
+            items: session.next,
+            next: [],
+            remaining: spend(session.remaining, session.next),
+          };
+        } else {
+          if (!online) return;
+          await sync();
+          const result = await startSession();
+          if (!result.ok) {
+            setError(result.error);
+            return;
+          }
+          dealt = result.data;
+        }
+
+        const items = dropUnsettled(dealt.items, held);
+
+        if (items.length === 0 && dealt.items.length > 0) {
+          setUnsettled(true);
+          return;
+        }
+
+        // One swap: everything scoped to a session resets together. Dropping
+        // `undoable` is not tidiness — its `restore` pushes onto the current
+        // queue unconditionally, so an undo firing after this would inject a
+        // card from the dead session in front of the new one.
+        setUnsettled(false);
+        setSession(dealt);
+        setQueue(items);
+        setGraded({});
+        setAnswered([]);
+        setCarriedMissed([]);
+        setUndoable(null);
+        setLeeched(null);
+        setIsRevealed(false);
+        setAttempt(null);
+        setEditing(false);
+        // Awaited rather than left to the persistence effect: a reload right
+        // after this must find the new session stored, not the finished one.
+        await saveSession({ ...dealt, items }, {}, []);
+      } finally {
+        setNextPending(false);
+      }
+    })();
+  }, [ready, nextPending, session, graded, online, sync]);
+
   // Keyboard shortcut support
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -781,6 +861,17 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
       if (document.activeElement?.tagName === 'INPUT') return;
 
+      // The finish screen is now somewhere you land several times a day, and
+      // every branch below bails without a current card, so it would otherwise
+      // have no keyboard action at all.
+      if (!queueRef.current[0]) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleNextSession();
+        }
+        return;
+      }
+
       if (e.code === 'Space' && !isRevealed) {
         e.preventDefault();
         handleReveal();
@@ -794,7 +885,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRevealed, handleReveal, handleRate, toggleMode]);
+  }, [isRevealed, handleReveal, handleRate, toggleMode, handleNextSession]);
 
   if (!currentWord) {
     // Two reasons not to announce the day is over yet. The resume decision may
@@ -809,22 +900,25 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         </div>
       );
     }
-    return answered.length > 0 ? (
+    return (
       <Finished
-        title="Phiên ôn tập đã hoàn thành"
-        body={summarise(answered, counts, session)}
-        session={session}
+        state={finishState({
+          answered: answered.length,
+          totalCards: session.totalCards,
+          // Already counts the lookahead: it is everything the session in
+          // hand did not deal.
+          remaining: session.remaining,
+          nextDue: session.nextDue,
+          // A lookahead in hand needs no network.
+          canDeal: online || session.next.length > 0,
+          unsettled,
+        })}
+        summary={answered.length > 0 ? summarise(answered) : null}
         missed={missed}
-      />
-    ) : (
-      // The recap rides the empty screen too. Reopening at noon with nothing
-      // due is not an empty day — it is a finished one, and the words it cost
-      // are still the answer to "what should I look at again".
-      <Finished
-        title={emptyTitle(session)}
-        body={emptyBody(session)}
-        session={session}
-        missed={missed}
+        now={session.now}
+        busy={nextPending}
+        error={error}
+        onNext={handleNextSession}
       />
     );
   }
@@ -1469,21 +1563,37 @@ function Verdict({ attempt }: { attempt: Attempt }) {
 }
 
 /**
- * The prototype's completion screen. Its "Ôn tập lại từ đầu" button is gone:
- * it replayed the same deck, which against a real scheduler means re-rating
- * cards already answered today, and there is no "study more" escape hatch.
+ * The prototype's completion screen, rebuilt around the fact that finishing a
+ * session is no longer the end of the day.
+ *
+ * Its old "Ôn tập lại từ đầu" button replayed the same deck, which against a
+ * real scheduler means re-rating cards already answered. "Phiên tiếp theo"
+ * is not that: it deals the cards the budget did not reach.
+ *
+ * The button is offered on what the action can find, never on `remaining` —
+ * that number is counted when the session is built, so it cannot see the
+ * learning cards the session made for itself every time you answered Quên.
+ * Gating on it would say "done" with a session's work still waiting.
  */
 function Finished({
-  title,
-  body,
-  session,
+  state,
+  summary,
   missed,
+  now,
+  busy,
+  error,
+  onNext,
 }: {
-  title: string;
-  body: string;
-  session: SessionView;
+  state: FinishState;
+  summary: string | null;
   missed: MissedWord[];
+  now: string;
+  busy: boolean;
+  error: string | null;
+  onNext: () => void;
 }) {
+  const copy = finishCopy(state, now);
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.94 }}
@@ -1499,28 +1609,108 @@ function Finished({
       >
         <CheckCircle2 className="w-8 h-8" />
       </motion.div>
-      <h2 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">{title}</h2>
+      <h2 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">{copy.title}</h2>
+
+      {summary && (
+        <p className="mt-2 text-sm text-[var(--text-muted)] leading-relaxed max-w-sm mx-auto">
+          {summary}
+        </p>
+      )}
       <p className="mt-2 text-sm text-[var(--text-muted)] leading-relaxed max-w-sm mx-auto">
-        {body}
+        {copy.detail}
       </p>
 
-      <p className="mt-4 text-xs text-[var(--text-secondary)]">
-        Hạn mức mới lúc {formatRollover(new Date(session.nextDayStart))} ngày mai.
-      </p>
+      {error && <p className="mt-3 text-xs text-[var(--rust)]">{error}</p>}
 
       {missed.length > 0 && <Recap words={missed} />}
 
-      <div className="mt-8 flex items-center justify-center gap-3">
-        <Link
-          href="/add"
-          className="px-5 py-2.5 rounded-xl bg-[var(--text-primary)] text-[var(--bg-page)] text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2 shadow-xs"
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>Thêm từ vựng</span>
-        </Link>
+      <div className="mt-8 flex flex-col items-center gap-2">
+        <div className="flex items-center justify-center gap-3">
+          {copy.next && (
+            <button
+              type="button"
+              onClick={onNext}
+              disabled={busy || !copy.next.enabled}
+              className="px-5 py-2.5 rounded-xl bg-[var(--bamboo)] text-white text-sm font-semibold hover:bg-[var(--bamboo-hover)] transition-opacity cursor-pointer flex items-center gap-2 shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Play className="w-4 h-4" />
+              <span>{busy ? 'Đang chuẩn bị…' : copy.next.label}</span>
+            </button>
+          )}
+          <Link
+            href="/add"
+            className="px-5 py-2.5 rounded-xl bg-[var(--text-primary)] text-[var(--bg-page)] text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2 shadow-xs"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Thêm từ vựng</span>
+          </Link>
+        </div>
+        {copy.next && !copy.next.enabled && (
+          <span className="text-[11px] text-[var(--text-muted)]">{copy.next.blocked}</span>
+        )}
       </div>
     </motion.div>
   );
+}
+
+/** What each finish state says, and what it offers. */
+function finishCopy(
+  state: FinishState,
+  now: string,
+): {
+  title: string;
+  detail: string;
+  next?: { label: string; enabled: boolean; blocked: string };
+} {
+  switch (state.kind) {
+    case 'empty-collection':
+      return {
+        title: 'Chưa có thẻ nào',
+        detail: 'Chưa có thẻ nào trong sổ. Thêm từ đầu tiên và nó sẽ xuất hiện ở đây ngay.',
+      };
+
+    case 'waiting-for-sync':
+      return {
+        title: 'Xong phiên này',
+        detail: 'Đang gửi các lượt vừa chấm. Thử lại sau vài giây.',
+        next: { label: 'Thử lại', enabled: true, blocked: '' },
+      };
+
+    case 'more-waiting': {
+      const rest = describeRemaining(state.remaining);
+      return {
+        title: 'Xong phiên này',
+        detail: state.canDeal
+          ? `Còn ${rest} đang chờ.`
+          : `Còn ${rest} đang chờ. Cần có mạng để nhận phiên tiếp theo — mở lại khi có mạng là học tiếp được ngay.`,
+        next: {
+          label: 'Phiên tiếp theo',
+          enabled: state.canDeal,
+          blocked: 'Đang ngoại tuyến',
+        },
+      };
+    }
+
+    case 'all-clear': {
+      const due = state.nextDue
+        ? `Thẻ gần nhất ${formatDueIn(new Date(now), new Date(state.nextDue))}.`
+        : 'Không còn thẻ nào chờ đến hạn.';
+      return {
+        title: 'Đã ôn hết',
+        detail: state.outOfNewWords
+          ? `${due} Sổ từ không còn từ mới nào — thêm từ để học tiếp.`
+          : due,
+      };
+    }
+
+    case 'nothing-due':
+      return {
+        title: 'Không còn thẻ đến hạn',
+        detail: state.nextDue
+          ? `Bạn đã ôn xong các từ đến hạn. Thẻ gần nhất ${formatDueIn(new Date(now), new Date(state.nextDue))}.`
+          : 'Bạn đã ôn xong các từ đến hạn.',
+      };
+  }
 }
 
 /**
@@ -1562,7 +1752,7 @@ function Recap({ words }: { words: MissedWord[] }) {
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Cần ôn thêm</h3>
           <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-muted)]">
-            {words.length} từ bạn chấm Quên hoặc Khó hôm nay.
+            {words.length} từ bạn chấm Quên hoặc Khó trong phiên này.
           </p>
         </div>
         <button
@@ -1617,56 +1807,36 @@ function Recap({ words }: { words: MissedWord[] }) {
   );
 }
 
-function summarise(answered: Answered[], counts: DailyCounts, session: SessionView): string {
+function summarise(answered: Answered[]): string {
   // Words, not showings: each was asked twice and graded once, so counting
   // the answers would report a session twice the size of the work done.
   const cards = new Set(answered.map((a) => a.item.cardId)).size;
   const forgotten = answered.filter((a) => a.rating === 1).length;
   const forgot = forgotten > 0 ? `, ${forgotten} lượt quên` : '';
-  // A lifted cap has no "/N" to report against — the count stands alone.
-  const newLine = session.limits.unlimited
-    ? `${counts.newCards} từ mới`
-    : `${counts.newCards}/${session.limits.newPerDay} từ mới`;
-  const reviewLine = session.limits.unlimited
-    ? `${counts.reviewCards} lượt ôn`
-    : `${counts.reviewCards}/${session.limits.reviewsPerDay} lượt ôn`;
-  return (
-    `${cards} từ, ${answered.length} lượt chấm${forgot}. ` +
-    `Hôm nay đã học ${newLine} và ${reviewLine}.`
-  );
-}
-
-function emptyTitle(session: SessionView): string {
-  return session.totalCards === 0 ? 'Chưa có thẻ nào' : 'Không còn thẻ đến hạn';
-}
-
-/** Three different reasons for an empty queue, and it matters which. */
-function emptyBody(session: SessionView): string {
-  if (session.totalCards === 0) {
-    return 'Chưa có thẻ nào trong sổ. Thêm từ đầu tiên và nó sẽ xuất hiện ở đây ngay.';
-  }
-  if (session.heldBack.newCards + session.heldBack.reviewCards > 0) {
-    return (
-      `Đã đủ hạn mức hôm nay. Còn ${session.heldBack.reviewCards} thẻ đến hạn và ` +
-      `${session.heldBack.newCards} từ mới chờ sang ngày mai.`
-    );
-  }
-  if (session.nextDue) {
-    const due = formatDueIn(new Date(session.now), new Date(session.nextDue));
-    return `Bạn đã ôn tập xong các từ vựng đến hạn hôm nay. Thẻ gần nhất ${due}.`;
-  }
-  return 'Bạn đã ôn tập xong các từ vựng đến hạn hôm nay.';
+  return `${cards} từ, ${answered.length} lượt chấm${forgot}.`;
 }
 
 /**
- * The study day rolls over in a fixed zone, so the time is stated in that zone
- * — otherwise the server renders its own clock and the client corrects it on
- * hydration.
+ * Take a dealt queue back out of what was said to be waiting.
+ *
+ * Only needed when the lookahead is promoted: those cards were counted as
+ * remaining when the server built the session they came with, and nothing
+ * else recounts them until the next server round trip.
  */
-function formatRollover(date: Date): string {
-  return date.toLocaleTimeString('vi-VN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: STUDY_TIME_ZONE,
-  });
+function spend(remaining: RemainingWork, dealt: readonly ReviewItem[]): RemainingWork {
+  const cards = new Map(dealt.map((item) => [item.cardId, item.isNew]));
+  let newCards = 0;
+  for (const isNew of cards.values()) if (isNew) newCards++;
+  return {
+    newCards: Math.max(0, remaining.newCards - newCards),
+    reviewCards: Math.max(0, remaining.reviewCards - (cards.size - newCards)),
+  };
+}
+
+/** "Còn 12 thẻ đến hạn và 3 từ mới", dropping whichever half is zero. */
+function describeRemaining(remaining: RemainingWork): string {
+  const parts: string[] = [];
+  if (remaining.reviewCards > 0) parts.push(`${remaining.reviewCards} thẻ đến hạn`);
+  if (remaining.newCards > 0) parts.push(`${remaining.newCards} từ mới`);
+  return parts.join(' và ');
 }
