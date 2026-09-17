@@ -6,7 +6,6 @@ import {
   Copy,
   Keyboard,
   Pencil,
-  RotateCcw,
   Sparkles,
   Volume2,
   X,
@@ -886,15 +885,21 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             turn this card over, or type the answer. Which way round the card
             is asked belongs to the queue — a word is asked both ways in the
             same session — so this cannot change the question, only how you
-            answer it. Highlighted while typing is on, and it stays on until
-            it is switched back.
+            answer it.
+
+            One fixed label rather than the name of the current mode: a
+            control that renames itself is read as a label half the time and
+            as an action the other half, and either reading makes the other
+            one wrong. "Chế độ gõ" is the thing being switched, and whether
+            it is on is said by the highlight and by `aria-pressed`. It stays
+            on until it is switched back.
           */}
           <button
             type="button"
             onClick={toggleMode}
             disabled={isRevealed}
             aria-pressed={typing}
-            className={`px-2.5 py-1 min-w-[6.5rem] justify-center rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:cursor-default disabled:opacity-60 ${
+            className={`px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:cursor-default disabled:opacity-60 ${
               typing
                 ? 'bg-[var(--bamboo-subtle)] border-[var(--bamboo-border)] text-[var(--bamboo)] font-semibold'
                 : 'border-[var(--border-subtle)] text-[var(--text-secondary)] enabled:hover:border-[var(--border-strong)]'
@@ -911,12 +916,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
                     : 'Thẻ lật — nhận mặt từ. Bấm để chuyển sang gõ cách đọc.'
             }
           >
-            {typing ? (
-              <Keyboard className="w-3.5 h-3.5" />
-            ) : (
-              <RotateCcw className="w-3.5 h-3.5" />
-            )}
-            <span>{typing ? 'Chế độ gõ' : 'Thẻ lật'}</span>
+            <Keyboard className="w-3.5 h-3.5" />
+            <span>Chế độ gõ</span>
           </button>
 
           {/* Editing before the answer is on screen would give the card away. */}
