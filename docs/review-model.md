@@ -37,17 +37,21 @@ came back two cards later, which made Hard feel like no interval at all.
 ## Answering
 
 - A card opens on its face and stays there; nothing about the answer is on the
-  prompt side. Either face can be typed instead of turned over, one card at a
-  time. A typed meaning card accepts the kanji *or* the kana; a typed Japanese
-  card asks only for the reading, since accepting the headword there would mark
-  the prompt correct.
+  prompt side. Either face can be typed instead of turned over, and the choice
+  holds for the rest of the session rather than for one card — it is a way of
+  studying, not a property of the card. It is session state, so a reload starts
+  back on flip cards. A typed meaning card accepts the kanji *or* the kana; a
+  typed Japanese card asks only for the reading, since accepting the headword
+  there would mark the prompt correct.
 - **Matching is exact** (`lib/answer.ts`): NFKC, katakana folded to hiragana, ー
   expanded to the preceding vowel (コーヒー → こおひい), punctuation stripped. No
   edit distance anywhere — in an SRS a near miss is a miss, and じ/ぢ stay apart.
 - **Three tries.** A wrong answer reveals nothing and writes nothing; only the
   third gives the answer up. This is not a looser matcher, it is an allowance
   for the fact that a slipped finger and a forgotten word look identical to a
-  string comparison. "Chưa nhớ ra" gives up immediately instead.
+  string comparison. "Chưa nhớ ra" gives up immediately instead, and the space
+  bar is bound to it — the same key that turns a flip card over, free to take
+  because no answer the field accepts contains a space.
 - **The user grades.** All four buttons are offered however the card went. "Gõ
   nhầm" writes nothing at all — no rating, no log row, no state change.
 - **Undo is ten seconds** and is the one deletion `review_logs` permits. It is

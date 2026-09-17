@@ -143,14 +143,19 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   /** Bumped by "gõ nhầm" to remount the answer field with an empty value. */
   const [attemptSeq, setAttemptSeq] = useState(0);
   /**
-   * Typing this one card instead of turning it over.
+   * Typing the answer instead of turning the card over.
    *
    * Both faces are flashcards by default — look, recall, turn over, grade
-   * yourself — and this is the per-card opt-in to typing the answer instead.
-   * It lasts one card. The queue still decides which card is in front of you,
-   * which way round it is asked, and which card the rating is written to.
+   * yourself — and this is the opt-in to typing the answer instead. It holds
+   * for the rest of the session: choosing to type is a statement about how
+   * you want to study, not about the one card that happened to be in front
+   * of you when you reached for the toggle. The queue still decides which
+   * card that is, which way round it is asked, and which card the rating is
+   * written to.
+   *
+   * Session state, like the font toggle — a reload starts back on flip cards.
    */
-  const [typedOverride, setTypedOverride] = useState<boolean | null>(null);
+  const [typing, setTyping] = useState(false);
   /**
    * What each word has already been graded this session, by card.
    *
@@ -219,7 +224,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    * headword there would be marking the card's own prompt correct.
    */
   const face = currentWord?.face ?? 'word';
-  const typing = typedOverride ?? false;
   const expecting: 'word' | 'reading' = face === 'meaning' ? 'word' : 'reading';
 
   /**
@@ -373,26 +377,16 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   }, [ready, sync]);
 
   /**
-   * The override lasts exactly one card. Both halves of "one card" matter: the
-   * card id, for the ordinary move to the next card, and the number answered,
-   * because a learning step can put the same card straight back — and that
-   * second showing is a new question, not the one you overrode.
-   */
-  useEffect(() => {
-    setTypedOverride(null);
-  }, [currentWord?.cardId, currentWord?.face, answered.length]);
-
-  /**
-   * Ask this card the other way: type the answer instead of turning the card
-   * over, or the reverse. Only before the answer is on screen — afterwards
-   * there is nothing left to ask.
+   * Switch how answers are given: type them instead of turning the card over,
+   * or the reverse. Only before the answer is on screen — afterwards there is
+   * nothing left to ask, and the switch would land on a card already graded.
    */
   const toggleMode = useCallback(() => {
     if (isRevealed) return;
     setAttempt(null);
     setAttemptSeq((n) => n + 1);
-    setTypedOverride(!typing);
-  }, [isRevealed, typing]);
+    setTyping((v) => !v);
+  }, [isRevealed]);
 
   const handleReveal = useCallback(() => {
     if (!currentWord || typing) return;
@@ -892,7 +886,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             turn this card over, or type the answer. Which way round the card
             is asked belongs to the queue — a word is asked both ways in the
             same session — so this cannot change the question, only how you
-            answer it. Highlighted while the override is on.
+            answer it. Highlighted while typing is on, and it stays on until
+            it is switched back.
           */}
           <button
             type="button"
@@ -912,8 +907,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
                     ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm để quay lại thẻ lật.'
                     : 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm để quay lại thẻ lật.'
                   : asking
-                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm để gõ đáp án cho thẻ này.'
-                    : 'Thẻ lật — nhận mặt từ. Bấm để gõ cách đọc cho thẻ này.'
+                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm để chuyển sang gõ đáp án.'
+                    : 'Thẻ lật — nhận mặt từ. Bấm để chuyển sang gõ cách đọc.'
             }
           >
             {typing ? (
