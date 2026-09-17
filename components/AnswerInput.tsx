@@ -66,6 +66,20 @@ export function AnswerInput({
 
   const remaining = MAX_ANSWER_ATTEMPTS - used;
 
+  /**
+   * Giving up, which spends every remaining try at once. Without it the only
+   * way to see the answer is to type three wrong ones, and a word you know
+   * you have forgotten should not require theatre.
+   */
+  const giveUp = () => {
+    if (disabled) return;
+    onAnswer({
+      input: inputRef.current?.value ?? '',
+      correct: false,
+      attempts: MAX_ANSWER_ATTEMPTS,
+    });
+  };
+
   const submit = () => {
     const el = inputRef.current;
     const input = el?.value ?? '';
@@ -112,6 +126,15 @@ export function AnswerInput({
             if (e.key === 'Enter') {
               e.preventDefault();
               submit();
+              return;
+            }
+            // Space gives up, the same key that turns a flip card over. It
+            // can take the whole key because no answer this field accepts
+            // contains a space: the matcher is exact, and neither a word nor
+            // a reading is ever written with one.
+            if (e.key === ' ') {
+              e.preventDefault();
+              giveUp();
             }
           }}
           onClick={(e) => e.stopPropagation()}
@@ -172,24 +195,15 @@ export function AnswerInput({
           <CornerDownLeft className="h-4 w-4" />
           <span>Kiểm tra</span>
         </button>
-        {/*
-          Giving up, which spends every remaining try at once. Without it the
-          only way to see the answer is to type three wrong ones, and a word
-          you know you have forgotten should not require theatre.
-        */}
         <button
           type="button"
           disabled={disabled}
           onClick={(e) => {
             e.stopPropagation();
-            onAnswer({
-              input: inputRef.current?.value ?? '',
-              correct: false,
-              attempts: MAX_ANSWER_ATTEMPTS,
-            });
+            giveUp();
           }}
           className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] px-3.5 py-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] disabled:opacity-50"
-          title="Hiện đáp án ngay, không dùng hết lượt gõ"
+          title="Hiện đáp án ngay, không dùng hết lượt gõ — phím cách"
         >
           <Eye className="h-3.5 w-3.5" />
           <span>Chưa nhớ ra</span>

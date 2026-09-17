@@ -6,7 +6,6 @@ import {
   Copy,
   Keyboard,
   Pencil,
-  RotateCcw,
   Sparkles,
   Volume2,
   X,
@@ -143,14 +142,19 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   /** Bumped by "gõ nhầm" to remount the answer field with an empty value. */
   const [attemptSeq, setAttemptSeq] = useState(0);
   /**
-   * Typing this one card instead of turning it over.
+   * Typing the answer instead of turning the card over.
    *
    * Both faces are flashcards by default — look, recall, turn over, grade
-   * yourself — and this is the per-card opt-in to typing the answer instead.
-   * It lasts one card. The queue still decides which card is in front of you,
-   * which way round it is asked, and which card the rating is written to.
+   * yourself — and this is the opt-in to typing the answer instead. It holds
+   * for the rest of the session: choosing to type is a statement about how
+   * you want to study, not about the one card that happened to be in front
+   * of you when you reached for the toggle. The queue still decides which
+   * card that is, which way round it is asked, and which card the rating is
+   * written to.
+   *
+   * Session state, like the font toggle — a reload starts back on flip cards.
    */
-  const [typedOverride, setTypedOverride] = useState<boolean | null>(null);
+  const [typing, setTyping] = useState(false);
   /**
    * What each word has already been graded this session, by card.
    *
@@ -219,7 +223,6 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    * headword there would be marking the card's own prompt correct.
    */
   const face = currentWord?.face ?? 'word';
-  const typing = typedOverride ?? false;
   const expecting: 'word' | 'reading' = face === 'meaning' ? 'word' : 'reading';
 
   /**
@@ -373,26 +376,16 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   }, [ready, sync]);
 
   /**
-   * The override lasts exactly one card. Both halves of "one card" matter: the
-   * card id, for the ordinary move to the next card, and the number answered,
-   * because a learning step can put the same card straight back — and that
-   * second showing is a new question, not the one you overrode.
-   */
-  useEffect(() => {
-    setTypedOverride(null);
-  }, [currentWord?.cardId, currentWord?.face, answered.length]);
-
-  /**
-   * Ask this card the other way: type the answer instead of turning the card
-   * over, or the reverse. Only before the answer is on screen — afterwards
-   * there is nothing left to ask.
+   * Switch how answers are given: type them instead of turning the card over,
+   * or the reverse. Only before the answer is on screen — afterwards there is
+   * nothing left to ask, and the switch would land on a card already graded.
    */
   const toggleMode = useCallback(() => {
     if (isRevealed) return;
     setAttempt(null);
     setAttemptSeq((n) => n + 1);
-    setTypedOverride(!typing);
-  }, [isRevealed, typing]);
+    setTyping((v) => !v);
+  }, [isRevealed]);
 
   const handleReveal = useCallback(() => {
     if (!currentWord || typing) return;
@@ -771,6 +764,21 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
   // Keyboard shortcut support
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape switches the answer mode, and is the one shortcut that has to
+      // work with the answer field focused — which is exactly where you are
+      // when you want to leave typing. It is safe to read before the guard
+      // below because no field on this screen takes an Escape: the only
+      // thing it would otherwise be cancelling is IME composition, which
+      // `isComposing` leaves alone. `toggleMode` ignores a revealed card, so
+      // Escape does nothing while the edit or leech panel is open.
+      if (e.key === 'Escape' && !e.isComposing) {
+        if (!isRevealed) {
+          e.preventDefault();
+          toggleMode();
+        }
+        return;
+      }
+
       if (document.activeElement?.tagName === 'INPUT') return;
 
       if (e.code === 'Space' && !isRevealed) {
@@ -786,7 +794,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRevealed, handleReveal, handleRate]);
+  }, [isRevealed, handleReveal, handleRate, toggleMode]);
 
   if (!currentWord) {
     // Two reasons not to announce the day is over yet. The resume decision may
@@ -892,14 +900,21 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             turn this card over, or type the answer. Which way round the card
             is asked belongs to the queue — a word is asked both ways in the
             same session — so this cannot change the question, only how you
-            answer it. Highlighted while the override is on.
+            answer it.
+
+            One fixed label rather than the name of the current mode: a
+            control that renames itself is read as a label half the time and
+            as an action the other half, and either reading makes the other
+            one wrong. "Chế độ gõ" is the thing being switched, and whether
+            it is on is said by the highlight and by `aria-pressed`. It stays
+            on until it is switched back.
           */}
           <button
             type="button"
             onClick={toggleMode}
             disabled={isRevealed}
             aria-pressed={typing}
-            className={`px-2.5 py-1 min-w-[6.5rem] justify-center rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:cursor-default disabled:opacity-60 ${
+            className={`px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:cursor-default disabled:opacity-60 ${
               typing
                 ? 'bg-[var(--bamboo-subtle)] border-[var(--bamboo-border)] text-[var(--bamboo)] font-semibold'
                 : 'border-[var(--border-subtle)] text-[var(--text-secondary)] enabled:hover:border-[var(--border-strong)]'
@@ -909,19 +924,15 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
                 ? 'Đáp án đã hiện — đổi cách trả lời ở thẻ sau'
                 : typing
                   ? asking
-                    ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm để quay lại thẻ lật.'
-                    : 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm để quay lại thẻ lật.'
+                    ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm hoặc Esc để quay lại thẻ lật.'
+                    : 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm hoặc Esc để quay lại thẻ lật.'
                   : asking
-                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm để gõ đáp án cho thẻ này.'
-                    : 'Thẻ lật — nhận mặt từ. Bấm để gõ cách đọc cho thẻ này.'
+                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm hoặc Esc để chuyển sang gõ đáp án.'
+                    : 'Thẻ lật — nhận mặt từ. Bấm hoặc Esc để chuyển sang gõ cách đọc.'
             }
           >
-            {typing ? (
-              <Keyboard className="w-3.5 h-3.5" />
-            ) : (
-              <RotateCcw className="w-3.5 h-3.5" />
-            )}
-            <span>{typing ? 'Chế độ gõ' : 'Thẻ lật'}</span>
+            <Keyboard className="w-3.5 h-3.5" />
+            <span>Chế độ gõ</span>
           </button>
 
           {/* Editing before the answer is on screen would give the card away. */}
