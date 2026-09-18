@@ -5,10 +5,11 @@ import { z } from 'zod';
 import { requireSession } from '@/lib/auth';
 import {
   ReviewError,
+  buildSession,
   undoReview as undoReviewLog,
   type ReviewFailure,
 } from '@/lib/db/review';
-import type { UndoResult } from '@/lib/types';
+import type { SessionView, UndoResult } from '@/lib/types';
 
 import type { ActionResult } from '@/lib/actions/words';
 
@@ -56,5 +57,36 @@ export async function undoReview(logId: string): Promise<ActionResult<UndoResult
     if (error instanceof ReviewError) return { ok: false, error: MESSAGES[error.reason] };
     console.error('[undoReview] failed', error);
     return { ok: false, error: MESSAGES['write-failed'] };
+  }
+}
+
+/**
+ * Deal the next session.
+ *
+ * The same `buildSession` the page renders with, reachable without a
+ * navigation — finishing a session and being handed the next one should not
+ * cost a round trip through the router, and `revalidatePath` here would
+ * re-render `/` and push a fresh prop at a screen that has just replaced its
+ * own state.
+ *
+ * Reads only. Ratings still go through the outbox and `/api/sync`, so this
+ * adds no second way to write a review.
+ *
+ * The caller must drop the cards whose ratings have not reached the server
+ * yet (`dropUnsettled`): the undo window means the tail of the session that
+ * just ended is still local, and those cards would otherwise be dealt again.
+ */
+export async function startSession(): Promise<ActionResult<SessionView>> {
+  try {
+    await requireSession();
+  } catch {
+    return { ok: false, error: 'Chưa đăng nhập' };
+  }
+
+  try {
+    return { ok: true, data: await buildSession() };
+  } catch (error) {
+    console.error('[startSession] failed', error);
+    return { ok: false, error: 'Không tải được phiên mới' };
   }
 }

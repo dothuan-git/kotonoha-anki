@@ -1,9 +1,10 @@
 /**
- * The study day, for the daily caps.
+ * The study day, for /stats and for the queue shuffle's seed.
  *
  * A day starts at 04:00 rather than midnight so a session that runs past
- * midnight keeps counting against the day it began — otherwise the caps
- * silently reset at 00:00 and hand out twelve more new cards.
+ * midnight keeps counting against the day it began — otherwise a late session
+ * would be split across two columns of every chart, and the queue would
+ * reshuffle itself under you at 00:00.
  *
  * The zone is a constant, not a setting: this is a single-user app for one
  * particular person. Change these two values if that person moves.

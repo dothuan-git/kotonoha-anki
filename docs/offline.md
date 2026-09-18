@@ -1,6 +1,6 @@
 # Offline and sync
 
-The review session is the offline-critical path: the day's queue lives in
+The review session is the offline-critical path: the session's queue lives in
 IndexedDB, the scheduler runs on the device, and ratings queue in an outbox
 that replays through `/api/sync`.
 
@@ -22,9 +22,15 @@ that replays through `/api/sync`.
 - **Two devices need no conflict resolution.** Because state is a fold,
   replaying both outboxes in `reviewed_at` order lands on the same card
   whichever reconnects first.
-- **Caps are kept by identity, not by count.** The session carries which cards
-  have been spent today and in which bucket, so a learning card the server
-  counted this morning does not spend a second slot on the train.
+- **The next session rides along with this one.** `SessionView.next` carries a
+  second queue, already hydrated, so finishing a session with no signal deals
+  the next one locally instead of ending the day. The client cannot build a
+  queue itself — it has no words, sentences or logs for cards it was never
+  handed.
+- **A promoted session drops what is still in flight.** `flush` holds a rating
+  back for the undo window, and a card the server has not heard about still
+  has its old `due` in the past — so it would be dealt straight back and could
+  be rated twice. `dropUnsettled` filters by card, never leaving half a pair.
 - **The wire shape is wider than the table.** `CardStateView` carries
   `learning_steps`, `elapsed_days` and `scheduled_days` — free off the fold that
   just ran, and impossible for the client to recover, since it has no log to
@@ -44,10 +50,11 @@ ratings per POST: a week offline fits comfortably, and a corrupt outbox cannot
 ask the server to replay forever. Wrong answers that might be confusions ride
 along in the same request.
 
-The stored session also carries `missed`, the day's recap. It is the one thing
-in that record scoped to the **study day** rather than to the session, so it
-survives being handed a fresh server queue — `dayStart` already expires it at
-rollover, and nothing else has to.
+The stored session also carries `missed`, the session's recap. It is scoped to
+the session like `graded`, and for the same reason: `answered` is not
+persisted, so without it a reload mid-session would empty the recap of
+everything answered before it. Dealing a new session clears it. `dayStart` is
+now only a staleness guard — nothing in the record is scoped to the day.
 
 Signing out clears cached pages and the stored queue, but never the outbox —
 those are reviews that have not reached the server, and only one address can

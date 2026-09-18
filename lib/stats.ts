@@ -6,10 +6,9 @@ import type { ConfusionPair } from '@/lib/confusion';
  * The four /stats charts, as pure functions over rows.
  *
  * Everything here buckets by the **study day** (04:00 Asia/Ho_Chi_Minh),
- * not by the calendar day, because that is the day the caps are kept in. A
- * session that runs to half past midnight belongs to the day it started, and a
- * chart that put those reviews on the next column would disagree with the
- * "12/100 hôm nay" the reviewer showed while they were happening.
+ * not by the calendar day. A session that runs to half past midnight belongs
+ * to the day it started, and a chart that put those reviews on the next
+ * column would split one sitting across two.
  *
  * Separate from `lib/db/stats.ts` on purpose: the bucketing is the part that
  * is easy to get subtly wrong, and it is the part worth testing.
@@ -102,9 +101,9 @@ export interface VolumeDay {
 /**
  * Chart 1 — how much was studied, per day.
  *
- * Cards are counted the way the daily caps count them (`getCountedCards`): once per
- * day, in the bucket of their first showing. A new card walking `['1m','10m']`
- * writes three rows and is still one new card. `ratings` keeps the raw count
+ * Cards are counted once per day, in the bucket of their first showing — so
+ * a day of several sessions is still one column, and a new card walking
+ * `['1m','10m']` writes three rows and is still one new card. `ratings` keeps the raw count
  * alongside, because the gap between them is the day's re-lapses and that is
  * worth being able to see.
  */
@@ -145,7 +144,7 @@ export interface ForecastDay {
  *
  * New cards are left out. Their `due` is the word's creation time (the fold
  * seeds from it), so every one of them is "overdue" by construction; what
- * actually releases them is the daily cap, not the clock. Putting them on a
+ * actually releases them is the new-word share of a session, not the clock. Putting them on a
  * forecast would say the next 300 days all happen tomorrow.
  */
 export function bucketForecast(
@@ -188,7 +187,7 @@ export interface RetentionWeek {
  * cards that were *already known*: a rating on a card in `State.New` is the
  * first time it has ever been seen, so grading it Quên says nothing about
  * recall. Including those would drag the line down by exactly the rate at
- * which new words are being added, which is a chart about the daily caps
+ * which new words are being added, which is a chart about how much you study
  * rather than about memory.
  *
  * Weekly rather than daily because a day is 20–100 reviews and the noise

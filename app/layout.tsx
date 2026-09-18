@@ -5,7 +5,7 @@ import { AppShell } from '@/components/AppShell';
 import { ServiceWorkerRegistrar } from '@/components/ServiceWorkerRegistrar';
 import { ThemeScript } from '@/components/ThemeScript';
 import { auth } from '@/lib/auth';
-import { countDueToday } from '@/lib/db/review';
+import { countNextSession } from '@/lib/db/review';
 
 import './globals.css';
 
@@ -70,7 +70,7 @@ async function dueBadge(): Promise<number> {
   try {
     const session = await auth();
     if (!session?.user?.email) return 0;
-    return await countDueToday();
+    return await countNextSession();
   } catch {
     return 0;
   }

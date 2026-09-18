@@ -1,15 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, gte, inArray, lte, not, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
 import { getSettings, hydrateWords } from '@/lib/db/queries';
 import { cardStates, cards, reviewLogs, words } from '@/lib/db/schema';
-import { startOfNextStudyDay, startOfStudyDay } from '@/lib/fsrs/day';
+import { startOfStudyDay } from '@/lib/fsrs/day';
 import { LEARN_AHEAD_MINUTES, LEECH_LAPSES, schedulerParams } from '@/lib/fsrs/params';
 import {
   buildQueue,
   expandFaces,
+  sessionSlots,
   type QueueCandidate,
   type QueueShowing,
 } from '@/lib/fsrs/queue';
@@ -22,11 +23,9 @@ import {
   type ReplayLog,
 } from '@/lib/fsrs/replay';
 import { staysInSession, toCard, toPreviews, toStateView } from '@/lib/fsrs/state';
-import { UNDO_WINDOW_MS, tallyCounts } from '@/lib/types';
+import { UNDO_WINDOW_MS } from '@/lib/types';
 import type {
   CardStateView,
-  CountedCards,
-  DailyCounts,
   PendingReview,
   RateResult,
   ReviewItem,
@@ -53,7 +52,7 @@ type FsrsParams = ReturnType<typeof schedulerParams>;
  * These earn their place beyond tidiness. The session used to read every card
  * in the collection and sort it out in JavaScript, which is nothing at fifty
  * words and is a full scan plus a full transfer at twenty thousand. Expressed
- * this way the daily caps become `LIMIT`s, and the work stops being
+ * this way the session budget becomes a `LIMIT`, and the work stops being
  * proportional to the size of the collection.
  */
 const inRotation = eq(words.suspended, false);
@@ -62,43 +61,54 @@ const inRotation = eq(words.suspended, false);
 const isNew = eq(cardStates.state, State.New);
 
 /**
- * Due now, or due close enough that a reload should resume rather than
- * announce the day is over. A card put back by a learning step is due in a
- * minute or ten; only learning states sit that close, since anything in Review
- * is a day away at least.
+ * The two halves of "due", kept apart because the session budgets them
+ * differently: a card put back by a learning step is dealt whatever the budget
+ * says, a merely due card spends it.
+ *
+ * A learning card is due in a minute or ten, so it is taken slightly ahead of
+ * time — a reload should resume the session rather than announce it is over.
+ * Only learning states sit that close; anything in Review is a day away at
+ * least, which is why the review half needs no such tolerance.
  */
-function isDue(now: Date) {
+function dealable(now: Date) {
   const learnAhead = new Date(now.getTime() + LEARN_AHEAD_MINUTES * 60_000);
-  return or(
-    lte(cardStates.due, now),
-    and(
+  return {
+    learning: and(
       inArray(cardStates.state, [State.Learning, State.Relearning]),
       lte(cardStates.due, learnAhead),
-    ),
-  )!;
+    )!,
+    review: and(eq(cardStates.state, State.Review), lte(cardStates.due, now))!,
+  };
 }
 
 /**
  * The one pass both entry points share: how much is waiting, and when the next
- * thing lands. Four numbers off one indexed scan, rather than every row in the
+ * thing lands. Five numbers off one indexed scan, rather than every row in the
  * collection crossing the wire to be counted in a loop.
  *
- * `nextDue` is the earliest card that is neither new nor in today's session —
- * the "come back at" time, which only means anything once today is empty.
+ * `learningCards` is counted apart from `dueReviews` rather than folded in
+ * with it. They are budgeted differently, and a single total would make
+ * `remaining` count the free riders a session just dealt as still waiting —
+ * a finish screen that claims there is more work, forever.
+ *
+ * `nextDue` is the earliest card that is neither new nor dealable now — the
+ * "come back at" time, which only means anything once nothing is waiting.
  */
 async function scanRotation(now: Date): Promise<{
   total: number;
   newCards: number;
   dueReviews: number;
+  learningCards: number;
   nextDue: Date | null;
 }> {
-  const due = isDue(now);
+  const { learning, review } = dealable(now);
   const [row] = await db
     .select({
       total: sql<number>`count(*)::int`,
       newCards: sql<number>`count(*) filter (where ${isNew})::int`,
-      dueReviews: sql<number>`count(*) filter (where ${due} and not ${isNew})::int`,
-      nextDue: sql<Date | null>`min(${cardStates.due}) filter (where not ${due} and not ${isNew})`,
+      dueReviews: sql<number>`count(*) filter (where ${review})::int`,
+      learningCards: sql<number>`count(*) filter (where ${learning})::int`,
+      nextDue: sql<Date | null>`min(${cardStates.due}) filter (where not ${isNew} and not ${review} and not ${learning})`,
     })
     .from(cards)
     .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
@@ -109,6 +119,7 @@ async function scanRotation(now: Date): Promise<{
     total: row?.total ?? 0,
     newCards: row?.newCards ?? 0,
     dueReviews: row?.dueReviews ?? 0,
+    learningCards: row?.learningCards ?? 0,
     nextDue: row?.nextDue ? new Date(row.nextDue) : null,
   };
 }
@@ -116,97 +127,71 @@ async function scanRotation(now: Date): Promise<{
 /** Every card is asked from both sides, so a session is twice its cards long. */
 const FACES_PER_CARD = 2;
 
-/**
- * Stands in for "no cap" wherever a limit has to be a real number — a
- * `LIMIT` clause, `buildQueue`'s arithmetic. Never reached by an actual
- * collection, so it behaves exactly like infinity without needing either
- * caller to special-case it.
- */
-const NO_CAP = 1_000_000;
-
-function dailyLimit(spent: number, perDay: number, unlimited: boolean): number {
-  return unlimited ? NO_CAP : Math.max(0, perDay - spent);
-}
 type CardRow = { cardId: string; wordId: string; createdAt: Date };
 
 /**
- * Which cards the daily caps have been spent on since the study day began.
+ * How many showings the next session would hand you — the nav badge.
  *
- * Per card rather than per log row, and each card counts once: a new card
- * walking its learning steps writes several rows the same day, and those
- * repeats must not also eat a review slot. A card counts as new if its first
- * showing today was its first showing ever.
- *
- * The identities rather than the totals, because the client has to keep the
- * same books while offline and needs to know whether a card it is about to
- * rate was already counted this morning.
- */
-export async function getCountedCards(now = new Date()): Promise<CountedCards> {
-  const rows = await db
-    .select({
-      cardId: reviewLogs.cardId,
-      wasNew: sql<boolean>`bool_or(${reviewLogs.state} = 0)`,
-    })
-    .from(reviewLogs)
-    .where(gte(reviewLogs.reviewedAt, startOfStudyDay(now)))
-    .groupBy(reviewLogs.cardId);
-
-  const counted: CountedCards = {};
-  for (const row of rows) counted[row.cardId] = row.wasNew ? 'new' : 'review';
-  return counted;
-}
-
-export async function getDailyCounts(now = new Date()): Promise<DailyCounts> {
-  return tallyCounts(await getCountedCards(now));
-}
-
-/**
- * How many showings today's session would actually hand you — the nav badge.
- *
- * The same scan and the same cap arithmetic as `buildSession`, stopping
+ * The same scan and the same `sessionSlots` call as `buildSession`, stopping
  * before `hydrateQueue`. Counting raw due rows instead would be cheaper and
- * wrong: the badge would say 240 on a morning the caps release 100, and a
+ * wrong: the badge would say 240 on a morning the session deals 100, and a
  * number the session then contradicts is worse than no number.
  *
- * Doubled for the same reason. Every card is asked from both sides, so the
- * caps release twelve *words* and the session is twenty-four cards long — and
- * the badge is a promise about how much work is waiting, not about how much
- * vocabulary it covers.
+ * The next session rather than everything outstanding, now that everything
+ * outstanding is reachable in a few sittings. A badge reading 4800 after a
+ * fortnight away is not information; the finish screen carries the real total.
+ *
+ * Doubled because every card is asked from both sides — the badge is a promise
+ * about how much work is waiting, not about how much vocabulary it covers.
  */
-export async function countDueToday(now = new Date()): Promise<number> {
-  const [settings, countedCards, scan] = await Promise.all([
-    getSettings(),
-    getCountedCards(now),
-    scanRotation(now),
-  ]);
-  const counts = tallyCounts(countedCards);
+export async function countNextSession(now = new Date()): Promise<number> {
+  const [settings, scan] = await Promise.all([getSettings(), scanRotation(now)]);
 
-  const reviewLimit = dailyLimit(counts.reviewCards, settings.reviewsPerDay, settings.unlimitedPerDay);
-  const newLimit = dailyLimit(counts.newCards, settings.newPerDay, settings.unlimitedPerDay);
-  return (
-    (Math.min(scan.dueReviews, reviewLimit) + Math.min(scan.newCards, newLimit)) * FACES_PER_CARD
-  );
+  const cap = settings.cardsPerSession;
+  const slots = sessionSlots({
+    dueReviews: scan.dueReviews,
+    newCards: scan.newCards,
+    learning: scan.learningCards,
+    cap,
+  });
+  return (Math.min(scan.learningCards, cap) + slots.reviews + slots.news) * FACES_PER_CARD;
 }
 
 /**
- * The day's session. The caps are applied once, here: there is no "study
- * more" escape hatch, so the queue the client receives is the whole day.
+ * A ceiling on learning cards, not a policy.
+ *
+ * They are dealt whatever the budget says, so nothing here should ever bind —
+ * a card mid-way through its steps must not be held to tomorrow. It exists so
+ * a collection that somehow accumulated thousands of them cannot ask for all
+ * of them in one round trip. Deliberately not tied to `cardsPerSession`: a
+ * small session size would then also throttle cards you are part-way through,
+ * which is the opposite of the intent.
+ */
+const FREE_RIDERS = 200;
+
+/** The session in hand, plus one held back so a finished session can be replaced offline. */
+const LOOKAHEAD_SESSIONS = 2;
+
+/**
+ * The session, plus the one after it.
+ *
+ * The budget is applied here, once. There is no daily ceiling any more: a card
+ * that was rated has a future `due` and simply is not in the next query, so
+ * finishing a session and asking for another deals the next cards by the same
+ * rule that dealt these.
+ *
+ * The second session rides along unasked because the reviewer has to work
+ * offline. The client cannot build a queue — it has no words, sentences or
+ * logs for cards it was never handed — so without a lookahead, finishing a
+ * session on a train would end the day. Two sessions of fifty is a hundred
+ * cards, below what a single day's queue used to carry, so this costs nothing
+ * that was not already being paid.
  */
 export async function buildSession(now = new Date()): Promise<SessionView> {
-  const [settings, countedCards, scan] = await Promise.all([
-    getSettings(),
-    getCountedCards(now),
-    scanRotation(now),
-  ]);
+  const [settings, scan] = await Promise.all([getSettings(), scanRotation(now)]);
   const params = schedulerParams(settings.requestRetention);
-  const counts = tallyCounts(countedCards);
+  const cap = settings.cardsPerSession;
 
-  const reviewLimit = dailyLimit(counts.reviewCards, settings.reviewsPerDay, settings.unlimitedPerDay);
-  const newLimit = dailyLimit(counts.newCards, settings.newPerDay, settings.unlimitedPerDay);
-
-  // Only what the caps can actually release, in the order the caps would
-  // release it: most overdue first, and new cards in the order they were
-  // added. The rows that lose the cap never leave the database.
   const selected = {
     cardId: cards.id,
     wordId: cards.wordId,
@@ -215,76 +200,105 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
     state: cardStates.state,
     createdAt: words.createdAt,
   };
-  const inSession = isDue(now);
+  const { learning, review } = dealable(now);
+  const from = () =>
+    db
+      .select(selected)
+      .from(cards)
+      .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
+      .innerJoin(words, eq(words.id, cards.wordId));
 
-  const [dueRows, newRows] = await Promise.all([
-    reviewLimit === 0
+  // Three queries, not two. Merging the first into the second would sort
+  // overdue reviews ahead of learning cards — which are due a few minutes out
+  // — so a shared LIMIT would truncate exactly the rows that must not be.
+  // Each budgeted stream fetches what two sessions could possibly take.
+  const reach = LOOKAHEAD_SESSIONS * cap;
+  const [learningRows, dueRows, newRows] = await Promise.all([
+    from()
+      .where(and(inRotation, learning))
+      .orderBy(asc(cardStates.due), asc(cards.id))
+      .limit(FREE_RIDERS),
+    reach === 0
       ? []
-      : db
-          .select(selected)
-          .from(cards)
-          .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
-          .innerJoin(words, eq(words.id, cards.wordId))
-          .where(and(inRotation, inSession, not(isNew)))
+      : from()
+          .where(and(inRotation, review))
           .orderBy(asc(cardStates.due), asc(cards.id))
-          .limit(reviewLimit),
-    newLimit === 0
+          .limit(reach),
+    reach === 0
       ? []
-      : db
-          .select(selected)
-          .from(cards)
-          .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
-          .innerJoin(words, eq(words.id, cards.wordId))
+      : from()
           .where(and(inRotation, isNew))
           // `sort_order` breaks the tie inside an import, where a thousand
           // words share one `created_at` and insertion order means nothing.
           .orderBy(asc(words.createdAt), asc(words.sortOrder), asc(cards.id))
-          .limit(newLimit),
+          .limit(reach),
   ]);
 
-  // The row's position, not its timestamp. `buildQueue` sorts by `order`, and
-  // re-deriving that key from `due`/`created_at` would quietly throw away the
-  // `sort_order` tiebreak the query just applied — a thousand imported words
-  // share one `created_at`, so the sort would fall through to the card's UUID.
-  // The database has already put these in the right order; this keeps it
-  // rather than guessing at it a second time.
-  const position = (rows: typeof dueRows): QueueCandidate[] =>
+  // Due rows carry the timestamp, because learning and review candidates are
+  // merged into one stream and have to be comparable across it. New rows carry
+  // the row's position instead: re-deriving a key from `created_at` would
+  // throw away the `sort_order` tiebreak the query just applied, since a
+  // thousand imported words share one `created_at` and the sort would fall
+  // through to the card's UUID.
+  const byDue = (rows: typeof dueRows): QueueCandidate[] =>
+    rows.map((row) => ({ cardId: row.cardId, wordId: row.wordId, order: row.due.getTime() }));
+  const byPosition = (rows: typeof newRows): QueueCandidate[] =>
     rows.map((row, i) => ({ cardId: row.cardId, wordId: row.wordId, order: i }));
 
-  const dueReviews = position(dueRows);
-  const newCards = position(newRows);
+  const reviewPool = byDue(dueRows);
+  const newPool = byPosition(newRows);
 
-  const queue = buildQueue({ reviews: dueReviews, news: newCards, reviewLimit, newLimit });
+  const queue = buildQueue({
+    learning: byDue(learningRows),
+    reviews: reviewPool,
+    news: newPool,
+    cap,
+  });
 
-  // The caps are spent on cards, and each card is then asked twice. So a
-  // `newPerDay` of 12 is twelve *words* and twenty-four showings — the number
-  // in Cài đặt still means what it says, and the session is twice as long as
-  // the number suggests. Seeded by the study day so a reload resumes the queue
-  // it built this morning rather than dealing a new one.
-  const showings = expandFaces(queue, startOfStudyDay(now).getTime());
+  // The session after this one, from the rows this one did not take. Learning
+  // cards are all dealt now, so the lookahead is reviews and new words only.
+  const dealt = new Set(queue.map((entry) => entry.cardId));
+  const left = (pool: QueueCandidate[]) => pool.filter((c) => !dealt.has(c.cardId));
+  const dealtFrom = (pool: QueueCandidate[]) => pool.length - left(pool).length;
+  const nextQueue = buildQueue({
+    learning: [],
+    reviews: left(reviewPool),
+    news: left(newPool),
+    cap,
+  });
 
-  const meta = new Map([...dueRows, ...newRows].map((c) => [c.cardId, c]));
-  const items = await hydrateQueue(showings, meta, params, now);
+  // The budget is spent on cards and each card is then asked twice, so a cap
+  // of 50 is fifty *words* and a hundred showings — the number in Cài đặt
+  // means what it says, and the session is twice as long as it sounds.
+  //
+  // Seeded by the study day so that a re-render before the queue has been
+  // stored deals the same order that is already on screen. The lookahead is
+  // offset by one so the two sessions do not shuffle in lockstep.
+  const seed = startOfStudyDay(now).getTime();
+  const meta = new Map([...learningRows, ...dueRows, ...newRows].map((c) => [c.cardId, c]));
+  const [items, next] = await Promise.all([
+    hydrateQueue(expandFaces(queue, seed), meta, params, now),
+    hydrateQueue(expandFaces(nextQueue, seed + 1), meta, params, now),
+  ]);
 
   return {
     now: now.toISOString(),
     items,
-    countedCards,
-    limits: {
-      newPerDay: settings.newPerDay,
-      reviewsPerDay: settings.reviewsPerDay,
-      unlimited: settings.unlimitedPerDay,
-    },
+    next,
+    cardsPerSession: cap,
     requestRetention: settings.requestRetention,
-    // From the scan, not from the queue: the rows the caps held back were
-    // never fetched, so what is waiting has to be counted by the side that
-    // counted everything.
-    heldBack: {
-      newCards: Math.max(0, scan.newCards - newLimit),
-      reviewCards: Math.max(0, scan.dueReviews - reviewLimit),
+    // From the scan, not from the queue: the rows that did not fit were never
+    // fetched, so what is waiting has to be counted by the side that counted
+    // everything. A lower bound — it cannot see reviews that fall due during
+    // the session, nor the learning cards the session makes for itself.
+    remaining: {
+      newCards: Math.max(0, scan.newCards - dealtFrom(newPool)),
+      // Against the review pool rather than "everything not new", because the
+      // queue's non-new entries include the learning cards, and `dueReviews`
+      // does not count those.
+      reviewCards: Math.max(0, scan.dueReviews - dealtFrom(reviewPool)),
     },
     nextDue: scan.nextDue?.toISOString() ?? null,
-    nextDayStart: startOfNextStudyDay(now).toISOString(),
     totalCards: scan.total,
   };
 }
@@ -570,7 +584,6 @@ export async function undoReview(logId: string, now = new Date()): Promise<UndoR
     cardId: log.cardId,
     state: toStateView(folded.card),
     previews: toPreviews(folded.card, now, folded.params),
-    countedCards: await getCountedCards(now),
   };
 }
 
@@ -665,14 +678,11 @@ export async function syncReviews(
     }
   }
 
-  // Counted against the server's own clock rather than the batch's, because
-  // the daily caps are spent against the study day that is running now.
   return {
     applied,
     rejected,
     states,
     leeches: [...leeches],
-    countedCards: await getCountedCards(now),
   };
 }
 
