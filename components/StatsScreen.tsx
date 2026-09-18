@@ -62,8 +62,8 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
         <Heatmap stats={stats} />
 
         <ChartCard
-          title="Lượt ôn mỗi ngày"
-          caption="Số thẻ khác nhau đã học mỗi ngày, tính theo ngày học bắt đầu lúc 04:00 — đúng cách hạn mức mỗi ngày đếm. Một thẻ chỉ tính một lần dù nó quay lại trong phiên."
+          title="Từ đã học mỗi ngày"
+          caption="Số thẻ khác nhau đã học mỗi ngày, tính theo ngày học bắt đầu lúc 04:00. Một thẻ chỉ tính một lần dù nó quay lại trong phiên, và một ngày có thể gồm nhiều phiên."
           legend={
             <div className="flex items-center gap-3">
               <Legend items={SERIES} />
@@ -118,7 +118,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
         <div className="grid gap-4 xl:grid-cols-2">
         <ChartCard
           title="Sắp đến hạn"
-          caption={`${FORECAST_DAYS} ngày tới. Từ chưa học không nằm ở đây: chúng do hạn mức mỗi ngày thả ra, không phải do lịch.`}
+          caption={`${FORECAST_DAYS} ngày tới. Từ chưa học không nằm ở đây: chúng do phần từ mới của mỗi phiên thả ra, không phải do lịch.`}
           legend={
             stats.overdue > 0 ? (
               <span className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-muted)] px-2 py-1 text-[11px] text-[var(--text-secondary)]">

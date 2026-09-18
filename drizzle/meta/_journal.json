@@ -29,6 +29,20 @@
       "when": 1789463362518,
       "tag": "0003_open_iceman",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789655119078,
+      "tag": "0004_cards_per_session",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789655123819,
+      "tag": "0005_drop_daily_caps",
+      "breakpoints": true
     }
   ]
 }

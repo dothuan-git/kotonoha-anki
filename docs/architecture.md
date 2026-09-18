@@ -14,7 +14,7 @@ IndexedDB holds the day's queue and unsent ratings.
 | `/add`, `/add/bulk` | Add one word, or import a JSON file |
 | `/kanji`, `/kanji/[char]` | Kanji index and detail, with Hán Việt |
 | `/stats` | Four charts over the review log |
-| `/settings` | Daily caps, target retention, theme |
+| `/settings` | Session size, target retention, theme |
 | `/signin` | Google sign-in |
 
 | Route handler | Purpose |

@@ -89,31 +89,57 @@ stock FSRS-5 weights, repeated `Good` runs 10m → 2d → 11d → 44d → 164d �
 prediction would mean overriding `w[2]` and `w[3]`, which distorts the model's
 own first-review estimates; left alone deliberately.
 
-## The study day and the caps
+## The session budget
 
-A study day starts at **04:00 `Asia/Ho_Chi_Minh`** (`lib/fsrs/day.ts`), so a
-session running past midnight still counts against the day it began. The zone
-is a constant, not a setting.
+`settings.cardsPerSession` (50) is the whole of it: one session deals at most
+that many **cards**, and there is no daily ceiling of any kind. Finish a
+session and the next one is right there — a card that was rated has a future
+`due`, so it simply is not in the next query, and asking again deals the cards
+the budget did not reach.
 
-`newPerDay` (12) and `reviewsPerDay` (100) count **cards**, once each: a new
-card walking its learning steps does not also spend a review slot. Because
-every card is asked twice, twelve new cards is a twenty-four showing session —
-the nav badge counts showings, `/stats` counts cards.
+Because every card is asked twice, fifty cards is a hundred-showing session.
+The nav badge counts showings, `/stats` counts cards.
 
-Everything bucketed by day — the caps, the `/stats` columns — uses this
-boundary, not the calendar day. A key taken off `toISOString()` would label
-every column a day early, consistently enough to look correct;
-`tests/stats.test.ts` pins 03:59 against 04:00.
+`sessionSlots` (`lib/fsrs/queue.ts`) splits the budget, and the same function
+answers for the nav badge so the two cannot drift:
 
-Both caps can be lifted together from `/settings` —
-`settings.unlimitedPerDay`. One switch rather than one per cap: lifting only
-the review cap or only the new-card cap does not clear a backlog, it moves it
-from one pile to the other. The stored numbers are kept rather than cleared,
-so switching the flag back off restores the caps they were set to.
-`lib/db/review.ts` stands a large constant (`NO_CAP`) in for the limit
-wherever a real number is required — a SQL `LIMIT`, `buildQueue`'s
-arithmetic — rather than threading "no limit" through as a special case in
-either place.
+- **Due reviews claim slots first.** A due review is a memory already
+  decaying; letting it lapse resets its interval, which manufactures more
+  reviews. Anki's own guidance for a backlog is to prioritise by forgetting
+  risk for exactly this reason.
+- **A fifth is held for new words** (`NEW_SHARE`), so a backlog never blocks
+  an import outright. The reserve shrinks to however many new words are
+  actually waiting, and review slots with no reviews to fill them fall through
+  to new words — a fresh collection with nothing due gets a session of fifty
+  new words.
+- **New words stop once two sessions behind** (`BACKLOG_SESSIONS`). Not a
+  daily cap — no counter, nothing resets at 04:00. It is the one brake on a
+  model with unlimited sessions per day, where ten sittings would otherwise
+  introduce ten batches that all come due together two days later.
+- **Learning cards are never dropped, but they do spend the budget.** A card
+  put back by a step is mid-thought. Answer `Quên` on thirty words and the
+  next session is those thirty plus twenty others — not thirty plus fifty, or
+  the number in Cài đặt would stop meaning anything.
+
+Presentation order keeps one new card per five (`NEW_PER_REVIEWS`).
+Interleaving is worth the trouble: it hurts performance during the session and
+roughly doubles delayed recall, which is why a block of fifty new words in a
+row is the worst arrangement of the same cards.
+
+The session carries **the next one with it** (`SessionView.next`). The client
+cannot build a queue — it holds no words, sentences or logs for cards it was
+never handed — so without a lookahead, finishing a session on a train would
+end the day. Two sessions is a hundred cards, less than the single day's queue
+this replaced.
+
+## The study day
+
+A study day starts at **04:00 `Asia/Ho_Chi_Minh`** (`lib/fsrs/day.ts`). The
+zone is a constant, not a setting. Nothing is capped against it any more; it is
+what `/stats` buckets by and what seeds the queue shuffle, so a session running
+past midnight stays on one column and does not reshuffle itself at 00:00. A key
+taken off `toISOString()` would label every column a day early, consistently
+enough to look correct; `tests/stats.test.ts` pins 03:59 against 04:00.
 
 ## The recap
 
@@ -131,10 +157,11 @@ comparator the pair rule uses — picks which grade survives.
 
 Client-side, off `answered`, rather than a query over `review_logs`: a rating
 can still be sitting in the outbox, and the session most worth recapping is the
-one taken with no signal. It is scoped to the **study day**, not to the
-session, and rides in the stored session under `missed` so that finishing the
-morning's cards and reopening at noon still shows them. An undo inside its ten
-seconds takes the word back out.
+one taken with no signal. It is scoped to the **session**, and rides in the
+stored session under `missed` only so that a reload mid-session does not empty
+it — `answered` is not persisted. Dealing a new session clears it, under the
+same condition that clears `graded`. An undo inside its ten seconds takes the
+word back out.
 
 ## Leeches and confusions
 
@@ -166,4 +193,4 @@ days). Two rules they follow, both to avoid saying something the data does not:
 ratings on brand-new cards are excluded from retention, and new cards are
 excluded from the forecast — their due date is their creation time, so all of
 them are "overdue" by construction and what actually releases them is the
-daily cap.
+new-word share of a session.

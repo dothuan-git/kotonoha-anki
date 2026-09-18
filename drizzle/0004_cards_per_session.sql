@@ -1,0 +1,1 @@
+ALTER TABLE "settings" ADD COLUMN "cards_per_session" integer DEFAULT 50 NOT NULL;

@@ -1,7 +1,6 @@
 'use client';
 
 import { Moon, Sun } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState, useTransition } from 'react';
 
 import { saveSettings, signOutAction } from '@/lib/actions/settings';
@@ -15,9 +14,7 @@ export function SettingsScreen({
   settings: Settings;
   email: string | null;
 }) {
-  const [newPerDay, setNewPerDay] = useState(settings.newPerDay);
-  const [reviewsPerDay, setReviewsPerDay] = useState(settings.reviewsPerDay);
-  const [unlimited, setUnlimited] = useState(settings.unlimitedPerDay);
+  const [cardsPerSession, setCardsPerSession] = useState(settings.cardsPerSession);
   const [retention, setRetention] = useState(settings.requestRetention);
   const [dark, setDark] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -44,56 +41,24 @@ export function SettingsScreen({
     <div className="mx-auto w-full max-w-3xl">
       <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">Cài đặt</h1>
       <p className="mt-1 text-xs text-[var(--text-muted)]">
-        Giới hạn mỗi ngày áp dụng cho phiên ôn tập kế tiếp. Đổi mục tiêu ghi nhớ sẽ tính lại lịch
+        Kích thước phiên áp dụng cho phiên ôn tập kế tiếp. Đổi mục tiêu ghi nhớ sẽ tính lại lịch
         của cả sổ từ — chạy “npm run recompute” sau khi đổi.
       </p>
 
       <section className="mt-5 space-y-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-xs">
         <Row
-          label="Không giới hạn mỗi ngày"
-          hint="Học hết mọi thẻ đến hạn hôm nay. Hai hạn mức bên dưới được giữ nguyên để phục hồi khi tắt."
+          label="Số thẻ mỗi phiên"
+          hint="Mặc định 50. Mỗi thẻ được hỏi hai lượt, nên 50 thẻ là 100 lượt hiện. Hết phiên là bắt đầu được phiên mới."
         >
-          <Switch checked={unlimited} onChange={setUnlimited} label="Không giới hạn mỗi ngày" />
+          <input
+            type="number"
+            min={5}
+            max={500}
+            value={cardsPerSession}
+            onChange={(e) => setCardsPerSession(Number(e.target.value))}
+            className="w-20 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-2 py-1.5 text-right text-sm"
+          />
         </Row>
-
-        {/* Collapsed rather than merely disabled while unlimited: a cap that
-            cannot apply is not a setting worth looking at right now, and
-            hiding it says so more plainly than greying it out does. */}
-        <AnimatePresence initial={false}>
-          {!unlimited && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="overflow-hidden"
-            >
-              <div className="space-y-3 border-t border-[var(--border-subtle)] pt-3">
-                <Row label="Từ mới mỗi ngày" hint="Mặc định 12. Hết hạn mức là kết thúc phiên.">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={newPerDay}
-                    onChange={(e) => setNewPerDay(Number(e.target.value))}
-                    className="w-20 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-2 py-1.5 text-right text-sm"
-                  />
-                </Row>
-
-                <Row label="Lượt ôn mỗi ngày" hint="Mặc định 100.">
-                  <input
-                    type="number"
-                    min={0}
-                    max={1000}
-                    value={reviewsPerDay}
-                    onChange={(e) => setReviewsPerDay(Number(e.target.value))}
-                    className="w-20 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-2 py-1.5 text-right text-sm"
-                  />
-                </Row>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         <Row label="Mục tiêu ghi nhớ" hint="Mặc định 0.90. Cao hơn nghĩa là ôn dày hơn.">
           <input
@@ -114,12 +79,7 @@ export function SettingsScreen({
             disabled={pending}
             onClick={() =>
               startTransition(async () => {
-                await saveSettings({
-                  newPerDay,
-                  reviewsPerDay,
-                  requestRetention: retention,
-                  unlimitedPerDay: unlimited,
-                });
+                await saveSettings({ cardsPerSession, requestRetention: retention });
                 setSaved(true);
                 setTimeout(() => setSaved(false), 2000);
               })
@@ -182,42 +142,5 @@ function Row({
       </div>
       <div className="shrink-0">{children}</div>
     </div>
-  );
-}
-
-/**
- * A pill toggle, not a checkbox — this flips both daily caps at once, so it
- * reads as a mode the settings are in rather than one option among several.
- * `role="switch"` over a styled `<input type="checkbox">` because the thumb's
- * position is the only visual state a checkbox has no box left to draw.
- */
-function Switch({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full border transition-colors ${
-        checked
-          ? 'border-[var(--bamboo)] bg-[var(--bamboo)]'
-          : 'border-[var(--border-strong)] bg-[var(--bg-muted)]'
-      }`}
-    >
-      <motion.span
-        animate={{ x: checked ? 20 : 0 }}
-        transition={{ type: 'spring', stiffness: 500, damping: 32 }}
-        className="absolute top-0.5 left-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-xs"
-      />
-    </button>
   );
 }

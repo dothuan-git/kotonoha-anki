@@ -12,10 +12,13 @@ import { settings } from '@/lib/db/schema';
 const SINGLETON_ID = 1;
 
 const schema = z.object({
-  newPerDay: z.number().int().min(0).max(100),
-  reviewsPerDay: z.number().int().min(0).max(1000),
+  /**
+   * Floored at five rather than zero. Below five the new-word reserve rounds
+   * to nothing and new words would silently stop appearing; a session of zero
+   * would deal nothing at all while the finish screen kept promising more.
+   */
+  cardsPerSession: z.number().int().min(5).max(500),
   requestRetention: z.number().min(0.7).max(0.99),
-  unlimitedPerDay: z.boolean(),
 });
 
 export async function saveSettings(input: z.input<typeof schema>) {
@@ -30,6 +33,9 @@ export async function saveSettings(input: z.input<typeof schema>) {
   await db.update(settings).set(parsed.data).where(eq(settings.id, SINGLETON_ID));
 
   revalidatePath('/settings');
+  // The session size decides both the next queue and the nav badge, and the
+  // Router Cache would happily serve a stale `/` for half a minute otherwise.
+  revalidatePath('/');
   return { ok: true as const };
 }
 

@@ -51,10 +51,15 @@ export interface OutboxEntry extends PendingReview {
 }
 
 export interface StoredSession {
-  /** `startOfStudyDay` for the day this queue belongs to. */
+  /**
+   * `startOfStudyDay` for the day this queue was dealt on.
+   *
+   * A staleness guard, not a boundary any field is scoped to any more —
+   * everything in this record now belongs to the session.
+   */
   dayStart: string;
   savedAt: number;
-  /** The live session: what is left to review, and the caps spent so far. */
+  /** The live session: what is left to review, and the session held behind it. */
   session: SessionView;
   /**
    * What each word has been graded so far this session, by card.
@@ -67,15 +72,12 @@ export interface StoredSession {
    */
   graded: Record<string, GradedCard>;
   /**
-   * The words graded Quên or Khó so far *today*, across every session the day
-   * has held.
+   * The words graded Quên or Khó in *this* session.
    *
-   * Scoped to the study day rather than to the session, which is what makes it
-   * different from `graded` above: finishing the morning's cards and coming
-   * back at noon deals a fresh queue and resets `graded`, and the recap has to
-   * survive that or it only ever answers for the session you are looking at.
-   * The day boundary is already enforced by `dayStart`, so nothing else has to
-   * expire it.
+   * Scoped like `graded` above, and reset with it whenever a new session is
+   * dealt. Here rather than in memory for the same reason: the reviewer
+   * derives the recap from what it has answered since it mounted, so without
+   * this a reload mid-session would empty it.
    *
    * Optional because a record written before the recap existed has no such
    * field, and this store is deliberately never migrated.
@@ -90,13 +92,15 @@ export interface GradedCard extends PriorGrade {
 
 const DB_NAME = 'kotonoha';
 /**
- * 2 added `confusions`. 3 and 4 both dropped whatever was in `session`, which
- * is the one store that may be thrown away: a stored queue from before a word
- * was asked from both sides has no `face` on its items, and one written by a
- * half-finished build can be anything at all. Losing it costs a reload. The
- * outbox is never touched by an upgrade — losing one of those costs a review.
+ * 2 added `confusions`. 3, 4 and 5 all dropped whatever was in `session`,
+ * which is the one store that may be thrown away: a stored queue from before
+ * a word was asked from both sides has no `face` on its items, one from
+ * before the per-session change carries daily caps and no `next`, and one
+ * written by a half-finished build can be anything at all. Losing it costs a
+ * reload. The outbox is never touched by an upgrade — losing one of those
+ * costs a review.
  */
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 /** The only session row. One person, one device-local queue at a time. */
 export const SESSION_KEY = 'current';
@@ -123,7 +127,7 @@ export function openLocalDb(): Promise<IDBPDatabase<KotonohaDB>> | null {
       if (oldVersion < 2) {
         db.createObjectStore('confusions', { keyPath: 'id' });
       }
-      if (oldVersion > 0 && oldVersion < 4) {
+      if (oldVersion > 0 && oldVersion < 5) {
         db.deleteObjectStore('session');
         db.createObjectStore('session');
       }

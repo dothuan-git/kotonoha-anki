@@ -38,6 +38,27 @@ export const LEARN_AHEAD_MINUTES = 20;
 export const NEW_PER_REVIEWS = 5;
 
 /**
+ * The share of a session held for new words whenever any are waiting.
+ *
+ * Reviews claim slots first — a due review is a memory already decaying, and
+ * letting it lapse resets its interval, which manufactures more reviews. But
+ * reviews-first with nothing reserved means a backlog blocks an import for
+ * days, so a fifth of the session is kept back for new words.
+ */
+export const NEW_SHARE = 0.2;
+
+/**
+ * How far behind reviews must fall before new words stop being introduced,
+ * counted in sessions' worth of due cards.
+ *
+ * Not a daily cap: there is no counter and nothing resets at the rollover. It
+ * is the one brake on a per-session model, where ten sittings in an afternoon
+ * would otherwise introduce ten batches of new words that all come due
+ * together two days later.
+ */
+export const BACKLOG_SESSIONS = 2;
+
+/**
  * The leech threshold: six lapses on one card.
  *
  * `card_states.lapses` is folded from the log like everything else, so
