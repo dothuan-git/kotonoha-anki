@@ -3,6 +3,7 @@
 import { z } from 'zod';
 
 import { requireSession } from '@/lib/auth';
+import { buildPracticeSession } from '@/lib/db/practice';
 import {
   ReviewError,
   buildSession,
@@ -87,6 +88,34 @@ export async function startSession(): Promise<ActionResult<SessionView>> {
     return { ok: true, data: await buildSession() };
   } catch (error) {
     console.error('[startSession] failed', error);
+    return { ok: false, error: 'Không tải được phiên mới' };
+  }
+}
+
+/**
+ * Deal the next page of practice.
+ *
+ * The practice counterpart of `startSession`, and read-only for a stronger
+ * reason than that one: practice writes nothing at all, so there is no outbox
+ * to drain first and no `dropUnsettled` for the caller to apply. The page
+ * number is wrapped by `buildPracticeSession`, so walking off the end of the
+ * collection comes back round to the newest words rather than failing.
+ */
+export async function startPractice(page: number): Promise<ActionResult<SessionView>> {
+  try {
+    await requireSession();
+  } catch {
+    return { ok: false, error: 'Chưa đăng nhập' };
+  }
+
+  if (!Number.isFinite(page)) {
+    return { ok: false, error: 'Không tải được phiên mới' };
+  }
+
+  try {
+    return { ok: true, data: await buildPracticeSession(page) };
+  } catch (error) {
+    console.error('[startPractice] failed', error);
     return { ok: false, error: 'Không tải được phiên mới' };
   }
 }

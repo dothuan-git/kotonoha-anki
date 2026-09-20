@@ -251,6 +251,16 @@ export interface SessionView {
   /** Earliest due date among active cards outside this session. */
   nextDue: string | null;
   totalCards: number;
+  /**
+   * Present only on a practice session: which page of the collection it deals.
+   *
+   * Practice walks the collection newest-first in pages rather than answering
+   * a due query, so "the next session" is a position rather than whatever has
+   * come due since. It rides on the session because the finish screen offers
+   * the next page and the client has nowhere else to keep the number — and it
+   * is what tells every mode-aware branch in the reviewer which mode it is in.
+   */
+  practice?: { page: number; pages: number };
 }
 
 /**

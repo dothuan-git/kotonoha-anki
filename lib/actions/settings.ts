@@ -18,6 +18,12 @@ const schema = z.object({
    * would deal nothing at all while the finish screen kept promising more.
    */
   cardsPerSession: z.number().int().min(5).max(500),
+  /**
+   * Floored at five for readability rather than for arithmetic — practice
+   * splits no budget and holds back no reserve, so nothing breaks below it.
+   * A drill of one word is just not a session.
+   */
+  practiceWords: z.number().int().min(5).max(500),
   requestRetention: z.number().min(0.7).max(0.99),
 });
 
@@ -36,6 +42,7 @@ export async function saveSettings(input: z.input<typeof schema>) {
   // The session size decides both the next queue and the nav badge, and the
   // Router Cache would happily serve a stale `/` for half a minute otherwise.
   revalidatePath('/');
+  revalidatePath('/practice');
   return { ok: true as const };
 }
 

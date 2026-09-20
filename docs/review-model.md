@@ -132,6 +132,53 @@ never handed — so without a lookahead, finishing a session on a train would
 end the day. Two sessions is a hundred cards, less than the single day's queue
 this replaced.
 
+## Practice
+
+The reviewer deals what is **due**. Once the day's queue is clear it has
+nothing more to offer, however much time is left — which is correct for the
+scheduler and unhelpful for the person. `/practice` is the other door: the
+newest words you have already met, a page at a time, due dates ignored.
+
+**It writes nothing.** No `review_logs` row, no `card_states` change, nothing
+in the outbox, nothing on `/stats`. Reviewing a card early would move its due
+date, and answering `Quên` on a healthy card would lapse it — so a drill you
+took for extra practice would reshape the schedule you built. Practice is the
+Anki *preview*, not *study ahead*.
+
+That is enforced in one place. Every outbound call the reviewer makes goes
+through a `Recorder` (`lib/client/recorder.ts`), and practice gets an inert
+one. Most of the mode then follows rather than being written twice: with
+`enqueue` a no-op nothing can reach `/api/sync`; with `pendingCount` zero the
+flush interval never starts; with `takeBack` always true, undo takes its cheap
+branch and never asks the server. The leech prompt is suppressed, because
+acknowledging it is a server write and the lapse count did not move.
+
+**Grading still happens**, and it has to. The four buttons are what decide
+whether a card comes back inside the session — answer `Quên` in practice and
+the word returns on its learning step exactly as it would in a review — and
+they feed the recap. It is only the writing down that stops.
+
+**What it deals.** The N newest words (`words.created_at desc`, `sort_order`
+breaking the tie as ever, read backwards) that are not suspended and not
+`State.New`. Brand-new words are excluded deliberately: a word's first showing
+belongs to the scheduler, and giving it one here — with nothing recorded —
+is the single case where "practice changes nothing" is a loss rather than the
+point.
+
+**How it moves.** `settings.practiceWords` (50) is a page, and finishing one
+deals the page behind it: 1–50 newest, then 51–100, wrapping at the oldest
+back to the newest. A page number rather than a row offset, because the
+collection grows underneath it — `practicePage()` in `lib/practice.ts` holds
+the arithmetic, and it is pure so the boundaries are pinned by tests. The next
+page rides along in `SessionView.next` like the reviewer's, so finishing a
+drill on a train deals another.
+
+Its own setting rather than a share of `cardsPerSession`: practice is time you
+chose to spend, not work the scheduler asked for, and the two are sized by
+different things. None of the budget machinery applies — `sessionSlots` splits
+one budget between competing streams, and practice has one stream, no reserve
+and no interleave.
+
 ## The study day
 
 A study day starts at **04:00 `Asia/Ho_Chi_Minh`** (`lib/fsrs/day.ts`). The

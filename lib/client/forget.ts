@@ -3,7 +3,8 @@ import { clearSession } from '@/lib/client/session';
 /**
  * What signing out takes with it, and what it deliberately leaves behind.
  *
- * Goes: the day's stored queue, and the service worker's cached documents.
+ * Goes: both stored queues — the reviewer's and the practice drill's — and
+ * the service worker's cached documents.
  * Both are renderings of someone's vocabulary, and leaving them on disk after
  * a sign-out means the next tab to open — before the sign-in wall catches it —
  * shows the last session's cards.
@@ -20,6 +21,7 @@ import { clearSession } from '@/lib/client/session';
  * IndexedDB delete is left to the transaction the browser commits regardless.
  */
 export function forgetLocalData(): void {
+  // No key: every stored queue, not just the reviewer's.
   void clearSession();
 
   if (typeof navigator === 'undefined') return;

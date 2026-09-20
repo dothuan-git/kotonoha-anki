@@ -1,0 +1,1 @@
+ALTER TABLE "settings" ADD COLUMN "practice_words" integer DEFAULT 50 NOT NULL;

@@ -9,6 +9,60 @@ import type { ReviewItem } from '@/lib/types';
  * Six states, and the one that matters is the one that could not exist while
  * the caps were daily: there is more, and you can have it now.
  */
+/**
+ * Practice ends differently, because none of the five review endings says
+ * anything true about it: no backlog to report, no date to come back for,
+ * nothing in flight to wait on, and always another page.
+ */
+describe('finishState, practising', () => {
+  const base = {
+    answered: 100,
+    totalCards: 400,
+    remaining: { newCards: 0, reviewCards: 0 },
+    nextDue: null as string | null,
+    canDeal: true,
+    unsettled: false,
+  };
+
+  it('reports the page rather than what is due', () => {
+    expect(finishState({ ...base, practice: { page: 1, pages: 8 } })).toEqual({
+      kind: 'practice-done',
+      page: 1,
+      pages: 8,
+      canDeal: true,
+    });
+  });
+
+  /**
+   * Practice queues nothing, so there is never a rating in flight for the
+   * next page to collide with — the reviewer's state must not leak in.
+   */
+  it('is never waiting for a sync it cannot be waiting for', () => {
+    const state = finishState({ ...base, unsettled: true, practice: { page: 0, pages: 3 } });
+    expect(state.kind).toBe('practice-done');
+  });
+
+  /** Offline with a spent lookahead still needs the network for the next page. */
+  it('carries the cannot-deal flag so the button can say why', () => {
+    const state = finishState({ ...base, canDeal: false, practice: { page: 2, pages: 3 } });
+    expect(state).toMatchObject({ kind: 'practice-done', canDeal: false });
+  });
+
+  /**
+   * Nothing to drill is not an empty collection: the words may all be waiting
+   * for their first review, and "add your first word" would be the wrong
+   * advice for someone holding two hundred of them.
+   */
+  it('says nothing has been studied rather than nothing exists', () => {
+    const state = finishState({ ...base, totalCards: 0, practice: { page: 0, pages: 1 } });
+    expect(state).toEqual({ kind: 'practice-empty' });
+  });
+
+  it('leaves the reviewer alone when no page is given', () => {
+    expect(finishState(base).kind).toBe('all-clear');
+  });
+});
+
 describe('finishState', () => {
   const base = {
     answered: 20,

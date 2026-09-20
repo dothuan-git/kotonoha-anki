@@ -56,7 +56,14 @@ persisted, so without it a reload mid-session would empty the recap of
 everything answered before it. Dealing a new session clears it. `dayStart` is
 now only a staleness guard — nothing in the record is scoped to the day.
 
-Signing out clears cached pages and the stored queue, but never the outbox —
+**Two stored queues, one outbox.** The reviewer and the practice drill keep
+their sessions under separate keys (`SESSION_KEY`, `PRACTICE_SESSION_KEY`), so
+a half-finished drill cannot evict a half-finished review and each screen
+resumes its own. There is only one outbox because only one mode writes:
+practice reports a pending count of zero, which is both true and what stops a
+full outbox from pinning a stale drill in place through `chooseSession`.
+
+Signing out clears cached pages and both stored queues, but never the outbox —
 those are reviews that have not reached the server, and only one address can
 sign in.
 

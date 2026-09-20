@@ -1,4 +1,10 @@
-import { SESSION_KEY, openLocalDb, type GradedCard, type StoredSession } from '@/lib/client/db';
+import {
+  SESSION_KEY,
+  SESSION_KEYS,
+  openLocalDb,
+  type GradedCard,
+  type StoredSession,
+} from '@/lib/client/db';
 import { startOfStudyDay } from '@/lib/fsrs/day';
 import type { MissedWord } from '@/lib/recap';
 import type { SessionView } from '@/lib/types';
@@ -31,6 +37,7 @@ export async function saveSession(
   graded: Record<string, GradedCard> = {},
   missed: MissedWord[] = [],
   now = new Date(),
+  key: string = SESSION_KEY,
 ): Promise<void> {
   const db = openLocalDb();
   if (!db) return;
@@ -42,7 +49,7 @@ export async function saveSession(
       graded,
       missed,
     };
-    await (await db).put('session', stored, SESSION_KEY);
+    await (await db).put('session', stored, key);
   } catch (error) {
     console.error('[session] could not save', error);
   }
@@ -64,6 +71,7 @@ export async function saveSession(
  */
 export async function loadSession(
   now = new Date(),
+  key: string = SESSION_KEY,
 ): Promise<{
   session: SessionView;
   graded: Record<string, GradedCard>;
@@ -72,12 +80,12 @@ export async function loadSession(
   const db = openLocalDb();
   if (!db) return null;
   try {
-    const stored = await (await db).get('session', SESSION_KEY);
+    const stored = await (await db).get('session', key);
     if (!stored) return null;
     if (stored.dayStart !== startOfStudyDay(now).toISOString()) return null;
     if (!isSessionView(stored.session)) {
       console.warn('[session] stored queue is not a session, discarding');
-      await clearSession();
+      await clearSession(key);
       return null;
     }
     return {
@@ -114,11 +122,14 @@ export function isSessionView(value: unknown): value is SessionView {
   );
 }
 
-export async function clearSession(): Promise<void> {
+/** Clears one stored queue, or every one of them when given no key. */
+export async function clearSession(key?: string): Promise<void> {
   const db = openLocalDb();
   if (!db) return;
   try {
-    await (await db).delete('session', SESSION_KEY);
+    const handle = await db;
+    const keys = key ? [key] : SESSION_KEYS;
+    await Promise.all(keys.map((k) => handle.delete('session', k)));
   } catch (error) {
     console.error('[session] could not clear', error);
   }

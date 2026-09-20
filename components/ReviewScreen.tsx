@@ -21,19 +21,13 @@ import { ReviewEditPanel, type ReviewEdit } from '@/components/ReviewEditPanel';
 import { Ruby } from '@/components/Ruby';
 import { SyncStatus } from '@/components/SyncStatus';
 import { UndoToast } from '@/components/UndoToast';
-import { acknowledgeLeech } from '@/lib/actions/leech';
-import { startSession, undoReview } from '@/lib/actions/review';
+import { startPractice, startSession } from '@/lib/actions/review';
 import { updateWord } from '@/lib/actions/words';
 import { playSentenceAudio, playWordAudio } from '@/lib/client/audio';
+import { PRACTICE_SESSION_KEY, SESSION_KEY } from '@/lib/client/db';
 import { useOnline } from '@/lib/client/online';
-import {
-  enqueue,
-  flush,
-  noteConfusion,
-  pending as pendingEntries,
-  pendingCount,
-  takeBack,
-} from '@/lib/client/outbox';
+import { practiceRecorder } from '@/lib/client/recorder';
+import { recordingRecorder } from '@/lib/client/recording';
 import { chooseSession, loadSession, saveSession } from '@/lib/client/session';
 import { formatDueIn } from '@/lib/fsrs/format';
 import { rateLocally } from '@/lib/fsrs/local';
@@ -132,7 +126,37 @@ const FLUSH_INTERVAL_MS = 5_000;
  * therefore not a mode this screen knows about: it is what the ordinary path
  * looks like when nothing is draining.
  */
-export function ReviewScreen({ session: serverSession }: { session: SessionView }) {
+/**
+ * Which screen this is.
+ *
+ * `review` deals what is due and writes every rating to `review_logs`.
+ * `practice` deals recent vocabulary regardless of due date and writes
+ * nothing at all — see `lib/client/recorder.ts`, which is where nearly the
+ * whole difference lives.
+ */
+export type ReviewMode = 'review' | 'practice';
+
+export function ReviewScreen({
+  session: serverSession,
+  mode = 'review',
+}: {
+  session: SessionView;
+  mode?: ReviewMode;
+}) {
+  /**
+   * Every call that leaves the device. In practice mode they are all no-ops,
+   * which is what keeps the drill off the schedule — and keeps this component
+   * from having to remember the mode at each of them.
+   */
+  const recorder = useMemo(
+    () => (mode === 'practice' ? practiceRecorder : recordingRecorder),
+    [mode],
+  );
+  /** Practice writes nothing, so nothing downstream of a rating applies. */
+  const records = mode === 'review';
+  /** Practice keeps its own stored queue: a drill must not evict a review. */
+  const storageKey = records ? SESSION_KEY : PRACTICE_SESSION_KEY;
+
   const [session, setSession] = useState<SessionView>(serverSession);
   const [queue, setQueue] = useState<ReviewItem[]>(serverSession.items);
   const [answered, setAnswered] = useState<Answered[]>([]);
@@ -277,13 +301,13 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       // that no longer holds the rating back — see `flush`. A correction
       // reaches the server the same way this one did, queued under the same
       // id, whenever its own turn comes.
-      const result = await flush();
+      const result = await recorder.flush();
       if (result) applySync(result);
     } finally {
       setSyncing(false);
-      setPending(await pendingCount());
+      setPending(await recorder.pendingCount());
     }
-  }, [applySync]);
+  }, [applySync, recorder]);
 
   const syncRef = useRef(sync);
   syncRef.current = sync;
@@ -305,7 +329,10 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
 
     void (async () => {
       const now = new Date();
-      const [stored, waiting] = await Promise.all([loadSession(now), pendingCount()]);
+      const [stored, waiting] = await Promise.all([
+        loadSession(now, storageKey),
+        recorder.pendingCount(),
+      ]);
       if (cancelled) return;
 
       const chosen = chooseSession({
@@ -334,14 +361,14 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       setCarriedMissed(earlier);
       setPending(waiting);
       setReady(true);
-      await saveSession(chosen.session, resumed, earlier, now);
+      await saveSession(chosen.session, resumed, earlier, now, storageKey);
       if (!cancelled) await syncRef.current();
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [serverSession]);
+  }, [serverSession, recorder, storageKey]);
 
   /**
    * Keep the stored queue equal to what is left, not to what the day started
@@ -349,8 +376,8 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
    */
   useEffect(() => {
     if (!ready) return;
-    void saveSession({ ...session, items: queue }, graded, missed);
-  }, [ready, session, queue, graded, missed]);
+    void saveSession({ ...session, items: queue }, graded, missed, new Date(), storageKey);
+  }, [ready, session, queue, graded, missed, storageKey]);
 
   /**
    * Drain the outbox. Entries are held back for the undo window, so a flush
@@ -476,7 +503,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       // collection. Asked from the meaning only — a wrong *reading* typed with
       // the word on screen is not a word you confused this one with.
       if (item.face === 'meaning' && attempt && !attempt.correct && attempt.input.trim()) {
-        void noteConfusion({
+        void recorder.noteConfusion({
           id: crypto.randomUUID(),
           cardId: item.cardId,
           typed: attempt.input,
@@ -516,7 +543,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           requestRetention: session.requestRetention,
         });
 
-        setLeeched(result.leech ? { ...item, state: result.state } : null);
+        setLeeched(records && result.leech ? { ...item, state: result.state } : null);
         setGraded((g) => ({
           ...g,
           [item.cardId]: {
@@ -559,9 +586,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           // `entry` is queued anyway under the same id: `applyReview` on the
           // server now knows a review under an id it has already seen, priced
           // differently, is this correction rather than a duplicate.
-          await takeBack(prior.logId);
-          await enqueue(entry, now.getTime());
-          setPending(await pendingCount());
+          await recorder.takeBack(prior.logId);
+          await recorder.enqueue(entry, now.getTime());
+          setPending(await recorder.pendingCount());
         })();
         return;
       }
@@ -583,7 +610,9 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
       // The leech prompt appears once, at six lapses. It is raised here
       // rather than waiting for the sync because the device already knows
       // both halves — see `rateLocally`.
-      setLeeched(result.leech ? { ...item, state: result.state } : null);
+      // Not in practice: the lapse count did not move, and acknowledging
+      // the prompt is a server write this mode does not make.
+      setLeeched(records && result.leech ? { ...item, state: result.state } : null);
       setAnswered((a) => [...a, { logId, item, rating }]);
       setGraded((g) => ({ ...g, [item.cardId]: { logId, rating, item, face: item.face } }));
       advance(
@@ -598,9 +627,11 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         expiresAt: now.getTime() + UNDO_WINDOW_MS,
       });
 
-      void enqueue(entry, now.getTime()).then(async () => setPending(await pendingCount()));
+      void recorder
+        .enqueue(entry, now.getTime())
+        .then(async () => setPending(await recorder.pendingCount()));
     },
-    [queue, attempt, graded, ready, session.requestRetention],
+    [queue, attempt, graded, ready, session.requestRetention, recorder, records],
   );
 
   /**
@@ -648,7 +679,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     };
 
     startTransition(async () => {
-      if (await takeBack(last.logId)) {
+      if (await recorder.takeBack(last.logId)) {
         const reinstate = last.reinstate;
         if (reinstate) {
           // This rating replaced the one the word's other face gave it. Taking
@@ -662,27 +693,27 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             now: new Date(),
             requestRetention: session.requestRetention,
           });
-          await enqueue(entry, Date.now());
+          await recorder.enqueue(entry, Date.now());
           setGraded((g) => ({ ...g, [last.item.cardId]: reinstate }));
-          setPending(await pendingCount());
+          setPending(await recorder.pendingCount());
           restore(result.state, result.previews);
           return;
         }
 
-        setPending(await pendingCount());
+        setPending(await recorder.pendingCount());
         setGraded(({ [last.item.cardId]: _ungraded, ...rest }) => rest);
         restore(last.item.state, last.item.previews);
         return;
       }
 
-      const result = await undoReview(last.logId);
+      const result = await recorder.undoOnServer(last.logId);
       if (!result.ok) {
         setError(result.error);
         return;
       }
       restore(result.data.state, result.data.previews);
     });
-  }, [undoable, session.requestRetention]);
+  }, [undoable, session.requestRetention, recorder]);
 
   /** Edit mid-review. Server first: a failed save must not leave a lie on screen. */
   const handleEditSave = useCallback(
@@ -745,7 +776,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           );
         }
 
-        const result = await acknowledgeLeech(item.cardId);
+        const result = await recorder.acknowledgeLeech(item.cardId);
         if (!result.ok) {
           setNotice('Chưa lưu được dấu thẻ khó — sẽ nhắc lại ở phiên sau.');
           return;
@@ -753,7 +784,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         setNotice('Đã ghi nhận thẻ khó.');
       });
     },
-    [leeched],
+    [leeched, recorder],
   );
 
   /**
@@ -782,10 +813,15 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
     void (async () => {
       try {
         const held = new Set([
-          ...(await pendingEntries()).map((entry) => entry.cardId),
+          ...(await recorder.pendingEntries()).map((entry) => entry.cardId),
           // Already flushed, but answered in the session that just ended.
           ...Object.keys(graded),
         ]);
+
+        // Practice walks the collection in pages rather than re-querying
+        // what is due, so "the next session" is a position. The server wraps
+        // it past the last page.
+        const nextPage = (session.practice?.page ?? 0) + 1;
 
         let dealt: SessionView;
         if (session.next.length > 0) {
@@ -798,11 +834,16 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
             items: session.next,
             next: [],
             remaining: spend(session.remaining, session.next),
+            // A practice lookahead only exists when the page after this one
+            // does, so advancing it here never needs the wrap.
+            practice: session.practice && { ...session.practice, page: nextPage },
           };
         } else {
           if (!online) return;
-          await sync();
-          const result = await startSession();
+          // Practice queues nothing, so there is nothing to drain first and
+          // no reason to make the next page wait on a flush.
+          if (records) await sync();
+          const result = records ? await startSession() : await startPractice(nextPage);
           if (!result.ok) {
             setError(result.error);
             return;
@@ -834,12 +875,12 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
         setEditing(false);
         // Awaited rather than left to the persistence effect: a reload right
         // after this must find the new session stored, not the finished one.
-        await saveSession({ ...dealt, items }, {}, []);
+        await saveSession({ ...dealt, items }, {}, [], new Date(), storageKey);
       } finally {
         setNextPending(false);
       }
     })();
-  }, [ready, nextPending, session, graded, online, sync]);
+  }, [ready, nextPending, session, graded, online, sync, recorder, records, storageKey]);
 
   // Keyboard shortcut support
   useEffect(() => {
@@ -912,6 +953,7 @@ export function ReviewScreen({ session: serverSession }: { session: SessionView 
           // A lookahead in hand needs no network.
           canDeal: online || session.next.length > 0,
           unsettled,
+          practice: session.practice,
         })}
         summary={answered.length > 0 ? summarise(answered) : null}
         missed={missed}
@@ -1710,6 +1752,39 @@ function finishCopy(
           ? `Bạn đã ôn xong các từ đến hạn. Thẻ gần nhất ${formatDueIn(new Date(now), new Date(state.nextDue))}.`
           : 'Bạn đã ôn xong các từ đến hạn.',
       };
+
+    case 'practice-empty':
+      return {
+        title: 'Chưa có từ để luyện tập',
+        detail:
+          'Luyện tập ôn lại những từ bạn đã học. Hãy ôn tập vài từ trước đã — chúng sẽ xuất hiện ở đây ngay sau đó.',
+      };
+
+    case 'practice-done': {
+      // The page number is shown because the set moves under you: the newest
+      // page today is not the newest page after the next import, and without
+      // a position there is no way to tell one drill from another.
+      const where = `Trang ${state.page + 1}/${state.pages}.`;
+      const last = state.page + 1 >= state.pages;
+      const rest = last
+        ? 'Hết sổ từ — trang sau quay lại những từ mới nhất.'
+        : 'Trang sau là những từ cũ hơn.';
+      return {
+        title: 'Xong phiên luyện tập',
+        // Practice queues nothing, so nothing is ever in flight. The one
+        // thing that can block the next page is a spent lookahead with no
+        // network — the page has to be fetched, and only the server knows
+        // which words are on it.
+        detail: state.canDeal
+          ? `${where} ${rest}`
+          : `${where} Cần có mạng để nhận trang tiếp theo.`,
+        next: {
+          label: last ? 'Quay lại từ đầu' : 'Trang tiếp theo',
+          enabled: state.canDeal,
+          blocked: 'Đang ngoại tuyến',
+        },
+      };
+    }
   }
 }
 

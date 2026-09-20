@@ -10,11 +10,12 @@ IndexedDB holds the day's queue and unsent ratings.
 | Route | Purpose |
 |---|---|
 | `/` | The review session |
+| `/practice` | The drill: recent words, due dates ignored, nothing written |
 | `/words` | Word list, search, inline edit, suspend/delete |
 | `/add`, `/add/bulk` | Add one word, or import a JSON file |
 | `/kanji`, `/kanji/[char]` | Kanji index and detail, with Hán Việt |
 | `/stats` | Four charts over the review log |
-| `/settings` | Session size, target retention, theme |
+| `/settings` | Session size, practice size, target retention, theme |
 | `/signin` | Google sign-in |
 
 | Route handler | Purpose |
@@ -35,13 +36,16 @@ anything unauthenticated to `/signin`.
 app/              routes and route handlers
 components/       client components, one per screen
 components/stats/ the charts, inline SVG
-lib/db/           Drizzle schema, queries, the review projection, /stats reads
+lib/db/           Drizzle schema, queries, the review projection, the
+                  practice queue, /stats reads
 lib/fsrs/         scheduler params, log replay, queue order, study day,
                   client-side scheduler, the pair rule
-lib/client/       IndexedDB, the outbox, the stored session, the TTS check
+lib/client/       IndexedDB, the outbox, the stored session, the recorder,
+                  the TTS check
 lib/dict/         Jotoba client, tag→pos mapping, furigana
 lib/actions/      server actions
 lib/answer.ts     answer matching and normalisation
+lib/practice.ts   which page of the collection a drill deals
 lib/import.ts     bulk-import parser (pure, no database)
 lib/stats.ts      the /stats charts as pure functions over rows
 lib/ruby.ts       furigana parsing  ·  lib/share.ts  share-text extraction
@@ -74,6 +78,9 @@ drains sooner. Details in [offline.md](offline.md).
   [data-model.md](data-model.md#invariants) and
   [review-model.md](review-model.md).
 - **One write path for ratings.** There is no server action that rates a card.
+  Practice mode does not add a second one: it writes nothing at all, enforced
+  by an inert `Recorder` (`lib/client/recorder.ts`) rather than by branches
+  scattered through the reviewer.
 - **Pure logic lives in `lib/` and is tested without a database** — answer
   matching, ruby, import parsing, queue order, the log fold, the stats buckets.
 - **Ambiguity is resolved where the data is.** The device holds one day's
