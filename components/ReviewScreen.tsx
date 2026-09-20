@@ -885,14 +885,16 @@ export function ReviewScreen({
   // Keyboard shortcut support
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape switches the answer mode, and is the one shortcut that has to
-      // work with the answer field focused — which is exactly where you are
-      // when you want to leave typing. It is safe to read before the guard
-      // below because no field on this screen takes an Escape: the only
-      // thing it would otherwise be cancelling is IME composition, which
-      // `isComposing` leaves alone. `toggleMode` ignores a revealed card, so
-      // Escape does nothing while the edit or leech panel is open.
-      if (e.key === 'Escape' && !e.isComposing) {
+      // Alt+` switches the answer mode — the chord Windows' own Japanese IME
+      // uses to leave kana, and the same one the kho từ search uses. It is the
+      // one shortcut that has to work with the answer field focused, which is
+      // exactly where you are when you want to leave typing, so it is read
+      // before the guard below; `preventDefault` keeps the backtick out of
+      // the field. e.code, not e.key: with Alt held the character a layout
+      // reports for this physical key varies, the position does not.
+      // `toggleMode` ignores a revealed card, so it does nothing while the
+      // edit or leech panel is open.
+      if (e.altKey && e.code === 'Backquote' && !e.isComposing) {
         if (!isRevealed) {
           e.preventDefault();
           toggleMode();
@@ -1060,11 +1062,11 @@ export function ReviewScreen({
                 ? 'Đáp án đã hiện — đổi cách trả lời ở thẻ sau'
                 : typing
                   ? asking
-                    ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm hoặc Esc để quay lại thẻ lật.'
-                    : 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm hoặc Esc để quay lại thẻ lật.'
+                    ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm hoặc Alt+` để quay lại thẻ lật.'
+                    : 'Chế độ gõ — gõ cách đọc của từ đang hiện. Bấm hoặc Alt+` để quay lại thẻ lật.'
                   : asking
-                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm hoặc Esc để chuyển sang gõ đáp án.'
-                    : 'Thẻ lật — nhận mặt từ. Bấm hoặc Esc để chuyển sang gõ cách đọc.'
+                    ? 'Thẻ lật — nhớ lại từ rồi lật xem. Bấm hoặc Alt+` để chuyển sang gõ đáp án.'
+                    : 'Thẻ lật — nhận mặt từ. Bấm hoặc Alt+` để chuyển sang gõ cách đọc.'
             }
           >
             <Keyboard className="w-3.5 h-3.5" />
