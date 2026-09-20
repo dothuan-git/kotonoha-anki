@@ -102,8 +102,21 @@ const DB_NAME = 'kotonoha';
  */
 const DB_VERSION = 5;
 
-/** The only session row. One person, one device-local queue at a time. */
+/**
+ * The stored session rows. One person, but two queues: the reviewer's and the
+ * practice drill's.
+ *
+ * Separate keys rather than one row with a mode on it, because the two are
+ * genuinely independent — a half-finished drill must not evict a half-finished
+ * review session, and opening either screen must resume its own. The object
+ * store takes arbitrary keys, so a second one costs no version bump, which
+ * matters: a bump throws every stored session away.
+ */
 export const SESSION_KEY = 'current';
+export const PRACTICE_SESSION_KEY = 'practice';
+
+/** Every stored queue, for the sign-out sweep. */
+export const SESSION_KEYS = [SESSION_KEY, PRACTICE_SESSION_KEY] as const;
 
 let handle: Promise<IDBPDatabase<KotonohaDB>> | null = null;
 

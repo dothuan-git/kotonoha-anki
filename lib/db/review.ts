@@ -55,10 +55,10 @@ type FsrsParams = ReturnType<typeof schedulerParams>;
  * this way the session budget becomes a `LIMIT`, and the work stops being
  * proportional to the size of the collection.
  */
-const inRotation = eq(words.suspended, false);
+export const inRotation = eq(words.suspended, false);
 
 /** ts-fsrs `State.New` — a card with no review history. */
-const isNew = eq(cardStates.state, State.New);
+export const isNew = eq(cardStates.state, State.New);
 
 /**
  * The two halves of "due", kept apart because the session budgets them
@@ -310,8 +310,13 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
  * The fold is also what produces ts-fsrs's `learning_steps`, which
  * `card_states` deliberately does not store — a stored step index would be a
  * second source of truth for something the log already determines.
+ *
+ * Exported for `lib/db/practice.ts`, which chooses its cards by a different
+ * rule but has to render them by the same one: a practice showing and a
+ * review showing are the same card folded from the same log, and a second
+ * hydration path would be a second answer to that.
  */
-async function hydrateQueue(
+export async function hydrateQueue(
   queue: readonly QueueShowing[],
   meta: Map<string, { leechAckedAt: Date | null; createdAt: Date }>,
   params: FsrsParams,

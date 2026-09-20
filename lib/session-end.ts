@@ -18,7 +18,24 @@ export type FinishState =
   /** Finished a session and cleared everything that was waiting. */
   | { kind: 'all-clear'; nextDue: string | null; outOfNewWords: boolean }
   /** The next session came back empty because the last ratings are still in flight. */
-  | { kind: 'waiting-for-sync' };
+  | { kind: 'waiting-for-sync' }
+  /**
+   * A practice page is done.
+   *
+   * Its own state because none of the five above says anything true about
+   * practice: there is no backlog to report, no date to come back for, and
+   * nothing in flight to wait on. There is always another page — the last one
+   * wraps to the newest — so the only question is where in the collection you
+   * have got to.
+   */
+  | { kind: 'practice-done'; page: number; pages: number; canDeal: boolean }
+  /**
+   * Practice has nothing to deal, which is not the same as an empty
+   * collection: the words may all be waiting for their first review. Saying
+   * "add your first word" to someone holding two hundred unstudied words
+   * would send them to the wrong screen.
+   */
+  | { kind: 'practice-empty' };
 
 export function finishState(input: {
   /** Showings answered in the session that just ended. */
@@ -35,7 +52,15 @@ export function finishState(input: {
   canDeal: boolean;
   /** A next session was asked for and every card in it was filtered out. */
   unsettled: boolean;
+  /** Set on a practice session: which page of the collection it dealt. */
+  practice?: { page: number; pages: number };
 }): FinishState {
+  // Before `unsettled`, which practice can never be: it queues nothing, so
+  // there is never a rating in flight for the next page to collide with.
+  if (input.practice) {
+    if (input.totalCards === 0) return { kind: 'practice-empty' };
+    return { kind: 'practice-done', ...input.practice, canDeal: input.canDeal };
+  }
   if (input.totalCards === 0) return { kind: 'empty-collection' };
   if (input.unsettled) return { kind: 'waiting-for-sync' };
 

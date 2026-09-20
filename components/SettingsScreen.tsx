@@ -15,9 +15,11 @@ export function SettingsScreen({
   email: string | null;
 }) {
   const [cardsPerSession, setCardsPerSession] = useState(settings.cardsPerSession);
+  const [practiceWords, setPracticeWords] = useState(settings.practiceWords);
   const [retention, setRetention] = useState(settings.requestRetention);
   const [dark, setDark] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   // The class is applied pre-paint by ThemeScript; mirror it into state once
@@ -60,6 +62,20 @@ export function SettingsScreen({
           />
         </Row>
 
+        <Row
+          label="Số từ mỗi phiên luyện tập"
+          hint="Mặc định 50. Luyện tập không ghi lại kết quả và không đổi lịch ôn."
+        >
+          <input
+            type="number"
+            min={5}
+            max={500}
+            value={practiceWords}
+            onChange={(e) => setPracticeWords(Number(e.target.value))}
+            className="w-20 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-2 py-1.5 text-right text-sm"
+          />
+        </Row>
+
         <Row label="Mục tiêu ghi nhớ" hint="Mặc định 0.90. Cao hơn nghĩa là ôn dày hơn.">
           <input
             type="number"
@@ -73,13 +89,23 @@ export function SettingsScreen({
         </Row>
 
         <div className="flex items-center justify-end gap-3 pt-1">
+          {error && <span className="text-xs text-[var(--danger)]">{error}</span>}
           {saved && <span className="text-xs text-[var(--bamboo)]">Đã lưu</span>}
           <button
             type="button"
             disabled={pending}
             onClick={() =>
               startTransition(async () => {
-                await saveSettings({ cardsPerSession, requestRetention: retention });
+                setError(null);
+                const result = await saveSettings({
+                  cardsPerSession,
+                  practiceWords,
+                  requestRetention: retention,
+                });
+                if (!result.ok) {
+                  setError(result.error);
+                  return;
+                }
                 setSaved(true);
                 setTimeout(() => setSaved(false), 2000);
               })

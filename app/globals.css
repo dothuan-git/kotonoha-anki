@@ -150,6 +150,13 @@
   font-family: 'Be Vietnam Pro', sans-serif;
 }
 
+/* A search field draws its own "Xoá" button, so Chrome's native one would be
+   a second clear button sitting right beside it. type="search" itself stays:
+   it is what it is, and phones put a search key on the keyboard for it. */
+input[type='search']::-webkit-search-cancel-button {
+  display: none;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 5px;

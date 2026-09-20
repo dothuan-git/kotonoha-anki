@@ -23,7 +23,7 @@ touches scheduling, run the recompute check too.
 | Touching | Read |
 |---|---|
 | Schema, migrations, anything storing review history | [docs/data-model.md](docs/data-model.md) |
-| `lib/fsrs/*`, `ReviewScreen`, `lib/answer.ts`, `/stats` | [docs/review-model.md](docs/review-model.md) |
+| `lib/fsrs/*`, `ReviewScreen`, `lib/answer.ts`, `/stats`, `/practice` | [docs/review-model.md](docs/review-model.md) |
 | `lib/client/*`, `/api/sync`, `public/sw.js` | [docs/offline.md](docs/offline.md) |
 | `lib/import.ts`, `/api/import` | [docs/import-format.md](docs/import-format.md) |
 | Routes, module boundaries, anything unfamiliar | [docs/architecture.md](docs/architecture.md) |
@@ -40,7 +40,10 @@ Breaking one of these is a bug even when it type-checks.
 3. **`applyReview` / `foldLogs` is the one scheduling path.** Do not add a
    second way to write a review.
 4. **Every rating goes through the outbox and `/api/sync`**, online or not. No
-   direct-write fast path for the connected case.
+   direct-write fast path for the connected case. Practice mode (`/practice`)
+   is not an exception to this: it produces no ratings at all. Its `Recorder`
+   is inert, so nothing to write ever exists — do not "fix" it into a second
+   write path.
 5. **One card per word, asked twice, graded once** on the worse answer.
 6. **Never import a *value* from `lib/db/*` into a client component** — it
    pulls the database client into the browser bundle and throws at runtime.

@@ -282,6 +282,16 @@ export const settings = pgTable('settings', {
    * to wait for at the rollover.
    */
   cardsPerSession: integer('cards_per_session').notNull().default(50),
+  /**
+   * How many words one practice session deals. Cards, like the field above,
+   * so 50 here is also a hundred showings.
+   *
+   * Its own number rather than a share of `cardsPerSession`: practice is time
+   * you chose to spend, not work the scheduler asked for, and the two are
+   * sized by different things. A drill of 20 on top of a review session of 50
+   * is a perfectly ordinary way to want this.
+   */
+  practiceWords: integer('practice_words').notNull().default(50),
   requestRetention: real('request_retention').notNull().default(0.9),
   theme: text('theme').notNull().default('light'),
 });

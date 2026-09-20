@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { bind, unbind } from 'wanakana';
 
 import { Ruby } from '@/components/Ruby';
 import { deleteWord, updateWord } from '@/lib/actions/words';
@@ -34,6 +35,9 @@ import {
 const LEVELS = ['ALL', ...JLPT_VALUES] as const;
 type Level = (typeof LEVELS)[number];
 
+/** Whether the search box converts romaji, remembered the way the theme is. */
+const SEARCH_KANA_KEY = 'kotonoha-search-kana';
+
 /**
  * The kho từ list, as the prototype draws it: one sheet of washi with hairline
  * rules between the rows, each row collapsed to headword / reading / meaning
@@ -48,10 +52,63 @@ type Level = (typeof LEVELS)[number];
 export function WordsScreen({ words }: { words: WordView[] }) {
   const [query, setQuery] = useState('');
   const [level, setLevel] = useState<Level>('ALL');
+  /**
+   * Romaji becomes kana as you type, the same wanakana.bind the review field
+   * and the add form use, so looking a word up never needs an IME either.
+   *
+   * It cannot simply be always on: this box also searches the meaning and the
+   * Hán Việt, and bound, `hoc` becomes ほc and `di` becomes ぢ. The あ / A
+   * toggle is the way back to plain letters, and the choice sticks.
+   *
+   * Alt+` flips it without leaving the keyboard — the chord Windows' own
+   * Japanese IME uses for the same job. Escape stays what it is on a search
+   * field, clearing it.
+   */
+  const [kana, setKana] = useState(true);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Read after mount rather than during render: the server has no
+  // localStorage, and disagreeing with its HTML hydrates wrong. The toggle
+  // therefore shows あ for one frame in a session that turned it off.
+  useEffect(() => {
+    try {
+      setKana(localStorage.getItem(SEARCH_KANA_KEY) !== 'off');
+    } catch {
+      // Private mode or blocked storage: the toggle still works this session.
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = searchRef.current;
+    if (!el || !kana) return;
+    bind(el, { IMEMode: 'toHiragana' });
+    return () => unbind(el);
+  }, [kana]);
+
+  /**
+   * The field is uncontrolled because bind writes kana straight into the node
+   * and a controlled `value` fights it mid-word — the add form records the
+   * same thing. Any programmatic change has to go through the node too.
+   */
+  function setQueryValue(value: string) {
+    if (searchRef.current) searchRef.current.value = value;
+    setQuery(value);
+  }
+
+  function toggleKana() {
+    const next = !kana;
+    setKana(next);
+    try {
+      localStorage.setItem(SEARCH_KANA_KEY, next ? 'on' : 'off');
+    } catch {
+      // Same as above: the session keeps the choice, the next one does not.
+    }
+    searchRef.current?.focus();
+  }
 
   /**
    * Filtering happens client-side over the rows already rendered. The server
@@ -80,7 +137,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
   }
 
   function clearFilters() {
-    setQuery('');
+    setQueryValue('');
     setLevel('ALL');
   }
 
@@ -105,22 +162,59 @@ export function WordsScreen({ words }: { words: WordView[] }) {
         <div className="relative">
           <Search className="pointer-events-none absolute left-3.5 top-3 h-4 w-4 text-[var(--text-muted)]" />
           <input
+            ref={searchRef}
             type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              // e.code, not e.key: with Alt held the key a layout reports for
+              // this physical key varies, the position does not.
+              if (e.altKey && e.code === 'Backquote') {
+                e.preventDefault();
+                toggleKana();
+                return;
+              }
+              // Cleared here rather than left to the browser: the field is
+              // uncontrolled now, and browsers disagree about whether their
+              // own Escape-clear fires an input event. Without one, the node
+              // empties and `query` keeps the old text.
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setQueryValue('');
+              }
+            }}
             placeholder="Tìm theo Kanji, Hiragana, Hán Việt hoặc nghĩa…"
             aria-label="Tìm từ"
-            className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-2.5 pl-10 pr-14 text-sm text-[var(--text-primary)] shadow-xs transition-colors focus:border-[var(--bamboo)] focus:outline-none"
+            className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-2.5 pl-10 pr-20 text-sm text-[var(--text-primary)] shadow-xs transition-colors focus:border-[var(--bamboo)] focus:outline-none"
           />
-          {query && (
+          <div className="absolute inset-y-0 right-2 flex items-center gap-1.5">
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQueryValue('')}
+                className="cursor-pointer text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                Xoá
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setQuery('')}
-              className="absolute right-3 top-3 cursor-pointer text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              onClick={toggleKana}
+              aria-pressed={kana}
+              aria-label="Tự chuyển romaji sang hiragana"
+              title={
+                kana
+                  ? 'Đang tự chuyển romaji sang hiragana — tắt để tìm theo nghĩa hoặc Hán Việt (Alt+`)'
+                  : 'Đang gõ chữ thường — bật để tự chuyển romaji sang hiragana (Alt+`)'
+              }
+              className={`flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-xs font-semibold transition-colors ${
+                kana
+                  ? 'bg-[var(--bamboo-subtle)] text-[var(--bamboo)]'
+                  : 'bg-[var(--bg-muted)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
             >
-              Xoá
+              <span className={kana ? 'font-jp-sans' : undefined}>{kana ? 'あ' : 'A'}</span>
             </button>
-          )}
+          </div>
         </div>
 
         {/* The count sits outside the scrolling pill row: inside it, `ml-auto`

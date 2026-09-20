@@ -29,7 +29,7 @@ settings  dict_cache             (standalone)
 | `review_logs` | **Append-only.** Every rating | The source of truth for scheduling and for three of the four `/stats` charts. `id` is generated on the device so replay is idempotent. |
 | `confusions` | **Append-only.** Wrong answers that named another word you own | Directional. What was typed is not stored — a confusion is a pair of words. |
 | `dict_cache` | Jotoba responses by normalised query | No TTL; a dictionary entry does not go stale. |
-| `settings` | Single row, `id = 1` | `cards_per_session`, `request_retention`, theme. |
+| `settings` | Single row, `id = 1` | `cards_per_session`, `practice_words`, `request_retention`, theme. |
 
 ## Invariants
 

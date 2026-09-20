@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart2, BookMarked, Grid, Layers, PlusCircle, Settings } from 'lucide-react';
+import { BarChart2, BookMarked, Grid, Layers, PlusCircle, Repeat, Settings } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -11,6 +11,9 @@ import { usePathname } from 'next/navigation';
  */
 const TABS = [
   { href: '/', label: 'Ôn tập', icon: Layers },
+  // Luyện tập is the drill, Ôn tập the scheduled review. It carries no badge:
+  // the badge means work that has come due, and practice never is.
+  { href: '/practice', label: 'Luyện tập', icon: Repeat },
   { href: '/add', label: 'Thêm từ', icon: PlusCircle },
   { href: '/words', label: 'Kho từ', icon: BookMarked },
   { href: '/kanji', label: 'Hán tự', icon: Grid },
