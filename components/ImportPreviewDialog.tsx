@@ -306,7 +306,7 @@ function WordFace({ row, detail }: { row: PreviewRow; detail: WordDetail }) {
         )}
       </div>
 
-      <div className="space-y-5 border-t border-[var(--border-subtle)] pt-6">
+      <div className="space-y-4 border-t border-[var(--border-subtle)] pt-6">
         <Field label="Cách đọc">
           <p className="font-jp-serif text-xl font-semibold tracking-wide text-[var(--brand)] sm:text-2xl">
             {row.reading}
@@ -332,21 +332,21 @@ function GrammarFace({ row, detail }: { row: PreviewRow; detail: GrammarDetail }
     <>
       <CardTop jlpt={detail.jlpt} label="Ngữ pháp" />
 
-      <div className="py-8 text-center">
+      <div className="py-12 text-center">
         <h2 className="font-jp-serif text-3xl font-medium tracking-wide text-[var(--text-primary)] sm:text-4xl">
           {row.headword}
         </h2>
       </div>
 
-      <div className="space-y-5 border-t border-[var(--border-subtle)] pt-6">
-        <Field label="Nghĩa">
-          <p className="text-base font-semibold leading-snug">{row.meaning}</p>
-        </Field>
+      <div className="space-y-4 border-t border-[var(--border-subtle)] pt-6">
         {detail.formation && (
           <Field label="Cấu trúc">
             <p className="font-jp-sans text-sm text-[var(--text-secondary)]">{detail.formation}</p>
           </Field>
         )}
+        <Field label="Nghĩa">
+          <p className="text-base font-semibold leading-snug">{row.meaning}</p>
+        </Field>
         {detail.note && <Note text={detail.note} />}
         <Field label="Câu ví dụ">
           <div className="space-y-2.5">
