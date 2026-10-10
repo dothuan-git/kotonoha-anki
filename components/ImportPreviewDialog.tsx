@@ -1,21 +1,13 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, Undo2, Volume2, X } from 'lucide-react';
-import {
-  AnimatePresence,
-  MotionConfig,
-  motion,
-  useDragControls,
-  type Variants,
-} from 'motion/react';
+import { ChevronLeft, ChevronRight, Volume2, X } from 'lucide-react';
+import { AnimatePresence, MotionConfig, motion, type Variants } from 'motion/react';
 import {
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent,
-  type PointerEvent,
   type ReactNode,
 } from 'react';
 
@@ -25,64 +17,32 @@ import type { PreviewDetail, PreviewRow, RowStatus } from '@/lib/import';
 import { formatPos } from '@/lib/types';
 
 type Sentence = { jpRuby: string; vi: string };
+type WordDetail = Extract<PreviewDetail, { kind: 'word' }>;
+type GrammarDetail = Extract<PreviewDetail, { kind: 'grammar' }>;
 
 /** -1 came from the row before, 1 from the row after, 0 opened fresh. */
 export type Direction = -1 | 0 | 1;
 
-const STATUS_TONE: Record<RowStatus, { label: string; className: string }> = {
-  ok: {
-    label: 'Sẽ nhập',
-    className: 'bg-[var(--brand-subtle)] text-[var(--brand)] border-[var(--brand-border)]',
-  },
-  duplicate: {
-    label: 'Bỏ qua',
-    className: 'bg-[var(--warning-subtle)] text-[var(--warning)] border-[var(--warning)]/30',
-  },
-  excluded: {
-    label: 'Đã bỏ',
-    className: 'bg-[var(--bg-muted)] text-[var(--text-muted)] border-[var(--border-subtle)]',
-  },
-  invalid: {
-    label: 'Lỗi',
-    className: 'bg-[var(--danger-subtle)] text-[var(--danger)] border-[var(--danger)]/30',
-  },
-};
-
-const SPRING = { type: 'spring', stiffness: 420, damping: 36, mass: 0.9 } as const;
-
-/** A sheet from the bottom on a phone, a card that settles in on anything wider. */
 const panel: Variants = {
-  hidden: (wide: boolean) => (wide ? { opacity: 0, scale: 0.95, y: 18 } : { y: '100%' }),
-  shown: { opacity: 1, scale: 1, y: 0, transition: SPRING },
-  gone: (wide: boolean) =>
-    wide
-      ? { opacity: 0, scale: 0.97, y: 10, transition: { duration: 0.15, ease: 'easeIn' } }
-      : { y: '100%', transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } },
+  hidden: { opacity: 0, y: 10, scale: 0.98 },
+  shown: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', stiffness: 380, damping: 34 } },
+  gone: { opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.14, ease: 'easeIn' } },
 };
 
-/** The row's content slides the way you moved, and its parts arrive in order. */
+/** The row's content slides a little the way you moved. */
 const content: Variants = {
-  enter: (dir: Direction) => ({ opacity: 0, x: dir * 36 }),
-  center: {
-    opacity: 1,
-    x: 0,
-    transition: { ...SPRING, staggerChildren: 0.035, delayChildren: 0.04 },
-  },
+  enter: (dir: Direction) => ({ opacity: 0, x: dir * 20 }),
+  center: { opacity: 1, x: 0, transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] } },
   leave: (dir: Direction) => ({
     opacity: 0,
-    x: dir * -36,
-    transition: { duration: 0.14, ease: 'easeIn' },
+    x: dir * -20,
+    transition: { duration: 0.12, ease: 'easeIn' },
   }),
 };
 
-const part: Variants = {
-  enter: { opacity: 0, y: 8 },
-  center: { opacity: 1, y: 0, transition: { duration: 0.24, ease: [0.22, 1, 0.36, 1] } },
-};
-
 /**
- * One previewed row in full — what the file says about it, laid out the way
- * its card will show it, before anything is written.
+ * One previewed row in full — what the file says about it, laid out as its
+ * review card will show it, before anything is written.
  *
  * A native modal <dialog> underneath, for the focus trap, the inert page and
  * the top layer; the backdrop and the panel are drawn inside it so they can
@@ -108,8 +68,6 @@ export function ImportPreviewDialog({
   onToggle: (() => void) | null;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const wide = useMediaQuery('(min-width: 640px)');
-  const drag = useDragControls();
   const open = Boolean(row?.detail);
 
   useEffect(() => {
@@ -155,51 +113,36 @@ export function ImportPreviewDialog({
       className="m-0 h-dvh max-h-none w-full max-w-none overflow-hidden bg-transparent p-0 outline-none backdrop:bg-transparent"
     >
       <MotionConfig reducedMotion="user">
-        <AnimatePresence custom={wide} onExitComplete={() => ref.current?.close()}>
+        <AnimatePresence onExitComplete={() => ref.current?.close()}>
           {open && row?.detail && (
-            <div
-              key="layer"
-              className="flex h-full w-full items-end justify-center sm:items-center sm:p-4"
-            >
+            <div key="layer" className="flex h-full w-full items-center justify-center p-4">
               <motion.div
                 aria-hidden
                 onClick={onClose}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                exit={{ opacity: 0, transition: { duration: 0.18 } }}
-                className="absolute inset-0 bg-black/45 backdrop-blur-[3px]"
+                exit={{ opacity: 0, transition: { duration: 0.16 } }}
+                className="absolute inset-0 bg-black/30"
               />
 
               <motion.section
-                custom={wide}
                 variants={panel}
                 initial="hidden"
                 animate="shown"
                 exit="gone"
-                drag={wide ? false : 'y'}
-                dragListener={false}
-                dragControls={drag}
-                dragConstraints={{ top: 0, bottom: 0 }}
-                dragElastic={{ top: 0, bottom: 0.7 }}
-                onDragEnd={(_, info) => {
-                  if (info.offset.y > 110 || info.velocity.y > 600) onClose();
-                }}
-                // The wash of brand colour sits on the panel, behind the
-                // header too, so it has no seam where the header ends.
-                className="relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] bg-[linear-gradient(to_bottom,var(--brand-subtle),var(--bg-surface)_15rem)] text-[var(--text-primary)] shadow-2xl sm:max-h-[85dvh] sm:w-[min(34rem,100%)] sm:rounded-3xl"
+                className="relative flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
               >
-                <Header
-                  status={row.status}
-                  line={row.index + 1}
-                  onClose={onClose}
-                  onGrab={(e) => {
-                    if (!wide) drag.start(e);
-                  }}
-                />
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Đóng"
+                  className="absolute right-3 top-3 z-10 cursor-pointer rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)] sm:right-4 sm:top-4"
+                >
+                  <X className="h-4 w-4" />
+                </button>
 
                 <ScrollBody>
-                  {/* Not `initial={false}`: the parts arrive in order on open too. */}
-                  <AnimatePresence mode="popLayout" custom={direction}>
+                  <AnimatePresence mode="popLayout" initial={false} custom={direction}>
                     <motion.div
                       key={row.index}
                       custom={direction}
@@ -208,18 +151,36 @@ export function ImportPreviewDialog({
                       animate="center"
                       exit="leave"
                     >
-                      <Detail row={row} detail={row.detail} />
+                      {/* A struck-off row stays readable, but reads as set aside. */}
+                      <div
+                        className={`transition-opacity ${row.status === 'excluded' ? 'opacity-45' : ''}`}
+                      >
+                        {row.detail.kind === 'word' ? (
+                          <WordFace row={row} detail={row.detail} />
+                        ) : (
+                          <GrammarFace row={row} detail={row.detail} />
+                        )}
+                      </div>
                     </motion.div>
                   </AnimatePresence>
                 </ScrollBody>
 
-                <Footer
-                  status={row.status}
-                  position={position}
-                  onPrev={onPrev}
-                  onNext={onNext}
-                  onToggle={onToggle}
-                />
+                <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-5 py-2.5 sm:px-7">
+                  <div className="-ml-1.5 flex items-center">
+                    <NavButton label="Mục trước (←)" onClick={onPrev}>
+                      <ChevronLeft className="h-4 w-4" />
+                    </NavButton>
+                    {position && (
+                      <span className="min-w-12 text-center text-xs tabular-nums text-[var(--text-muted)]">
+                        {position.current} / {position.total}
+                      </span>
+                    )}
+                    <NavButton label="Mục sau (→)" onClick={onNext}>
+                      <ChevronRight className="h-4 w-4" />
+                    </NavButton>
+                  </div>
+                  <RowAction status={row.status} reason={row.reason} onToggle={onToggle} />
+                </footer>
               </motion.section>
             </div>
           )}
@@ -229,58 +190,9 @@ export function ImportPreviewDialog({
   );
 }
 
-function Header({
-  status,
-  line,
-  onClose,
-  onGrab,
-}: {
-  status: RowStatus;
-  line: number;
-  onClose: () => void;
-  onGrab: (e: PointerEvent) => void;
-}) {
-  const tone = STATUS_TONE[status];
-
-  return (
-    <header
-      onPointerDown={onGrab}
-      className="relative shrink-0 touch-none px-5 pt-3 pb-2 sm:touch-auto sm:pt-4"
-    >
-      {/* The handle a sheet is pulled down by. Phones only. */}
-      <div className="mx-auto mb-2.5 h-1 w-10 rounded-full bg-[var(--border-strong)] sm:hidden" />
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
-              key={status}
-              initial={{ opacity: 0, scale: 0.85 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.85 }}
-              transition={{ duration: 0.16 }}
-              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${tone.className}`}
-            >
-              {tone.label}
-            </motion.span>
-          </AnimatePresence>
-          <span className="text-[11px] tabular-nums text-[var(--text-muted)]">Dòng {line}</span>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Đóng"
-          className="cursor-pointer rounded-full p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    </header>
-  );
-}
-
 /**
- * The scrolling middle. Its height follows the row inside it, so moving to a
- * shorter or longer row resizes the panel smoothly instead of in a jump.
+ * The scrolling middle. Its height follows the row inside it, so stepping to
+ * a shorter or longer row resizes the panel smoothly instead of in a jump.
  */
 function ScrollBody({ children }: { children: ReactNode }) {
   const inner = useRef<HTMLDivElement>(null);
@@ -299,64 +211,51 @@ function ScrollBody({ children }: { children: ReactNode }) {
   return (
     <motion.div
       animate={{ height }}
-      transition={SPRING}
+      transition={{ type: 'spring', stiffness: 380, damping: 36 }}
       className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
     >
       {/* `relative`, for the row popped out of the flow while it leaves. */}
-      <div ref={inner} className="relative px-5 pb-5">
+      <div ref={inner} className="relative p-5 sm:p-7">
         {children}
       </div>
     </motion.div>
   );
 }
 
-function Footer({
+/** What happens to this row, said once, at the bottom. */
+function RowAction({
   status,
-  position,
-  onPrev,
-  onNext,
+  reason,
   onToggle,
 }: {
   status: RowStatus;
-  position: { current: number; total: number } | null;
-  onPrev: (() => void) | null;
-  onNext: (() => void) | null;
+  reason?: string;
   onToggle: (() => void) | null;
 }) {
-  const dropped = status === 'excluded';
+  if (status === 'duplicate' || status === 'invalid') {
+    return <span className="text-right text-xs text-[var(--warning)]">{reason}</span>;
+  }
+  if (!onToggle) return null;
 
-  return (
-    <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border-subtle)] bg-[var(--bg-muted)]/40 px-3 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
-      <div className="flex items-center gap-1">
-        <NavButton label="Mục trước (←)" onClick={onPrev}>
-          <ChevronLeft className="h-4 w-4" />
-        </NavButton>
-        {position && (
-          <span className="min-w-12 text-center text-xs tabular-nums text-[var(--text-muted)]">
-            {position.current} / {position.total}
-          </span>
-        )}
-        <NavButton label="Mục sau (→)" onClick={onNext}>
-          <ChevronRight className="h-4 w-4" />
-        </NavButton>
-      </div>
-
-      {onToggle && (
-        <motion.button
-          type="button"
-          onClick={onToggle}
-          whileTap={{ scale: 0.96 }}
-          className={`flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
-            dropped
-              ? 'bg-[var(--brand)] text-white hover:bg-[var(--brand-hover)]'
-              : 'text-[var(--danger)] hover:bg-[var(--danger-subtle)]'
-          }`}
-        >
-          {dropped ? <Undo2 className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
-          {dropped ? 'Nhập lại' : 'Bỏ khỏi lần nhập'}
-        </motion.button>
-      )}
-    </footer>
+  return status === 'excluded' ? (
+    <span className="flex items-center gap-1.5 text-xs">
+      <span className="text-[var(--text-muted)]">Đã bỏ ·</span>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="cursor-pointer font-semibold text-[var(--brand)] hover:underline"
+      >
+        Nhập lại
+      </button>
+    </span>
+  ) : (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="-mr-2 cursor-pointer rounded-md px-2 py-1 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--danger-subtle)] hover:text-[var(--danger)]"
+    >
+      Bỏ khỏi lần nhập
+    </button>
   );
 }
 
@@ -376,244 +275,159 @@ function NavButton({
       disabled={!onClick}
       aria-label={label}
       title={label}
-      className="cursor-pointer rounded-lg p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--brand)] disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--text-secondary)]"
+      className="cursor-pointer rounded-md p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
     >
       {children}
     </button>
   );
 }
 
-function Detail({ row, detail }: { row: PreviewRow; detail: PreviewDetail }) {
-  return (
-    <div className="space-y-4">
-      {detail.kind === 'word' ? <WordHero row={row} detail={detail} /> : <GrammarHero row={row} detail={detail} />}
-
-      {row.reason && (
-        <motion.p
-          variants={part}
-          className="rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-subtle)] px-3 py-2 text-xs font-medium text-[var(--warning)]"
-        >
-          {row.reason}
-        </motion.p>
-      )}
-
-      {detail.kind === 'word' ? (
-        detail.sentence && (
-          <Section label="Câu ví dụ">
-            <SentenceCard sentence={detail.sentence} />
-          </Section>
-        )
-      ) : (
-        <Section label="Câu ví dụ — thẻ hỏi bằng câu tiếng Việt">
-          <ol className="space-y-2">
-            {detail.sentences.map((sentence, i) => (
-              <li key={i}>
-                <SentenceCard sentence={sentence} number={i + 1} vietnameseFirst />
-              </li>
-            ))}
-          </ol>
-        </Section>
-      )}
-
-      {detail.note && (
-        <Section label="Ghi chú">
-          <p className="border-l-2 border-[var(--brand-border)] pl-3 text-sm leading-relaxed text-[var(--text-secondary)]">
-            {detail.note}
-          </p>
-        </Section>
-      )}
-    </div>
-  );
-}
-
-/** The front of the word card: the word, its reading, and what it means. */
-function WordHero({ row, detail }: { row: PreviewRow; detail: Extract<PreviewDetail, { kind: 'word' }> }) {
+/** The word card, turned over: front above the line, answer below it. */
+function WordFace({ row, detail }: { row: PreviewRow; detail: WordDetail }) {
   const hanViet = Object.entries(detail.hanViet)
     .filter(([, readings]) => readings.length > 0)
     .map(([kanji, readings]) => `${kanji} ${readings.join('/').toUpperCase()}`)
     .join(' · ');
 
   return (
-    <motion.div
-      variants={part}
-      className="pt-1 text-center"
-    >
-      <Chips>
-        <Chip>{formatPos(detail.pos, detail.transitivity)}</Chip>
-        {detail.jlpt && <Chip strong>{detail.jlpt}</Chip>}
-      </Chips>
-      <h2 className="mt-3 font-jp-serif text-5xl font-medium tracking-wide text-[var(--text-primary)] sm:text-6xl">
-        {row.headword}
-      </h2>
-      <div className="mt-2 flex items-center justify-center gap-1.5">
-        <span className="font-jp-serif text-xl font-semibold tracking-wide text-[var(--brand)]">
-          {row.reading}
-        </span>
-        <SpeakButton label="Nghe cách đọc" onClick={() => playWordAudio({ reading: row.reading })} />
-      </div>
-      <p className="mt-1.5 text-base font-semibold leading-snug text-[var(--text-primary)]">
-        {row.meaning}
-      </p>
-      {hanViet && (
-        <span className="mt-3 inline-block rounded-full border border-[var(--border-subtle)] bg-[var(--bg-muted)] px-3 py-1 text-xs font-semibold tracking-wide text-[var(--text-secondary)]">
-          Hán Việt: {hanViet}
-        </span>
-      )}
-    </motion.div>
-  );
-}
+    <>
+      <CardTop jlpt={detail.jlpt} label={formatPos(detail.pos, detail.transitivity)}>
+        <SpeakButton label="Nghe phát âm" onClick={() => playWordAudio({ reading: row.reading })} />
+      </CardTop>
 
-/** The pattern, what it means, and how it attaches — as a row of pieces. */
-function GrammarHero({
-  row,
-  detail,
-}: {
-  row: PreviewRow;
-  detail: Extract<PreviewDetail, { kind: 'grammar' }>;
-}) {
-  const pieces = detail.formation
-    ?.split('+')
-    .map((piece) => piece.trim())
-    .filter(Boolean);
-
-  return (
-    <motion.div
-      variants={part}
-      className="pt-1 text-center"
-    >
-      {detail.jlpt && (
-        <Chips>
-          <Chip strong>{detail.jlpt}</Chip>
-        </Chips>
-      )}
-      <h2 className="mt-3 font-jp-serif text-4xl font-semibold tracking-wide text-[var(--text-primary)] sm:text-5xl">
-        {row.headword}
-      </h2>
-      <p className="mt-2 text-base font-semibold leading-snug text-[var(--brand)]">{row.meaning}</p>
-      {pieces && pieces.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 font-jp-sans text-sm">
-          {pieces.map((piece, i) => (
-            <span key={i} className="flex items-center gap-1.5">
-              {i > 0 && <span className="text-[var(--text-muted)]">+</span>}
-              <span className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2 py-0.5 text-[var(--text-primary)] shadow-xs">
-                {piece}
-              </span>
-            </span>
-          ))}
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-function SentenceCard({
-  sentence,
-  number,
-  vietnameseFirst = false,
-}: {
-  sentence: Sentence;
-  number?: number;
-  /** A grammar card asks with the Vietnamese, so that is what leads. */
-  vietnameseFirst?: boolean;
-}) {
-  const japanese = (
-    <Ruby
-      text={sentence.jpRuby}
-      className="font-jp-sans text-base font-medium leading-relaxed text-[var(--text-primary)]"
-    />
-  );
-  const vietnamese = (
-    <p
-      className={
-        vietnameseFirst
-          ? 'text-sm font-semibold text-[var(--text-primary)]'
-          : 'mt-1 text-xs text-[var(--text-secondary)]'
-      }
-    >
-      {sentence.vi}
-    </p>
-  );
-
-  return (
-    <div className="flex items-start gap-2.5 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-muted)]/60 p-3">
-      {number !== undefined && (
-        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--brand-subtle)] text-[10px] font-bold text-[var(--brand)]">
-          {number}
-        </span>
-      )}
-      <div className="min-w-0 flex-1">
-        {vietnameseFirst ? (
-          <>
-            {vietnamese}
-            <div className="mt-2 border-t border-dashed border-[var(--border-subtle)] pt-2.5">
-              {japanese}
-            </div>
-          </>
-        ) : (
-          <>
-            {japanese}
-            {vietnamese}
-          </>
+      <div className="py-6 text-center">
+        <h2 className="font-jp-serif text-5xl font-medium tracking-wide text-[var(--text-primary)] sm:text-6xl">
+          {row.headword}
+        </h2>
+        {hanViet && (
+          <span className="mt-3 inline-block rounded-full border border-[var(--border-subtle)] bg-[var(--bg-muted)] px-3 py-1 text-xs font-semibold tracking-wide text-[var(--text-secondary)]">
+            Hán Việt: {hanViet}
+          </span>
         )}
       </div>
-      <SpeakButton label="Nghe câu" onClick={() => playSentenceAudio(sentence)} />
+
+      <div className="space-y-3.5 border-t border-[var(--border-subtle)] pt-5">
+        <Field label="Cách đọc">
+          <p className="font-jp-serif text-xl font-semibold tracking-wide text-[var(--brand)] sm:text-2xl">
+            {row.reading}
+          </p>
+        </Field>
+        <Field label="Nghĩa tiếng Việt">
+          <p className="text-base font-semibold leading-snug">{row.meaning}</p>
+        </Field>
+        {detail.note && <Note text={detail.note} />}
+        {detail.sentence && <SentenceBox sentence={detail.sentence} />}
+      </div>
+    </>
+  );
+}
+
+/** The grammar card's answer side: the pattern, then what it means and how it is used. */
+function GrammarFace({ row, detail }: { row: PreviewRow; detail: GrammarDetail }) {
+  return (
+    <>
+      <CardTop jlpt={detail.jlpt} label="Ngữ pháp" />
+
+      <div className="py-6 text-center">
+        <h2 className="font-jp-serif text-4xl font-medium tracking-wide text-[var(--text-primary)] sm:text-5xl">
+          {row.headword}
+        </h2>
+      </div>
+
+      <div className="space-y-3.5 border-t border-[var(--border-subtle)] pt-5">
+        <Field label="Nghĩa">
+          <p className="text-base font-semibold leading-snug">{row.meaning}</p>
+        </Field>
+        {detail.formation && (
+          <Field label="Cấu trúc">
+            <p className="font-jp-sans text-sm text-[var(--text-secondary)]">{detail.formation}</p>
+          </Field>
+        )}
+        {detail.note && <Note text={detail.note} />}
+        {detail.sentences.map((sentence, i) => (
+          <SentenceBox key={i} sentence={sentence} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+/** The card's header line: level badge and kind on the left, controls on the right. */
+function CardTop({
+  jlpt,
+  label,
+  children,
+}: {
+  jlpt: string | null;
+  label: string;
+  children?: ReactNode;
+}) {
+  return (
+    // Right padding leaves the close button its corner.
+    <div className="flex items-center justify-between gap-2 pr-8">
+      <div className="flex items-center gap-1.5">
+        {jlpt && (
+          <span className="rounded-md border border-[var(--brand-border)]/50 bg-[var(--brand-subtle)] px-2.5 py-0.5 text-xs font-semibold text-[var(--brand)]">
+            {jlpt}
+          </span>
+        )}
+        <span className="text-xs font-medium text-[var(--text-muted)]">{label}</span>
+      </div>
+      {children}
     </div>
   );
 }
 
-function Section({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <motion.section variants={part}>
-      <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-        {label}
-      </h3>
-      {children}
-    </motion.section>
+    <div className="min-w-0">
+      <span className="block text-[11px] font-medium text-[var(--text-muted)]">{label}</span>
+      <div className="mt-0.5">{children}</div>
+    </div>
   );
 }
 
-function Chips({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap justify-center gap-1.5">{children}</div>;
+function Note({ text }: { text: string }) {
+  return (
+    <Field label="Ghi chú">
+      <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{text}</p>
+    </Field>
+  );
 }
 
-function Chip({ children, strong = false }: { children: ReactNode; strong?: boolean }) {
+function SentenceBox({ sentence }: { sentence: Sentence }) {
   return (
-    <span
-      className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-        strong
-          ? 'bg-[var(--brand)] text-white'
-          : 'border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)]'
-      }`}
-    >
-      {children}
-    </span>
+    <div className="flex items-start justify-between gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-muted)]/70 p-3">
+      <div className="min-w-0">
+        <Ruby
+          text={sentence.jpRuby}
+          className="font-jp-sans text-sm font-medium leading-relaxed text-[var(--text-primary)] sm:text-base"
+        />
+        <p className="mt-1 text-xs text-[var(--text-secondary)]">{sentence.vi}</p>
+      </div>
+      <button
+        type="button"
+        onClick={() => playSentenceAudio(sentence)}
+        aria-label="Nghe câu ví dụ"
+        title="Nghe câu ví dụ"
+        className="shrink-0 cursor-pointer p-1 text-[var(--text-muted)] hover:text-[var(--brand)]"
+      >
+        <Volume2 className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
 
 function SpeakButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <motion.button
+    <button
       type="button"
       onClick={onClick}
-      whileTap={{ scale: 0.88 }}
       aria-label={label}
       title={label}
-      className="shrink-0 cursor-pointer rounded-full p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--brand-subtle)] hover:text-[var(--brand)]"
+      className="cursor-pointer rounded-md border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 p-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--brand)]"
     >
-      <Volume2 className="h-4 w-4" />
-    </motion.button>
-  );
-}
-
-/** Whether a media query matches, kept current. False on the server. */
-function useMediaQuery(query: string): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const list = window.matchMedia(query);
-      list.addEventListener('change', onChange);
-      return () => list.removeEventListener('change', onChange);
-    },
-    () => window.matchMedia(query).matches,
-    () => false,
+      <Volume2 className="h-3.5 w-3.5" />
+    </button>
   );
 }
