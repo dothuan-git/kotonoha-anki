@@ -17,18 +17,15 @@ const INPUT =
   'w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none';
 
 /** Three empty rows to start: one is required, and three is the number worth aiming for. */
-const blankSentences = (): SentenceDraft[] => [
-  { jpRuby: '', vi: '' },
-  { jpRuby: '', vi: '' },
-  { jpRuby: '', vi: '' },
-];
+const blankSentences = (): SentenceDraft[] =>
+  Array.from({ length: MAX_GRAMMAR_SENTENCES }, () => ({ jpRuby: '', vi: '' }));
 
 /**
  * The grammar point editor, shared by /grammar/add and the inline edit in
  * /grammar/list.
  *
  * Sentence rows left completely blank are dropped before validation, so the
- * form can offer three rows without demanding three sentences. A half-filled
+ * form can offer every row without demanding every sentence. A half-filled
  * row is not dropped: it is a sentence you started, and saving without it
  * would lose it silently.
  */
