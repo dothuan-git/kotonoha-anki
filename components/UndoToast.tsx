@@ -58,7 +58,7 @@ export function UndoToast({
           type="button"
           onClick={onUndo}
           disabled={busy}
-          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-[var(--bamboo)] transition-colors hover:bg-[var(--bamboo-subtle)] disabled:opacity-50"
+          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-[var(--brand)] transition-colors hover:bg-[var(--brand-subtle)] disabled:opacity-50"
         >
           <Undo2 className="h-3.5 w-3.5" />
           <span>Hoàn tác</span>

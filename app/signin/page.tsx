@@ -34,7 +34,7 @@ export default async function SignInPage({
       >
         <button
           type="submit"
-          className="mt-7 rounded-xl bg-[var(--bamboo)] px-5 py-3 text-sm font-semibold text-white hover:bg-[var(--bamboo-hover)]"
+          className="mt-7 rounded-xl bg-[var(--brand)] px-5 py-3 text-sm font-semibold text-white hover:bg-[var(--brand-hover)]"
         >
           Đăng nhập bằng Google
         </button>

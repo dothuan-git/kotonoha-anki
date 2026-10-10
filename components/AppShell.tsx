@@ -54,7 +54,7 @@ export function AppShell({
           <div className="mb-2 hidden shrink-0 select-none items-center justify-between border-b border-[var(--border-subtle)]/70 pb-2 sm:flex">
             <KotonohaLogo size="sm" showSubtitle={false} />
             <div className="flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-muted)]/70 px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--bamboo)]" />
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand)]" />
               <span className="font-medium">Sổ từ Washi</span>
             </div>
           </div>

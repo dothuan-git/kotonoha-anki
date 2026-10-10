@@ -75,7 +75,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
                     onClick={() => setSpan(option)}
                     className={`px-2 py-1 transition-colors ${
                       span === option
-                        ? 'bg-[var(--bamboo-subtle)] font-semibold text-[var(--bamboo)]'
+                        ? 'bg-[var(--brand-subtle)] font-semibold text-[var(--brand)]'
                         : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                     }`}
                   >
@@ -379,7 +379,7 @@ function ConfusionCard({ confusions }: { confusions: StatsView['confusions'] }) 
 
       <Link
         href="/words"
-        className="mt-3 inline-block text-[11px] font-medium text-[var(--bamboo)] hover:underline"
+        className="mt-3 inline-block text-[11px] font-medium text-[var(--brand)] hover:underline"
       >
         Sửa nghĩa hoặc thêm ghi chú ở Kho từ →
       </Link>

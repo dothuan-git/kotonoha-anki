@@ -138,7 +138,7 @@ export function AnswerInput({
             }
           }}
           onClick={(e) => e.stopPropagation()}
-          className={`font-jp-serif w-full rounded-xl border bg-[var(--bg-surface)] px-4 py-3 text-center text-2xl tracking-wide text-[var(--text-primary)] outline-none focus:border-[var(--bamboo)] disabled:opacity-60 ${
+          className={`font-jp-serif w-full rounded-xl border bg-[var(--bg-surface)] px-4 py-3 text-center text-2xl tracking-wide text-[var(--text-primary)] outline-none focus:border-[var(--brand)] disabled:opacity-60 ${
             missed ? 'border-red-500/40' : 'border-[var(--border-strong)]'
           }`}
         />
@@ -190,7 +190,7 @@ export function AnswerInput({
             e.stopPropagation();
             submit();
           }}
-          className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-[var(--bamboo)] py-3 text-sm font-semibold tracking-wide text-white transition-colors hover:bg-[var(--bamboo-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-[var(--brand)] py-3 text-sm font-semibold tracking-wide text-white transition-colors hover:bg-[var(--brand-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <CornerDownLeft className="h-4 w-4" />
           <span>Kiểm tra</span>

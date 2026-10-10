@@ -13,7 +13,7 @@ import type { ImportBatchView } from '@/lib/types';
 type Status = 'idle' | 'reading' | 'previewing' | 'importing' | 'done';
 
 const STATUS_STYLE: Record<RowStatus, { label: string; className: string }> = {
-  ok: { label: 'Sẽ nhập', className: 'text-[var(--bamboo)]' },
+  ok: { label: 'Sẽ nhập', className: 'text-[var(--brand)]' },
   duplicate: { label: 'Bỏ qua', className: 'text-[var(--warning)]' },
   invalid: { label: 'Lỗi', className: 'text-[var(--danger)]' },
   excluded: { label: 'Đã bỏ', className: 'text-[var(--text-muted)]' },
@@ -126,7 +126,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
       <div className="mb-4">
         <Link
           href="/add"
-          className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--bamboo)]"
+          className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--brand)]"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Thêm từng từ
@@ -142,9 +142,9 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
 
       <label
         htmlFor="import-file"
-        className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-8 text-center transition-colors hover:border-[var(--bamboo)]"
+        className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-8 text-center transition-colors hover:border-[var(--brand)]"
       >
-        <Upload className="h-6 w-6 text-[var(--bamboo)]" />
+        <Upload className="h-6 w-6 text-[var(--brand)]" />
         <span className="text-sm font-semibold text-[var(--text-primary)]">
           {file ? file.name : 'Chọn tệp .json'}
         </span>
@@ -171,7 +171,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
         <section className="mt-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-              <Summary label="Sẽ nhập" value={counts.ok} className="text-[var(--bamboo)]" />
+              <Summary label="Sẽ nhập" value={counts.ok} className="text-[var(--brand)]" />
               <Summary
                 label="Đã có sẵn"
                 value={counts.duplicate}
@@ -189,7 +189,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
 
             {status === 'done' ? (
               <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-[var(--bamboo)]">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-[var(--brand)]">
                   <Check className="h-4 w-4" />
                   Đã nhập {report.inserted} từ
                 </span>
@@ -206,7 +206,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
                 type="button"
                 onClick={() => void handleImport()}
                 disabled={!canImport}
-                className="cursor-pointer rounded-xl bg-[var(--bamboo)] px-4 py-2 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-[var(--bamboo-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="cursor-pointer rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-[var(--brand-hover)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {status === 'importing' ? 'Đang nhập…' : `Nhập ${counts.ok} từ`}
               </button>

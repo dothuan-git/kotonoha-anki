@@ -90,7 +90,7 @@ export function SettingsScreen({
 
         <div className="flex items-center justify-end gap-3 pt-1">
           {error && <span className="text-xs text-[var(--danger)]">{error}</span>}
-          {saved && <span className="text-xs text-[var(--bamboo)]">Đã lưu</span>}
+          {saved && <span className="text-xs text-[var(--brand)]">Đã lưu</span>}
           <button
             type="button"
             disabled={pending}
@@ -110,7 +110,7 @@ export function SettingsScreen({
                 setTimeout(() => setSaved(false), 2000);
               })
             }
-            className="rounded-xl bg-[var(--bamboo)] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[var(--bamboo-hover)] disabled:opacity-60"
+            className="rounded-xl bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-hover)] disabled:opacity-60"
           >
             Lưu
           </button>

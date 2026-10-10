@@ -80,14 +80,14 @@ export function AppNav({
                     : 'flex-col items-center rounded-xl px-1.5 py-1.5 sm:px-2'
                 } ${
                   isActive
-                    ? 'font-bold text-[var(--bamboo)]'
+                    ? 'font-bold text-[var(--brand)]'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 {isActive && (
                   <motion.div
                     layoutId={`activeTabIndicator-${variant}`}
-                    className="absolute inset-0 -z-10 rounded-xl border border-[var(--bamboo-border)]/60 bg-[var(--bamboo-subtle)]"
+                    className="absolute inset-0 -z-10 rounded-xl border border-[var(--brand-border)]/60 bg-[var(--brand-subtle)]"
                     transition={{ type: 'spring', stiffness: 450, damping: 32 }}
                   />
                 )}
@@ -98,7 +98,7 @@ export function AppNav({
                     }`}
                   />
                   {tab.href === '/' && dueCount > 0 && (
-                    <span className="absolute -right-2 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--bamboo)] px-1 text-[9px] font-bold leading-none text-white shadow-xs">
+                    <span className="absolute -right-2 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--brand)] px-1 text-[9px] font-bold leading-none text-white shadow-xs">
                       {dueCount}
                     </span>
                   )}

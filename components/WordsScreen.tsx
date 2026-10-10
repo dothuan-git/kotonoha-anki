@@ -152,7 +152,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
         </div>
         <Link
           href="/add"
-          className="shrink-0 rounded-xl bg-[var(--bamboo)] px-3 py-2 text-sm font-semibold text-white hover:bg-[var(--bamboo-hover)]"
+          className="shrink-0 rounded-xl bg-[var(--brand)] px-3 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-hover)]"
         >
           Thêm từ
         </Link>
@@ -184,7 +184,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
             }}
             placeholder="Tìm theo Kanji, Hiragana, Hán Việt hoặc nghĩa…"
             aria-label="Tìm từ"
-            className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-2.5 pl-10 pr-20 text-sm text-[var(--text-primary)] shadow-xs transition-colors focus:border-[var(--bamboo)] focus:outline-none"
+            className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-2.5 pl-10 pr-20 text-sm text-[var(--text-primary)] shadow-xs transition-colors focus:border-[var(--brand)] focus:outline-none"
           />
           <div className="absolute inset-y-0 right-2 flex items-center gap-1.5">
             {query && (
@@ -208,7 +208,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
               }
               className={`flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-xs font-semibold transition-colors ${
                 kana
-                  ? 'bg-[var(--bamboo-subtle)] text-[var(--bamboo)]'
+                  ? 'bg-[var(--brand-subtle)] text-[var(--brand)]'
                   : 'bg-[var(--bg-muted)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
             >
@@ -231,7 +231,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
                 aria-pressed={level === lvl}
                 className={`shrink-0 cursor-pointer rounded-lg px-3 py-1 font-medium transition-colors ${
                   level === lvl
-                    ? 'bg-[var(--bamboo)] font-semibold text-white shadow-xs'
+                    ? 'bg-[var(--brand)] font-semibold text-white shadow-xs'
                     : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)]'
                 }`}
               >
@@ -273,7 +273,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
                     <span className="font-jp-serif shrink-0 text-lg font-semibold text-[var(--text-primary)] sm:text-xl">
                       {word.headword}
                     </span>
-                    <span className="font-jp-serif shrink-0 text-xs font-medium text-[var(--bamboo)] sm:text-sm">
+                    <span className="font-jp-serif shrink-0 text-xs font-medium text-[var(--brand)] sm:text-sm">
                       {word.reading}
                     </span>
                     <span className="truncate text-xs text-[var(--text-secondary)] sm:text-sm">
@@ -297,7 +297,7 @@ export function WordsScreen({ words }: { words: WordView[] }) {
                         playWordAudio(word);
                       }}
                       aria-label={`Đọc ${word.headword}`}
-                      className="cursor-pointer p-1 text-[var(--text-muted)] hover:text-[var(--bamboo)]"
+                      className="cursor-pointer p-1 text-[var(--text-muted)] hover:text-[var(--brand)]"
                     >
                       <Volume2 className="h-3.5 w-3.5" />
                     </button>
@@ -390,7 +390,7 @@ function Details({
       {/* Grammar and Hán Việt read as one line of credentials under the
           headword, the way a dictionary prints them. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="rounded-full bg-[var(--bamboo-subtle)] px-2.5 py-1 text-[11px] font-semibold text-[var(--bamboo)]">
+        <span className="rounded-full bg-[var(--brand-subtle)] px-2.5 py-1 text-[11px] font-semibold text-[var(--brand)]">
           {formatPos(word.pos, word.transitivity)}
         </span>
 
@@ -415,7 +415,7 @@ function Details({
           {word.sentences.map((sentence) => (
             <div
               key={sentence.id}
-              className="rounded-xl border border-[var(--border-subtle)] border-l-2 border-l-[var(--bamboo-border)] bg-[var(--bg-surface)] px-3.5 py-2.5"
+              className="rounded-xl border border-[var(--border-subtle)] border-l-2 border-l-[var(--brand-border)] bg-[var(--bg-surface)] px-3.5 py-2.5"
             >
               {/* leading-loose, not relaxed: the <rt> furigana row needs the
                   headroom or it collides with the line above. */}
@@ -523,7 +523,7 @@ function EditForm({
   const [note, setNote] = useState(word.note ?? '');
 
   const field =
-    'w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none';
+    'w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none';
 
   return (
     <div className="space-y-2.5 pt-2">
@@ -617,7 +617,7 @@ function EditForm({
               note: note.trim() || null,
             })
           }
-          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--bamboo)] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[var(--bamboo-hover)] disabled:opacity-60"
+          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[var(--brand-hover)] disabled:opacity-60"
         >
           <Check className="h-3.5 w-3.5" />
           <span>Lưu thay đổi</span>
@@ -654,7 +654,7 @@ function EmptyState() {
       </p>
       <Link
         href="/add"
-        className="mt-4 inline-block rounded-xl bg-[var(--bamboo)] px-4 py-2 text-xs font-semibold text-white hover:bg-[var(--bamboo-hover)]"
+        className="mt-4 inline-block rounded-xl bg-[var(--brand)] px-4 py-2 text-xs font-semibold text-white hover:bg-[var(--brand-hover)]"
       >
         Thêm từ đầu tiên
       </Link>
@@ -675,7 +675,7 @@ function NoMatches({ onClear }: { onClear: () => void }) {
       <button
         type="button"
         onClick={onClear}
-        className="mt-4 cursor-pointer rounded-xl bg-[var(--bamboo)] px-4 py-2 text-xs font-semibold text-white hover:bg-[var(--bamboo-hover)]"
+        className="mt-4 cursor-pointer rounded-xl bg-[var(--brand)] px-4 py-2 text-xs font-semibold text-white hover:bg-[var(--brand-hover)]"
       >
         Xoá bộ lọc
       </button>

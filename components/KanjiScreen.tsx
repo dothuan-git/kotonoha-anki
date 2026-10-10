@@ -38,11 +38,11 @@ export function KanjiScreen({ kanji }: { kanji: KanjiView[] }) {
             <motion.div key={item.char} whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.96 }}>
               <Link
                 href={`/kanji/${encodeURIComponent(item.char)}`}
-                className="group flex min-h-[105px] select-none flex-col items-center justify-between rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-center transition-colors hover:border-[var(--bamboo)] hover:shadow-xs sm:p-4"
+                className="group flex min-h-[105px] select-none flex-col items-center justify-between rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-center transition-colors hover:border-[var(--brand)] hover:shadow-xs sm:p-4"
               >
                 <div className="flex w-full items-center justify-between text-[10px] text-[var(--text-muted)]">
                   <span>{item.jlpt ?? '—'}</span>
-                  <span className="font-semibold text-[var(--bamboo)]">{item.wordCount} từ</span>
+                  <span className="font-semibold text-[var(--brand)]">{item.wordCount} từ</span>
                 </div>
 
                 <span className="font-jp-serif my-1 text-3xl font-semibold leading-none text-[var(--text-primary)] sm:text-4xl">

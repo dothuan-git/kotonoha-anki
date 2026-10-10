@@ -14,11 +14,11 @@
   --color-surface-elevated: var(--bg-surface-elevated);
   --color-muted: var(--bg-muted);
   --color-subtle: var(--bg-subtle);
-  --color-bamboo: var(--bamboo);
-  --color-bamboo-hover: var(--bamboo-hover);
-  --color-bamboo-light: var(--bamboo-light);
-  --color-bamboo-subtle: var(--bamboo-subtle);
-  --color-bamboo-border: var(--bamboo-border);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-light: var(--brand-light);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-border: var(--brand-border);
 }
 
 @layer base {
@@ -35,12 +35,12 @@
     --text-secondary: #4D574B;
     --text-muted: #727C70;
     
-    /* Bamboo primary colors */
-    --bamboo: #35652E;
-    --bamboo-hover: #295023;
-    --bamboo-light: #4E8645;
-    --bamboo-subtle: #EAF3E8;
-    --bamboo-border: #B7D9B1;
+    /* Brand (bamboo) primary colors */
+    --brand: #35652E;
+    --brand-hover: #295023;
+    --brand-light: #4E8645;
+    --brand-subtle: #EAF3E8;
+    --brand-border: #B7D9B1;
     
     --accent: #35652E;
     --accent-subtle: #EAF3E8;
@@ -79,12 +79,12 @@
     --text-secondary: #C5CEC3;
     --text-muted: #8D988B;
     
-    /* Bamboo highlights */
-    --bamboo: #5FA554;
-    --bamboo-hover: #72BE66;
-    --bamboo-light: #7FCF73;
-    --bamboo-subtle: #1C331A;
-    --bamboo-border: #385734;
+    /* Brand (bamboo) highlights */
+    --brand: #5FA554;
+    --brand-hover: #72BE66;
+    --brand-light: #7FCF73;
+    --brand-subtle: #1C331A;
+    --brand-border: #385734;
     
     --accent: #5FA554;
     --accent-subtle: #1C331A;

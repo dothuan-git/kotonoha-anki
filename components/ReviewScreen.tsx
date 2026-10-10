@@ -54,8 +54,8 @@ type Rating = 1 | 2 | 3 | 4;
 const RATING_STYLES: Record<Rating, string> = {
   1: 'border border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20',
   2: 'border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20',
-  3: 'border border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-[var(--bamboo)] hover:opacity-90',
-  4: 'bg-[var(--bamboo)] text-white hover:opacity-90 shadow-xs',
+  3: 'border border-[var(--brand-border)] bg-[var(--brand-subtle)] text-[var(--brand)] hover:opacity-90',
+  4: 'bg-[var(--brand)] text-white hover:opacity-90 shadow-xs',
 };
 
 const ALL_RATINGS = [1, 2, 3, 4] as const;
@@ -1023,7 +1023,7 @@ export function ReviewScreen({
           </span>
           <div className="w-24 h-1.5 bg-[var(--bg-muted)] rounded-full overflow-hidden">
             <div
-              className="h-full bg-[var(--bamboo)] rounded-full transition-all duration-300"
+              className="h-full bg-[var(--brand)] rounded-full transition-all duration-300"
               style={{ width: `${((done + 1) / total) * 100}%` }}
             />
           </div>
@@ -1054,7 +1054,7 @@ export function ReviewScreen({
             aria-pressed={typing}
             className={`px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:cursor-default disabled:opacity-60 ${
               typing
-                ? 'bg-[var(--bamboo-subtle)] border-[var(--bamboo-border)] text-[var(--bamboo)] font-semibold'
+                ? 'bg-[var(--brand-subtle)] border-[var(--brand-border)] text-[var(--brand)] font-semibold'
                 : 'border-[var(--border-subtle)] text-[var(--text-secondary)] enabled:hover:border-[var(--border-strong)]'
             } ${isRevealed ? '' : 'cursor-pointer'}`}
             title={
@@ -1080,8 +1080,8 @@ export function ReviewScreen({
               onClick={() => setEditing((v) => !v)}
               className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${
                 editing
-                  ? 'border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-[var(--bamboo)]'
-                  : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)]'
+                  ? 'border-[var(--brand-border)] bg-[var(--brand-subtle)] text-[var(--brand)]'
+                  : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--brand)]'
               }`}
               title="Sửa từ này"
             >
@@ -1122,7 +1122,7 @@ export function ReviewScreen({
             animate={{ opacity: 1, y: 0, height: 'auto' }}
             exit={{ opacity: 0, y: -8, height: 0 }}
             transition={{ duration: 0.18 }}
-            className="w-full mt-2 py-2 px-3 rounded-lg bg-[var(--bamboo-subtle)] border border-[var(--bamboo-border)] text-xs text-[var(--bamboo)] overflow-hidden"
+            className="w-full mt-2 py-2 px-3 rounded-lg bg-[var(--brand-subtle)] border border-[var(--brand-border)] text-xs text-[var(--brand)] overflow-hidden"
           >
             {notice}
           </motion.div>
@@ -1151,14 +1151,14 @@ export function ReviewScreen({
           transition={{ duration: 0.18, ease: 'easeOut' }}
           onClick={!isRevealed && !typing ? handleReveal : undefined}
           className={`w-full mt-3 flex-1 min-h-0 overflow-y-auto bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl p-5 sm:p-7 flex flex-col shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-colors ${
-            !isRevealed && !typing ? 'cursor-pointer hover:border-[var(--bamboo)]/50' : ''
+            !isRevealed && !typing ? 'cursor-pointer hover:border-[var(--brand)]/50' : ''
           }`}
         >
           {/* Card Header Tags */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               {word.jlpt && (
-                <span className="px-2.5 py-0.5 rounded-md bg-[var(--bamboo-subtle)] border border-[var(--bamboo-border)]/50 text-[var(--bamboo)] text-xs font-semibold">
+                <span className="px-2.5 py-0.5 rounded-md bg-[var(--brand-subtle)] border border-[var(--brand-border)]/50 text-[var(--brand)] text-xs font-semibold">
                   {word.jlpt}
                 </span>
               )}
@@ -1189,7 +1189,7 @@ export function ReviewScreen({
                 <span
                   className={
                     fontStyle === 'mincho'
-                      ? 'font-jp-serif font-bold text-[var(--bamboo)]'
+                      ? 'font-jp-serif font-bold text-[var(--brand)]'
                       : 'font-jp-sans'
                   }
                 >
@@ -1209,7 +1209,7 @@ export function ReviewScreen({
                   playWordAudio(word);
                 }}
                 disabled={!canHearWord}
-                className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 p-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--bamboo)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 p-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--brand)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 title={canHearWord ? 'Nghe phát âm' : 'Nghe phát âm sau khi trả lời'}
               >
                 <Volume2 className="h-3.5 w-3.5" />
@@ -1319,7 +1319,7 @@ export function ReviewScreen({
                     transition={{ duration: 0.16 }}
                     className="mt-8 text-xs text-[var(--text-muted)] flex items-center justify-center gap-1.5"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[var(--bamboo)]" />
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--brand)]" />
                     <span>Chạm hoặc bấm Phím cách để xem đáp án</span>
                   </motion.div>
                 ))}
@@ -1382,7 +1382,7 @@ export function ReviewScreen({
                           e.stopPropagation();
                           playSentenceAudio(sentence);
                         }}
-                        className="p-1 text-[var(--text-muted)] hover:text-[var(--bamboo)] shrink-0 cursor-pointer"
+                        className="p-1 text-[var(--text-muted)] hover:text-[var(--brand)] shrink-0 cursor-pointer"
                         title="Nghe câu ví dụ"
                       >
                         <Volume2 className="w-4 h-4" />
@@ -1437,7 +1437,7 @@ export function ReviewScreen({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={handleReveal}
-                  className="w-full py-3.5 rounded-xl bg-[var(--bamboo)] hover:bg-[var(--bamboo-hover)] text-white text-sm font-semibold tracking-wide transition-colors cursor-pointer shadow-xs"
+                  className="w-full py-3.5 rounded-xl bg-[var(--brand)] hover:bg-[var(--brand-hover)] text-white text-sm font-semibold tracking-wide transition-colors cursor-pointer shadow-xs"
                 >
                   Hiện đáp án (Phím cách)
                 </motion.button>
@@ -1522,7 +1522,7 @@ const JP_ROW_SIZE = 'text-xl sm:text-2xl';
 
 const ROW_STYLES: Record<RevealedRow['kind'], string> = {
   headword: `${JP_ROW_SIZE} text-[var(--text-primary)] select-all`,
-  reading: `font-jp-serif ${JP_ROW_SIZE} font-semibold tracking-wide text-[var(--bamboo)]`,
+  reading: `font-jp-serif ${JP_ROW_SIZE} font-semibold tracking-wide text-[var(--brand)]`,
   vietnamese: 'text-base font-semibold leading-snug text-[var(--text-primary)]',
 };
 
@@ -1583,7 +1583,7 @@ function HanVietTag({ hanViet }: { hanViet: string }) {
 function Verdict({ attempt }: { attempt: Attempt }) {
   if (attempt.correct) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] px-3 py-2 text-sm font-semibold text-[var(--bamboo)]">
+      <div className="flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-[var(--brand-subtle)] px-3 py-2 text-sm font-semibold text-[var(--brand)]">
         <Check className="h-4 w-4 shrink-0" />
         <span>Chính xác</span>
         {/* Which try it took, because it is the thing the grade should turn
@@ -1675,7 +1675,7 @@ function Finished({
               type="button"
               onClick={onNext}
               disabled={busy || !copy.next.enabled}
-              className="px-5 py-2.5 rounded-xl bg-[var(--bamboo)] text-white text-sm font-semibold hover:bg-[var(--bamboo-hover)] transition-opacity cursor-pointer flex items-center gap-2 shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
+              className="px-5 py-2.5 rounded-xl bg-[var(--brand)] text-white text-sm font-semibold hover:bg-[var(--brand-hover)] transition-opacity cursor-pointer flex items-center gap-2 shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Play className="w-4 h-4" />
               <span>{busy ? 'Đang chuẩn bị…' : copy.next.label}</span>
@@ -1837,7 +1837,7 @@ function Recap({ words }: { words: MissedWord[] }) {
           onClick={() => void copy()}
           className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
             copied
-              ? 'border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-[var(--bamboo)]'
+              ? 'border-[var(--brand-border)] bg-[var(--brand-subtle)] text-[var(--brand)]'
               : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]'
           }`}
         >
