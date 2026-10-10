@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
+import { hydrateGrammar } from '@/lib/db/grammar';
 import { getSettings, hydrateWords } from '@/lib/db/queries';
 import { cardStates, cards, grammarPoints, reviewLogs, words } from '@/lib/db/schema';
 import { startOfStudyDay } from '@/lib/fsrs/day';
@@ -27,12 +28,14 @@ import { UNDO_WINDOW_MS } from '@/lib/types';
 import type {
   CardKind,
   CardStateView,
+  GrammarView,
   PendingReview,
   RateResult,
   ReviewItem,
   SessionView,
   SyncResult,
   UndoResult,
+  WordView,
 } from '@/lib/types';
 
 /**
@@ -349,11 +352,12 @@ export async function buildSession(
   const seed = startOfStudyDay(now).getTime();
   const meta = new Map([...learningRows, ...dueRows, ...newRows].map((c) => [c.cardId, c]));
   const [items, next] = await Promise.all([
-    hydrateQueue(expandFaces(queue, seed, FACES_PER_CARD[kind]), meta, params, now),
-    hydrateQueue(expandFaces(nextQueue, seed + 1, FACES_PER_CARD[kind]), meta, params, now),
+    hydrateQueue(expandFaces(queue, seed, FACES_PER_CARD[kind]), meta, params, now, kind),
+    hydrateQueue(expandFaces(nextQueue, seed + 1, FACES_PER_CARD[kind]), meta, params, now, kind),
   ]);
 
   return {
+    kind,
     now: now.toISOString(),
     items,
     next,
@@ -393,19 +397,19 @@ export async function hydrateQueue(
   meta: Map<string, { leechAckedAt: Date | null; createdAt: Date }>,
   params: FsrsParams,
   now: Date,
+  kind: CardKind = 'word',
 ): Promise<ReviewItem[]> {
   if (queue.length === 0) return [];
 
   const cardIds = queue.map((q) => q.cardId);
-  const wordIds = [...new Set(queue.map((q) => q.ownerId))];
+  const ownerIds = [...new Set(queue.map((q) => q.ownerId))];
 
-  const [logRows, wordRows] = await Promise.all([
+  const [logRows, owners] = await Promise.all([
     selectLogs(cardIds),
-    db.select().from(words).where(inArray(words.id, wordIds)),
+    loadOwners(kind, ownerIds),
   ]);
 
   const logsByCard = groupLogs(logRows);
-  const wordViews = new Map((await hydrateWords(wordRows)).map((w) => [w.id, w]));
 
   // Folded once per card, not once per showing: the two faces are the same
   // card and must carry the same state, or the second would render previews
@@ -415,8 +419,7 @@ export async function hydrateQueue(
   const items: ReviewItem[] = [];
   for (const entry of queue) {
     const card = meta.get(entry.cardId);
-    const word = wordViews.get(entry.ownerId);
-    if (!card || !word) continue;
+    if (!card) continue;
 
     let folded = folds.get(entry.cardId);
     if (!folded) {
@@ -424,17 +427,45 @@ export async function hydrateQueue(
       folds.set(entry.cardId, folded);
     }
 
-    items.push({
+    const base = {
       cardId: entry.cardId,
-      face: entry.face,
       isNew: entry.isNew,
-      word,
       state: toStateView(folded),
       previews: toPreviews(folded, now, params),
       leechAcked: card.leechAckedAt !== null,
-    });
+    };
+
+    if (owners.kind === 'grammar') {
+      const grammar = owners.views.get(entry.ownerId);
+      // A point with no sentences has nothing to ask. The form and the
+      // importer both require one, so this is a hand-edited database.
+      if (!grammar || grammar.sentences.length === 0) continue;
+      items.push({ ...base, kind: 'grammar', face: 'produce', grammar });
+    } else {
+      const word = owners.views.get(entry.ownerId);
+      if (!word || entry.face === 'produce') continue;
+      items.push({ ...base, kind: 'word', face: entry.face, word });
+    }
   }
   return items;
+}
+
+/** The words or grammar points a queue's cards stand for, as views by id. */
+async function loadOwners(
+  kind: CardKind,
+  ids: string[],
+): Promise<
+  | { kind: 'word'; views: Map<string, WordView> }
+  | { kind: 'grammar'; views: Map<string, GrammarView> }
+> {
+  if (kind === 'grammar') {
+    const rows = await db.select().from(grammarPoints).where(inArray(grammarPoints.id, ids));
+    const views = await hydrateGrammar(rows);
+    return { kind, views: new Map(views.map((g) => [g.id, g])) };
+  }
+  const rows = await db.select().from(words).where(inArray(words.id, ids));
+  const views = await hydrateWords(rows);
+  return { kind, views: new Map(views.map((w) => [w.id, w])) };
 }
 
 /** The folded card plus what it takes to apply the next rating to it. */

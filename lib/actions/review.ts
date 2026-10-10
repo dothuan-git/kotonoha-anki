@@ -10,7 +10,7 @@ import {
   undoReview as undoReviewLog,
   type ReviewFailure,
 } from '@/lib/db/review';
-import type { SessionView, UndoResult } from '@/lib/types';
+import type { CardKind, SessionView, UndoResult } from '@/lib/types';
 
 import type { ActionResult } from '@/lib/actions/words';
 
@@ -77,7 +77,9 @@ export async function undoReview(logId: string): Promise<ActionResult<UndoResult
  * yet (`dropUnsettled`): the undo window means the tail of the session that
  * just ended is still local, and those cards would otherwise be dealt again.
  */
-export async function startSession(): Promise<ActionResult<SessionView>> {
+export async function startSession(
+  kind: CardKind = 'word',
+): Promise<ActionResult<SessionView>> {
   try {
     await requireSession();
   } catch {
@@ -85,7 +87,10 @@ export async function startSession(): Promise<ActionResult<SessionView>> {
   }
 
   try {
-    return { ok: true, data: await buildSession() };
+    if (kind !== 'word' && kind !== 'grammar') {
+      return { ok: false, error: 'Không tải được phiên mới' };
+    }
+    return { ok: true, data: await buildSession(new Date(), kind) };
   } catch (error) {
     console.error('[startSession] failed', error);
     return { ok: false, error: 'Không tải được phiên mới' };

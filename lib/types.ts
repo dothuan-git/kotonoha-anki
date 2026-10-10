@@ -212,16 +212,10 @@ export type Face = 'word' | 'meaning' | 'produce';
 /** How many times a typed answer may be wrong before the card gives it up. */
 export const MAX_ANSWER_ATTEMPTS = 3;
 
-export interface ReviewItem {
+interface ReviewItemBase {
   cardId: string;
-  /**
-   * Which side is being asked. The other face of the same card is elsewhere in
-   * the same session, carrying the same `cardId` and the same `state`.
-   */
-  face: Face;
-  /** First ever showing — drives the "từ mới" badge and the new-card cap. */
+  /** First ever showing — drives the "mới" badge and the new-card cap. */
   isNew: boolean;
-  word: WordView;
   state: CardStateView;
   previews: RatingPreviews;
   /**
@@ -234,13 +228,40 @@ export interface ReviewItem {
    * Put back into the queue by a learning step rather than dealt by the day.
    *
    * Set on the device and never by the server, which deals each card exactly
-   * twice and knows nothing about the steps walked after that. It is on the
-   * wire shape regardless because the session is stored and resumed, and a
-   * repeat that came back from storage without it would be read as the word's
-   * other face — see `revises()`.
+   * as many times as it has faces and knows nothing about the steps walked
+   * after that. It is on the wire shape regardless because the session is
+   * stored and resumed, and a repeat that came back from storage without it
+   * would be read as the word's other face — see `revises()`.
    */
   repeat?: boolean;
 }
+
+export interface WordReviewItem extends ReviewItemBase {
+  /**
+   * Optional because sessions stored before grammar cards existed carry no
+   * kind, and every one of them is a word. Absent means `word`.
+   */
+  kind?: 'word';
+  /**
+   * Which side is being asked. The other face of the same card is elsewhere in
+   * the same session, carrying the same `cardId` and the same `state`.
+   */
+  face: 'word' | 'meaning';
+  word: WordView;
+}
+
+/** A grammar card: one face, a Vietnamese sentence to say in Japanese. */
+export interface GrammarReviewItem extends ReviewItemBase {
+  kind: 'grammar';
+  face: 'produce';
+  grammar: GrammarView;
+}
+
+/**
+ * One showing in a session. Everything the scheduler needs is on the base;
+ * what differs by kind is only what is put on the card.
+ */
+export type ReviewItem = WordReviewItem | GrammarReviewItem;
 
 /** Six lapses, and the prompt has not been shown yet. */
 export function isLeech(item: {
@@ -257,6 +278,11 @@ export interface RemainingWork {
 }
 
 export interface SessionView {
+  /**
+   * Which kind of card this session deals — sessions never mix them. Absent
+   * on sessions stored before grammar cards existed, which were all words.
+   */
+  kind?: CardKind;
   now: string;
   items: ReviewItem[];
   /**
@@ -267,7 +293,7 @@ export interface SessionView {
    * would end the day. Empty once nothing more is waiting.
    */
   next: ReviewItem[];
-  /** `settings.cardsPerSession`, carried for the finish screen's copy. */
+  /** The session budget — `cardsPerSession` or `grammarPerSession` — for the finish screen's copy. */
   cardsPerSession: number;
   /**
    * The only user-movable scheduler knob, carried so the client can build

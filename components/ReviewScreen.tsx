@@ -5,20 +5,24 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import { LeechPanel } from '@/components/LeechPanel';
-import type { ReviewEdit } from '@/components/ReviewEditPanel';
+import { ReviewEditPanel, type ReviewEdit } from '@/components/ReviewEditPanel';
 import { SyncStatus } from '@/components/SyncStatus';
 import { UndoToast } from '@/components/UndoToast';
 import { Finished } from '@/components/review/Finished';
+import { GrammarCard } from '@/components/review/GrammarCard';
+import { GrammarEditPanel, type GrammarEditPatch } from '@/components/review/GrammarEditPanel';
 import type { Attempt, FontStyle } from '@/components/review/types';
 import { WordCard } from '@/components/review/WordCard';
+import { patchGrammar } from '@/lib/actions/grammar';
 import { startPractice, startSession } from '@/lib/actions/review';
 import { updateWord } from '@/lib/actions/words';
-import { playWordAudio } from '@/lib/client/audio';
-import { PRACTICE_SESSION_KEY, SESSION_KEY } from '@/lib/client/db';
+import { playSentenceAudio, playWordAudio } from '@/lib/client/audio';
+import { GRAMMAR_SESSION_KEY, PRACTICE_SESSION_KEY, SESSION_KEY } from '@/lib/client/db';
 import { useOnline } from '@/lib/client/online';
 import { practiceRecorder } from '@/lib/client/recorder';
 import { recordingRecorder } from '@/lib/client/recording';
-import { chooseSession, loadSession, saveSession } from '@/lib/client/session';
+import { chooseSession, loadSession, relevantPending, saveSession } from '@/lib/client/session';
+import { pickSentence } from '@/lib/grammar';
 import { rateLocally } from '@/lib/fsrs/local';
 import { dropUnsettled, finishState } from '@/lib/session-end';
 import { resolvePair, revises, type PriorGrade } from '@/lib/fsrs/pair';
@@ -27,8 +31,10 @@ import { mergeMissed, missedWords, type MissedWord } from '@/lib/recap';
 import {
   RATING_LABELS,
   UNDO_WINDOW_MS,
+  type GrammarView,
   type RemainingWork,
   type ReviewItem,
+  type SentenceView,
   type SessionView,
   type SyncResult,
   type WordView,
@@ -133,8 +139,17 @@ export function ReviewScreen({
   );
   /** Practice writes nothing, so nothing downstream of a rating applies. */
   const records = mode === 'review';
-  /** Practice keeps its own stored queue: a drill must not evict a review. */
-  const storageKey = records ? SESSION_KEY : PRACTICE_SESSION_KEY;
+  /** Words or grammar. A session never mixes them; absent means words. */
+  const kind = serverSession.kind ?? 'word';
+  /**
+   * Each screen keeps its own stored queue: a drill must not evict a review,
+   * and a grammar session must not evict a word one.
+   */
+  const storageKey = !records
+    ? PRACTICE_SESSION_KEY
+    : kind === 'grammar'
+      ? GRAMMAR_SESSION_KEY
+      : SESSION_KEY;
 
   const [session, setSession] = useState<SessionView>(serverSession);
   const [queue, setQueue] = useState<ReviewItem[]>(serverSession.items);
@@ -302,16 +317,25 @@ export function ReviewScreen({
 
     void (async () => {
       const now = new Date();
-      const [stored, waiting] = await Promise.all([
+      const [stored, entries] = await Promise.all([
         loadSession(now, storageKey),
-        recorder.pendingCount(),
+        recorder.pendingEntries(),
       ]);
       if (cancelled) return;
+      // Everything waiting, for the sync indicator and the flush loop — the
+      // outbox drains as one whichever screen is open.
+      const waiting = entries.length;
 
       const chosen = chooseSession({
         server: serverSession,
         stored: stored?.session ?? null,
-        pendingCount: waiting,
+        // Only the ratings for cards this screen could deal: the outbox is
+        // shared with the other kind of review.
+        pendingCount: relevantPending(
+          entries,
+          [serverSession, stored?.session],
+          stored?.graded,
+        ),
         online: typeof navigator === 'undefined' ? true : navigator.onLine,
         now,
       });
@@ -392,8 +416,19 @@ export function ReviewScreen({
   const handleReveal = useCallback(() => {
     if (!currentWord || typing) return;
     setIsRevealed(true);
-    playWordAudio(currentWord.word);
+    speak(currentWord);
   }, [currentWord, typing]);
+
+  /**
+   * A grammar card's scratch pad, submitted. Nothing is judged — the attempt
+   * stays on the card beside the model sentence — so this is a reveal that
+   * typing mode is allowed to make.
+   */
+  const handleWritten = useCallback(() => {
+    if (!currentWord) return;
+    setIsRevealed(true);
+    speak(currentWord);
+  }, [currentWord]);
 
   /**
    * The card is done being typed at — right, out of tries, or given up on.
@@ -403,7 +438,7 @@ export function ReviewScreen({
     (result: Attempt) => {
       setAttempt(result);
       setIsRevealed(true);
-      if (currentWord) playWordAudio(currentWord.word);
+      if (currentWord) speak(currentWord);
     },
     [currentWord],
   );
@@ -688,11 +723,21 @@ export function ReviewScreen({
     });
   }, [undoable, session.requestRetention, recorder]);
 
+  /**
+   * A word or grammar point was rewritten mid-session: every showing of it in
+   * the queue, and every answer already recorded against it, now says the new
+   * thing — so the recap reads as rewritten too.
+   */
+  const applyEdit = useCallback((edit: (item: ReviewItem) => ReviewItem) => {
+    setQueue((q) => q.map(edit));
+    setAnswered((a) => a.map((x) => ({ ...x, item: edit(x.item) })));
+  }, []);
+
   /** Edit mid-review. Server first: a failed save must not leave a lie on screen. */
   const handleEditSave = useCallback(
     (patch: ReviewEdit) => {
       const item = queue[0];
-      if (!item) return;
+      if (!item || item.kind === 'grammar') return;
       const wordId = item.word.id;
 
       startTransition(async () => {
@@ -701,14 +746,31 @@ export function ReviewScreen({
           setError(result.error);
           return;
         }
-
-        const apply = (w: WordView): WordView => (w.id === wordId ? { ...w, ...patch } : w);
-        setQueue((q) => q.map((i) => ({ ...i, word: apply(i.word) })));
-        setAnswered((a) => a.map((x) => ({ ...x, item: { ...x.item, word: apply(x.item.word) } })));
+        applyEdit(editWord(wordId, patch));
         setEditing(false);
       });
     },
-    [queue],
+    [queue, applyEdit],
+  );
+
+  /** The grammar twin of `handleEditSave`. */
+  const handleGrammarEditSave = useCallback(
+    (patch: GrammarEditPatch) => {
+      const item = queue[0];
+      if (!item || item.kind !== 'grammar') return;
+      const grammarId = item.grammar.id;
+
+      startTransition(async () => {
+        const result = await patchGrammar(grammarId, patch);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        applyEdit(editGrammar(grammarId, patch));
+        setEditing(false);
+      });
+    },
+    [queue, applyEdit],
   );
 
   /**
@@ -726,14 +788,17 @@ export function ReviewScreen({
    * prompt that only the server can remember having shown once.
    */
   const handleLeechDone = useCallback(
-    (patch?: ReviewEdit) => {
+    (patch?: ReviewEdit | GrammarEditPatch) => {
       const item = leeched;
       if (!item) return;
       setLeeched(null);
 
       startTransition(async () => {
         if (patch) {
-          const saved = await updateWord({ id: item.word.id, ...patch });
+          const saved =
+            item.kind === 'grammar'
+              ? await patchGrammar(item.grammar.id, patch as GrammarEditPatch)
+              : await updateWord({ id: item.word.id, ...(patch as ReviewEdit) });
           if (!saved.ok) {
             setError(saved.error);
             // The rewrite failed, so the prompt has not done its job. Put it
@@ -741,11 +806,10 @@ export function ReviewScreen({
             setLeeched(item);
             return;
           }
-          const apply = (w: WordView): WordView =>
-            w.id === item.word.id ? { ...w, ...patch } : w;
-          setQueue((q) => q.map((i) => ({ ...i, word: apply(i.word) })));
-          setAnswered((a) =>
-            a.map((x) => ({ ...x, item: { ...x.item, word: apply(x.item.word) } })),
+          applyEdit(
+            item.kind === 'grammar'
+              ? editGrammar(item.grammar.id, patch as GrammarEditPatch)
+              : editWord(item.word.id, patch as ReviewEdit),
           );
         }
 
@@ -757,7 +821,7 @@ export function ReviewScreen({
         setNotice('Đã ghi nhận thẻ khó.');
       });
     },
-    [leeched, recorder],
+    [leeched, recorder, applyEdit],
   );
 
   /**
@@ -816,7 +880,7 @@ export function ReviewScreen({
           // Practice queues nothing, so there is nothing to drain first and
           // no reason to make the next page wait on a flush.
           if (records) await sync();
-          const result = records ? await startSession() : await startPractice(nextPage);
+          const result = records ? await startSession(kind) : await startPractice(nextPage);
           if (!result.ok) {
             setError(result.error);
             return;
@@ -853,7 +917,7 @@ export function ReviewScreen({
         setNextPending(false);
       }
     })();
-  }, [ready, nextPending, session, graded, online, sync, recorder, records, storageKey]);
+  }, [ready, nextPending, session, graded, online, sync, recorder, records, storageKey, kind]);
 
   // Keyboard shortcut support
   useEffect(() => {
@@ -930,7 +994,8 @@ export function ReviewScreen({
           unsettled,
           practice: session.practice,
         })}
-        summary={answered.length > 0 ? summarise(answered) : null}
+        kind={kind}
+        summary={answered.length > 0 ? summarise(answered, kind) : null}
         missed={missed}
         now={session.now}
         busy={nextPending}
@@ -1006,6 +1071,10 @@ export function ReviewScreen({
             title={
               isRevealed
                 ? 'Đáp án đã hiện — đổi cách trả lời ở thẻ sau'
+                : currentWord.kind === 'grammar'
+                  ? typing
+                    ? 'Chế độ gõ — viết câu tiếng Nhật rồi so với câu mẫu. Bấm hoặc Alt+` để quay lại thẻ lật.'
+                    : 'Thẻ lật — nói hoặc nghĩ câu trả lời rồi lật xem. Bấm hoặc Alt+` để chuyển sang viết câu.'
                 : typing
                   ? asking
                     ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm hoặc Alt+` để quay lại thẻ lật.'
@@ -1029,7 +1098,7 @@ export function ReviewScreen({
                   ? 'border-[var(--brand-border)] bg-[var(--brand-subtle)] text-[var(--brand)]'
                   : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--brand)]'
               }`}
-              title="Sửa từ này"
+              title={currentWord.kind === 'grammar' ? 'Sửa mẫu ngữ pháp này' : 'Sửa từ này'}
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
@@ -1043,7 +1112,7 @@ export function ReviewScreen({
         {undoable && (
           <UndoToast
             key={undoable.logId}
-            headword={undoable.item.word.headword}
+            headword={itemLabel(undoable.item)}
             rating={undoable.rating}
             expiresAt={undoable.expiresAt}
             busy={saving}
@@ -1052,14 +1121,25 @@ export function ReviewScreen({
           />
         )}
         {leeched && (
-          <LeechPanel
-            key={`leech-${leeched.cardId}`}
-            word={leeched.word}
-            lapses={leeched.state.lapses}
-            saving={saving}
-            onSave={(patch) => handleLeechDone(patch)}
-            onDismiss={() => handleLeechDone()}
-          />
+          <LeechPanel key={`leech-${leeched.cardId}`} lapses={leeched.state.lapses}>
+            {leeched.kind === 'grammar' ? (
+              <GrammarEditPanel
+                grammar={leeched.grammar}
+                saving={saving}
+                onCancel={() => handleLeechDone()}
+                onSave={(patch) => handleLeechDone(patch)}
+                cancelLabel="Để nguyên"
+              />
+            ) : (
+              <ReviewEditPanel
+                word={leeched.word}
+                saving={saving}
+                onCancel={() => handleLeechDone()}
+                onSave={(patch) => handleLeechDone(patch)}
+                cancelLabel="Để nguyên"
+              />
+            )}
+          </LeechPanel>
         )}
         {notice && (
           <motion.div
@@ -1100,23 +1180,39 @@ export function ReviewScreen({
             !isRevealed && !typing ? 'cursor-pointer hover:border-[var(--brand)]/50' : ''
           }`}
         >
-          <WordCard
-            cardId={currentWord.cardId}
-            word={currentWord.word}
-            face={face}
-            done={done}
-            isRevealed={isRevealed}
-            typing={typing}
-            attempt={attempt}
-            attemptSeq={attemptSeq}
-            saving={saving}
-            editing={editing}
-            fontStyle={fontStyle}
-            setFontStyle={setFontStyle}
-            onAnswer={handleAnswer}
-            onEditSave={handleEditSave}
-            onEditCancel={() => setEditing(false)}
-          />
+          {currentWord.kind === 'grammar' ? (
+            <GrammarCard
+              grammar={currentWord.grammar}
+              sentence={sentenceFor(currentWord)}
+              isRevealed={isRevealed}
+              typing={typing}
+              saving={saving}
+              editing={editing}
+              fontStyle={fontStyle}
+              setFontStyle={setFontStyle}
+              onSubmit={handleWritten}
+              onEditSave={handleGrammarEditSave}
+              onEditCancel={() => setEditing(false)}
+            />
+          ) : (
+            <WordCard
+              cardId={currentWord.cardId}
+              word={currentWord.word}
+              face={currentWord.face}
+              done={done}
+              isRevealed={isRevealed}
+              typing={typing}
+              attempt={attempt}
+              attemptSeq={attemptSeq}
+              saving={saving}
+              editing={editing}
+              fontStyle={fontStyle}
+              setFontStyle={setFontStyle}
+              onAnswer={handleAnswer}
+              onEditSave={handleEditSave}
+              onEditCancel={() => setEditing(false)}
+            />
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -1211,13 +1307,46 @@ export function ReviewScreen({
   );
 }
 
-function summarise(answered: Answered[]): string {
-  // Words, not showings: each was asked twice and graded once, so counting
+function summarise(answered: Answered[], kind: 'word' | 'grammar'): string {
+  // Cards, not showings: a word is asked twice and graded once, so counting
   // the answers would report a session twice the size of the work done.
   const cards = new Set(answered.map((a) => a.item.cardId)).size;
   const forgotten = answered.filter((a) => a.rating === 1).length;
   const forgot = forgotten > 0 ? `, ${forgotten} lượt quên` : '';
-  return `${cards} từ, ${answered.length} lượt chấm${forgot}.`;
+  return `${cards} ${kind === 'grammar' ? 'mẫu' : 'từ'}, ${answered.length} lượt chấm${forgot}.`;
+}
+
+/** The example a grammar showing asks, rotated by how often the card has been reviewed. */
+function sentenceFor(item: { grammar: GrammarView; state: { reps: number } }): SentenceView {
+  // `hydrateQueue` never deals a point without sentences.
+  return pickSentence(item.grammar.sentences, item.state.reps)!;
+}
+
+/** Say the card's answer: a word's reading, or a grammar card's sentence. */
+function speak(item: ReviewItem): void {
+  if (item.kind === 'grammar') playSentenceAudio(sentenceFor(item));
+  else playWordAudio(item.word);
+}
+
+/** What the undo toast names the card by. */
+function itemLabel(item: ReviewItem): string {
+  return item.kind === 'grammar' ? item.grammar.pattern : item.word.headword;
+}
+
+/** An edit to one word, applied to every item that shows it. */
+function editWord(wordId: string, patch: Partial<WordView>) {
+  return (item: ReviewItem): ReviewItem =>
+    item.kind !== 'grammar' && item.word.id === wordId
+      ? { ...item, word: { ...item.word, ...patch } }
+      : item;
+}
+
+/** An edit to one grammar point, applied to every item that shows it. */
+function editGrammar(grammarId: string, patch: Partial<GrammarView>) {
+  return (item: ReviewItem): ReviewItem =>
+    item.kind === 'grammar' && item.grammar.id === grammarId
+      ? { ...item, grammar: { ...item.grammar, ...patch } }
+      : item;
 }
 
 /**

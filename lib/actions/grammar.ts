@@ -107,3 +107,43 @@ export async function setGrammarSuspended(id: string, suspended: boolean): Promi
   revalidate();
   return { ok: true, data: undefined };
 }
+
+const grammarEdit = z.object({
+  meaning: z.string().trim().min(1, 'Chưa nhập nghĩa').max(500),
+  formation: z
+    .string()
+    .trim()
+    .max(500)
+    .nullish()
+    .transform((value) => (value ? value : null)),
+  note: z
+    .string()
+    .trim()
+    .max(2000)
+    .nullish()
+    .transform((value) => (value ? value : null)),
+});
+
+export type GrammarEdit = z.input<typeof grammarEdit>;
+
+/**
+ * The mid-review fix: meaning, formation and note — the things you can see
+ * are wrong while looking at the card. The pattern and the sentences are what
+ * the card *is*, and are edited on /grammar/list.
+ */
+export async function patchGrammar(id: string, input: GrammarEdit): Promise<ActionResult> {
+  if (!(await signedIn())) return fail('Chưa đăng nhập');
+
+  const parsed = grammarEdit.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? 'Dữ liệu không hợp lệ');
+
+  try {
+    await db.update(grammarPoints).set(parsed.data).where(eq(grammarPoints.id, id));
+  } catch (error) {
+    if (isUniqueViolation(error)) return fail(DUPLICATE);
+    console.error('[patchGrammar] failed', error);
+    return fail('Không cập nhật được mẫu ngữ pháp');
+  }
+  revalidate();
+  return { ok: true, data: undefined };
+}

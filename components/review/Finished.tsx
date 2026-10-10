@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { formatDueIn } from '@/lib/fsrs/format';
 import { toCsv, type MissedWord } from '@/lib/recap';
 import type { FinishState } from '@/lib/session-end';
-import type { RemainingWork } from '@/lib/types';
+import type { CardKind, RemainingWork } from '@/lib/types';
 
 /**
  * The prototype's completion screen, rebuilt around the fact that finishing a
@@ -25,6 +25,7 @@ import type { RemainingWork } from '@/lib/types';
  */
 export function Finished({
   state,
+  kind = 'word',
   summary,
   missed,
   now,
@@ -33,6 +34,8 @@ export function Finished({
   onNext,
 }: {
   state: FinishState;
+  /** Which collection the copy and the "add" link talk about. */
+  kind?: CardKind;
   summary: string | null;
   missed: MissedWord[];
   now: string;
@@ -40,7 +43,7 @@ export function Finished({
   error: string | null;
   onNext: () => void;
 }) {
-  const copy = finishCopy(state, now);
+  const copy = finishCopy(state, now, kind);
 
   return (
     <motion.div
@@ -70,7 +73,7 @@ export function Finished({
 
       {error && <p className="mt-3 text-xs text-[var(--rust)]">{error}</p>}
 
-      {missed.length > 0 && <Recap words={missed} />}
+      {missed.length > 0 && <Recap words={missed} unit={kind === 'grammar' ? 'mẫu' : 'từ'} />}
 
       <div className="mt-8 flex flex-col items-center gap-2">
         <div className="flex items-center justify-center gap-3">
@@ -86,11 +89,11 @@ export function Finished({
             </button>
           )}
           <Link
-            href="/add"
+            href={kind === 'grammar' ? '/grammar/add' : '/add'}
             className="px-5 py-2.5 rounded-xl bg-[var(--text-primary)] text-[var(--bg-page)] text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2 shadow-xs"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Thêm từ vựng</span>
+            <span>{kind === 'grammar' ? 'Thêm ngữ pháp' : 'Thêm từ vựng'}</span>
           </Link>
         </div>
         {copy.next && !copy.next.enabled && (
@@ -105,6 +108,7 @@ export function Finished({
 function finishCopy(
   state: FinishState,
   now: string,
+  kind: CardKind,
 ): {
   title: string;
   detail: string;
@@ -114,7 +118,10 @@ function finishCopy(
     case 'empty-collection':
       return {
         title: 'Chưa có thẻ nào',
-        detail: 'Chưa có thẻ nào trong sổ. Thêm từ đầu tiên và nó sẽ xuất hiện ở đây ngay.',
+        detail:
+          kind === 'grammar'
+            ? 'Chưa có mẫu ngữ pháp nào. Thêm mẫu đầu tiên và nó sẽ xuất hiện ở đây ngay.'
+            : 'Chưa có thẻ nào trong sổ. Thêm từ đầu tiên và nó sẽ xuất hiện ở đây ngay.',
       };
 
     case 'waiting-for-sync':
@@ -125,7 +132,7 @@ function finishCopy(
       };
 
     case 'more-waiting': {
-      const rest = describeRemaining(state.remaining);
+      const rest = describeRemaining(state.remaining, kind);
       return {
         title: 'Xong phiên này',
         detail: state.canDeal
@@ -146,7 +153,9 @@ function finishCopy(
       return {
         title: 'Đã ôn hết',
         detail: state.outOfNewWords
-          ? `${due} Sổ từ không còn từ mới nào — thêm từ để học tiếp.`
+          ? kind === 'grammar'
+            ? `${due} Không còn mẫu ngữ pháp mới nào — thêm mẫu để học tiếp.`
+            : `${due} Sổ từ không còn từ mới nào — thêm từ để học tiếp.`
           : due,
       };
     }
@@ -155,8 +164,8 @@ function finishCopy(
       return {
         title: 'Không còn thẻ đến hạn',
         detail: state.nextDue
-          ? `Bạn đã ôn xong các từ đến hạn. Thẻ gần nhất ${formatDueIn(new Date(now), new Date(state.nextDue))}.`
-          : 'Bạn đã ôn xong các từ đến hạn.',
+          ? `Bạn đã ôn xong các thẻ đến hạn. Thẻ gần nhất ${formatDueIn(new Date(now), new Date(state.nextDue))}.`
+          : 'Bạn đã ôn xong các thẻ đến hạn.',
       };
 
     case 'practice-empty':
@@ -205,7 +214,7 @@ function finishCopy(
  * is absent outside a secure context and can reject inside one, and a copy
  * button that fails silently on a list you are about to close is a list lost.
  */
-function Recap({ words }: { words: MissedWord[] }) {
+function Recap({ words, unit }: { words: MissedWord[]; unit: string }) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const csv = toCsv(words);
@@ -233,7 +242,7 @@ function Recap({ words }: { words: MissedWord[] }) {
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Cần ôn thêm</h3>
           <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-muted)]">
-            {words.length} từ bạn chấm Quên hoặc Khó trong phiên này.
+            {words.length} {unit} bạn chấm Quên hoặc Khó trong phiên này.
           </p>
         </div>
         <button
@@ -263,7 +272,7 @@ function Recap({ words }: { words: MissedWord[] }) {
               <p className="font-jp-serif text-base text-[var(--text-primary)]">{word.headword}</p>
               {/* A kana-only word is its own reading; printing it twice reads
                   as a mistake rather than as a fact about the word. */}
-              {word.reading !== word.headword && (
+              {word.reading && word.reading !== word.headword && (
                 <p className="mt-0.5 font-jp-sans text-xs text-[var(--text-muted)]">
                   {word.reading}
                 </p>
@@ -289,9 +298,11 @@ function Recap({ words }: { words: MissedWord[] }) {
 }
 
 /** "Còn 12 thẻ đến hạn và 3 từ mới", dropping whichever half is zero. */
-function describeRemaining(remaining: RemainingWork): string {
+function describeRemaining(remaining: RemainingWork, kind: CardKind): string {
   const parts: string[] = [];
   if (remaining.reviewCards > 0) parts.push(`${remaining.reviewCards} thẻ đến hạn`);
-  if (remaining.newCards > 0) parts.push(`${remaining.newCards} từ mới`);
+  if (remaining.newCards > 0) {
+    parts.push(`${remaining.newCards} ${kind === 'grammar' ? 'mẫu mới' : 'từ mới'}`);
+  }
   return parts.join(' và ');
 }
