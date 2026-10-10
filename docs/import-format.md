@@ -90,128 +90,14 @@ Japanese; so the Vietnamese has to be natural, and the Japanese has to be the
 answer you would want to give — a sentence that only works with some *other*
 pattern is a card you will fail correctly.
 
-## The prompt that generates a file
+## The prompts that generate a file
 
-Paste into Claude, then the word list. Keep in step with `lib/import.ts` if the
-format changes.
+Each is a plain-text file: copy the whole file into Claude, then paste your
+list after the last line.
 
-````
-Generate a JSON file to bulk-import Japanese vocabulary into my Anki-style app.
+| Prompt | List to paste | Keep in step with |
+|---|---|---|
+| [prompts/import-words.txt](prompts/import-words.txt) | Words | `parseImport` in `lib/import.ts` |
+| [prompts/import-grammar.txt](prompts/import-grammar.txt) | Grammar points, one per line. `〜ために (mục đích)` asks for that one meaning; a bare pattern gets one object per distinct meaning. | `parseGrammarImport` in `lib/import.ts` |
 
-Output ONE JSON code block and nothing else — no commentary before or after.
-
-Shape:
-{
-  "source": "<short name for this batch, e.g. the textbook lesson>",
-  "words": [ { …one object per word, in the order I gave them… } ]
-}
-
-Fields per word:
-
-- "headword"  (required) The word as written in Japanese — kanji if it has kanji.
-- "reading"   (required) The reading in HIRAGANA ONLY (katakana for loanwords).
-              Never any kanji here. The app speaks this field aloud.
-- "meaning"   (required) The Vietnamese meaning. Several senses separated by commas.
-- "pos"       (required) EXACTLY one of these English strings:
-                "Noun", "Verb 1", "Verb 2", "Verb 3", "I-adjective",
-                "Na-adjective", "Adverb", "Particle", "Conjunction",
-                "Counter", "Expression"
-              Verb 1 = godan/五段 (飲む, 書く). Verb 2 = ichidan/一段 (食べる, 見る).
-              Verb 3 = irregular (する, 来る, and every 〜する compound verb).
-              A noun like 勉強 that takes する stays "Noun".
-- "transitivity" (verbs only, omit otherwise) "transitive" or "intransitive".
-- "jlpt"      (optional) One of "N5", "N4", "N3", "N2", "N1".
-- "note"      (optional) A short Vietnamese usage note. Omit if you have nothing useful.
-- "hanViet"   (optional) Object mapping each kanji in the headword to its Hán Việt
-              reading(s), lowercase, as an array: { "勉": ["miễn"], "強": ["cường"] }.
-- "sentence"  (optional but please include one) An example sentence:
-              { "jpRuby": "<sentence with furigana>", "vi": "<Vietnamese translation>" }
-
-Furigana format for "jpRuby" — this is the part to get exactly right:
-
-  Put the reading in square brackets immediately after each kanji run.
-  A bracket group annotates ONLY the kanji directly before it, never the
-  okurigana or the kana around it.
-
-    毎日[まいにち]日本語[にほんご]を勉強[べんきょう]します。
-    窓[まど]を開[あ]けてください。        ← 開[あ], NOT 開ける[あける]
-    友[とも]達[だち]                      ← WRONG, write 友達[ともだち]
-
-  A run of adjacent kanji is annotated as one group with its whole reading.
-  Kana needs no brackets. Do NOT include a separate plain-text version of the
-  sentence — the app derives it.
-
-Rules:
-- Keep my order. The app introduces the words in the order they appear in the file.
-- Every word exactly once. Do not invent words I did not give you.
-- Keep sentences short and at or below the word's JLPT level, and make sure each
-  sentence actually uses its headword.
-- Valid JSON: double quotes, no trailing commas, no comments.
-
-Here are the words:
-````
-
-## The prompt that generates a grammar file
-
-Paste into Claude, then the list of grammar points. Keep in step with
-`parseGrammarImport` in `lib/import.ts`.
-
-````
-Generate a JSON file to bulk-import Japanese grammar points into my Anki-style app.
-
-Output ONE JSON code block and nothing else — no commentary before or after.
-
-Shape:
-{
-  "source": "<short name for this batch, e.g. the textbook lesson>",
-  "grammar": [ { …one object per grammar point, in the order I gave them… } ]
-}
-
-Fields per grammar point:
-
-- "pattern"   (required) The pattern as a grammar book writes it, with 〜: "〜てしまう".
-- "meaning"   (required) ONE meaning, in short Vietnamese.
-              If a pattern has several distinct meanings, make one object per
-              meaning, each with its own sentences — never join two meanings in
-              one object. Example: 〜ために becomes two objects, "để (mục đích)"
-              and "vì (nguyên nhân)".
-              Distinct = translated differently or built differently. Nuances of
-              one idea stay together: 〜てしまう "lỡ…, mất rồi" is one object.
-- "formation" (optional) How it attaches, e.g. "V-て + しまう", "N + の + ために".
-- "jlpt"      (optional) One of "N5", "N4", "N3", "N2", "N1".
-- "note"      (optional) A short Vietnamese note: nuance, register, a common confusion.
-- "sentences" (required) 3 to 5 example sentences, each:
-              { "jpRuby": "<Japanese with furigana>", "vi": "<natural Vietnamese>" }
-
-How the card works, so you write sentences that fit it: the app shows the
-Vietnamese sentence and the pattern, and I say the Japanese. So:
-- Each Japanese sentence must use the pattern in THAT object's meaning, and be
-  the natural way to say the Vietnamese with it.
-- Each Vietnamese sentence must be natural Vietnamese, not a word-for-word gloss,
-  and must carry the meaning the pattern adds (regret, completion, purpose…).
-- Vary the sentences — different verbs and situations — so the pattern is what
-  repeats, not the sentence.
-- Keep them short and at or below the pattern's JLPT level.
-
-Furigana format for "jpRuby" — this is the part to get exactly right:
-
-  Put the reading in square brackets immediately after each kanji run.
-  A bracket group annotates ONLY the kanji directly before it, never the
-  okurigana or the kana around it.
-
-    財布[さいふ]をなくしてしまった。
-    窓[まど]を開[あ]けておきました。        ← 開[あ], NOT 開け[あけ]
-    友[とも]達[だち]                        ← WRONG, write 友達[ともだち]
-
-  Every kanji gets a reading. Kana needs no brackets. Do NOT include a separate
-  plain-text version of the sentence — the app derives it.
-
-Rules:
-- Keep my order. The app introduces the points in the order they appear in the file.
-  The objects of a split pattern go next to each other.
-- Every meaning exactly once. A meaning I wrote in brackets after a pattern is
-  one object; a pattern with no brackets gets one object per distinct meaning.
-- Valid JSON: double quotes, no trailing commas, no comments.
-
-Here are the grammar points:
-````
+If the format changes, change the prompt in the same commit.

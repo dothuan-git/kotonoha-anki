@@ -63,5 +63,5 @@ Breaking one of these is a bug even when it type-checks.
 - Server actions return `ActionResult` rather than throwing at the screen.
 - Pure logic lives in `lib/` and gets a Vitest test; tests use no database.
 - Schema changes go through `npm run db:generate`, never hand-written SQL.
-- Keep the docs current when behaviour changes — in particular the prompt in
-  [docs/import-format.md](docs/import-format.md) if the import format moves.
+- Keep the docs current when behaviour changes — in particular the prompts in
+  [docs/prompts/](docs/prompts/) if the import format moves.

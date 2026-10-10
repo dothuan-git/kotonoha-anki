@@ -1,0 +1,53 @@
+Generate a JSON file to bulk-import Japanese vocabulary into my Anki-style app.
+
+Output ONE JSON code block and nothing else — no commentary before or after.
+
+Shape:
+{
+  "source": "<short name for this batch, e.g. the textbook lesson>",
+  "words": [ { …one object per word, in the order I gave them… } ]
+}
+
+Fields per word:
+
+- "headword"  (required) The word as written in Japanese — kanji if it has kanji.
+- "reading"   (required) The reading in HIRAGANA ONLY (katakana for loanwords).
+              Never any kanji here. The app speaks this field aloud.
+- "meaning"   (required) The Vietnamese meaning. Several senses separated by commas.
+- "pos"       (required) EXACTLY one of these English strings:
+                "Noun", "Verb 1", "Verb 2", "Verb 3", "I-adjective",
+                "Na-adjective", "Adverb", "Particle", "Conjunction",
+                "Counter", "Expression"
+              Verb 1 = godan/五段 (飲む, 書く). Verb 2 = ichidan/一段 (食べる, 見る).
+              Verb 3 = irregular (する, 来る, and every 〜する compound verb).
+              A noun like 勉強 that takes する stays "Noun".
+- "transitivity" (verbs only, omit otherwise) "transitive" or "intransitive".
+- "jlpt"      (optional) One of "N5", "N4", "N3", "N2", "N1".
+- "note"      (optional) A short Vietnamese usage note. Omit if you have nothing useful.
+- "hanViet"   (optional) Object mapping each kanji in the headword to its Hán Việt
+              reading(s), lowercase, as an array: { "勉": ["miễn"], "強": ["cường"] }.
+- "sentence"  (optional but please include one) An example sentence:
+              { "jpRuby": "<sentence with furigana>", "vi": "<Vietnamese translation>" }
+
+Furigana format for "jpRuby" — this is the part to get exactly right:
+
+  Put the reading in square brackets immediately after each kanji run.
+  A bracket group annotates ONLY the kanji directly before it, never the
+  okurigana or the kana around it.
+
+    毎日[まいにち]日本語[にほんご]を勉強[べんきょう]します。
+    窓[まど]を開[あ]けてください。        ← 開[あ], NOT 開ける[あける]
+    友[とも]達[だち]                      ← WRONG, write 友達[ともだち]
+
+  A run of adjacent kanji is annotated as one group with its whole reading.
+  Kana needs no brackets. Do NOT include a separate plain-text version of the
+  sentence — the app derives it.
+
+Rules:
+- Keep my order. The app introduces the words in the order they appear in the file.
+- Every word exactly once. Do not invent words I did not give you.
+- Keep sentences short and at or below the word's JLPT level, and make sure each
+  sentence actually uses its headword.
+- Valid JSON: double quotes, no trailing commas, no comments.
+
+Here are the words:

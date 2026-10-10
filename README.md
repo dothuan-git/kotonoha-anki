@@ -61,7 +61,8 @@ reproduce.
 | [data-model.md](docs/data-model.md) | Tables, relationships, the invariants everything else assumes |
 | [review-model.md](docs/review-model.md) | The card model, answer matching, FSRS config, the study day, leeches and confusions |
 | [offline.md](docs/offline.md) | The outbox, sync, the service worker, installing as a PWA |
-| [import-format.md](docs/import-format.md) | The bulk-import JSON contract, and the prompt that generates a file |
+| [import-format.md](docs/import-format.md) | The bulk-import JSON contract for words and grammar |
+| [prompts/](docs/prompts/) | The prompts that generate an import file: [words](docs/prompts/import-words.txt), [grammar](docs/prompts/import-grammar.txt) |
 
 ## Not built
 
