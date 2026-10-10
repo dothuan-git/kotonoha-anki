@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState, useTransition } from 'react';
 
-import { ImportPreviewDialog } from '@/components/ImportPreviewDialog';
+import { ImportPreviewDialog, type Direction } from '@/components/ImportPreviewDialog';
 import { deleteImportBatch } from '@/lib/actions/imports';
 import { applyExclusions, countRows } from '@/lib/import';
 import type { ImportReport, PreviewRow, RowStatus } from '@/lib/import';
@@ -78,8 +78,8 @@ export function BulkImportScreen({
   // File positions the user struck off in the preview. Cleared with the file,
   // because the next file's row 3 is a different word.
   const [excluded, setExcluded] = useState<ReadonlySet<number>>(new Set());
-  /** The row open in the detail dialog, by file position. */
-  const [viewing, setViewing] = useState<number | null>(null);
+  /** The row open in the detail dialog, by file position, and which way it was reached. */
+  const [viewing, setViewing] = useState<{ index: number; direction: Direction } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -148,8 +148,17 @@ export function BulkImportScreen({
   );
   const counts = useMemo(() => countRows(rows), [rows]);
   const canImport = status === 'previewing' && counts.ok > 0;
-  // Looked up from `rows`, so the dialog follows a row struck off behind it.
-  const viewed = rows.find((row) => row.index === viewing) ?? null;
+  // The rows the dialog can step through, and the one it shows — looked up
+  // from `rows`, so it follows a row struck off from inside it.
+  const openable = useMemo(() => rows.filter((row) => row.detail), [rows]);
+  const at = viewing ? openable.findIndex((row) => row.index === viewing.index) : -1;
+  const viewed = openable[at] ?? null;
+  const step = (by: -1 | 1) => {
+    const target = openable[at + by];
+    return target ? () => setViewing({ index: target.index, direction: by }) : null;
+  };
+  const viewedRemovable =
+    viewed && status === 'previewing' && (viewed.status === 'ok' || viewed.status === 'excluded');
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -250,7 +259,7 @@ export function BulkImportScreen({
                 row={row}
                 editable={status === 'previewing'}
                 onToggle={() => toggleExcluded(row.index)}
-                onOpen={() => setViewing(row.index)}
+                onOpen={() => setViewing({ index: row.index, direction: 0 })}
               />
             ))}
           </ul>
@@ -259,8 +268,12 @@ export function BulkImportScreen({
 
       <ImportPreviewDialog
         row={viewed}
-        status={viewed ? STATUS_STYLE[viewed.status] : undefined}
+        direction={viewing?.direction ?? 0}
+        position={viewed ? { current: at + 1, total: openable.length } : null}
         onClose={() => setViewing(null)}
+        onPrev={step(-1)}
+        onNext={step(1)}
+        onToggle={viewedRemovable ? () => toggleExcluded(viewed.index) : null}
       />
 
       <BatchHistory batches={batches} noun={copy.noun} />

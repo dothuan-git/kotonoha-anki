@@ -50,7 +50,8 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
   re-parses the same bytes, so nothing about the row has to be trusted from the
   round trip.
 - **A row opens its detail on click** — part of speech, Hán Việt, sentences,
-  note; for grammar, formation and every sentence. Each preview row carries a
+  note; for grammar, formation and every sentence. ←/→ step through the rows
+  and a row can be struck off from there. Each preview row carries a
   `detail` built from the parse (`previewDetails`) before the duplicate check
   and the exclusions clear `data`, so a skipped row still shows what the file
   says. It is display fields only, never the insert payload. An invalid row has
