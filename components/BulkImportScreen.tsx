@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Check, FileJson, Trash2, Undo2, Upload, X } from 'lucide-react';
+import { ArrowLeft, Check, ClipboardPaste, FileJson, Trash2, Undo2, Upload, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState, useTransition } from 'react';
@@ -9,24 +9,52 @@ import { ImportPreviewDialog, type Direction } from '@/components/ImportPreviewD
 import { deleteImportBatch } from '@/lib/actions/imports';
 import { applyExclusions, countRows } from '@/lib/import';
 import type { ImportReport, PreviewRow, RowStatus } from '@/lib/import';
-import { readRow, replaceRow, type RawRow } from '@/lib/import-edit';
+import { readRow, replaceRow, unfence, type RawRow } from '@/lib/import-edit';
 import type { CardKind, ImportBatchView } from '@/lib/types';
 
 /** What the screen calls one row of the file, and where "add one" lives. */
 const COPY: Record<
   CardKind,
-  { noun: string; list: string; addOne: string; addHref: '/add' | '/grammar/add' }
+  {
+    noun: string;
+    list: string;
+    addOne: string;
+    addHref: '/add' | '/grammar/add';
+    /** The envelope's row key, for the paste box's placeholder. */
+    rowsKey: 'words' | 'grammar';
+  }
 > = {
-  word: { noun: 'từ', list: 'danh sách từ', addOne: 'Thêm từng từ', addHref: '/add' },
+  word: {
+    noun: 'từ',
+    list: 'danh sách từ',
+    addOne: 'Thêm từng từ',
+    addHref: '/add',
+    rowsKey: 'words',
+  },
   grammar: {
     noun: 'mẫu',
     list: 'danh sách mẫu ngữ pháp',
     addOne: 'Thêm từng mẫu',
     addHref: '/grammar/add',
+    rowsKey: 'grammar',
   },
 };
 
 type Status = 'idle' | 'reading' | 'previewing' | 'importing' | 'done';
+
+/** Where the JSON comes from. Either way it is posted as a file. */
+type Input = 'file' | 'paste';
+
+const INPUTS: readonly { input: Input; label: string; Icon: typeof Upload }[] = [
+  { input: 'file', label: 'Chọn tệp', Icon: Upload },
+  { input: 'paste', label: 'Dán JSON', Icon: ClipboardPaste },
+];
+
+/**
+ * The name a paste is posted under. The server takes a file without a
+ * `source` to be named after itself, so this is what such a batch is called.
+ */
+const PASTE_FILENAME = 'JSON đã dán.json';
 
 const STATUS_STYLE: Record<RowStatus, { label: string; className: string }> = {
   ok: { label: 'Sẽ nhập', className: 'text-[var(--brand)]' },
@@ -72,6 +100,9 @@ export function BulkImportScreen({
   const router = useRouter();
   const copy = COPY[kind];
 
+  const [input, setInput] = useState<Input>('file');
+  /** The paste box. Kept across a switch to the file picker and back. */
+  const [draft, setDraft] = useState('');
   const [file, setFile] = useState<File | null>(null);
   /**
    * The file's text, kept so a row can be edited: the edit is written into
@@ -101,6 +132,26 @@ export function BulkImportScreen({
     setViewing(null);
     setStatus('idle');
     if (fileRef.current) fileRef.current.value = '';
+  }
+
+  /** The preview belongs to the input it came from, so switching drops it. */
+  function switchInput(next: Input) {
+    if (next === input || status === 'reading' || status === 'importing') return;
+    reset();
+    setInput(next);
+  }
+
+  /** A preview of text that has since changed would be a preview of nothing on screen. */
+  function changeDraft(next: string) {
+    setDraft(next);
+    if (report && status !== 'importing') reset();
+  }
+
+  function handlePaste() {
+    const pasted = unfence(draft).trim();
+    // Only from idle: the preview on screen is already of this text.
+    if (!pasted || status !== 'idle') return;
+    void handleFile(new File([pasted], PASTE_FILENAME, { type: 'application/json' }));
   }
 
   async function handleFile(picked: File | undefined) {
@@ -164,6 +215,8 @@ export function BulkImportScreen({
       const nextReport = await postImport(kind, nextFile, true, new Set());
       setFile(nextFile);
       setText(next);
+      // The box shows what will be imported, the fix included.
+      if (input === 'paste') setDraft(next);
       setReport(nextReport);
       setEdited((current) => new Set(current).add(index));
       return null;
@@ -227,31 +280,96 @@ export function BulkImportScreen({
           Nhập hàng loạt
         </h1>
         <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">
-          Chọn tệp .json chứa {copy.list}. Bạn sẽ xem trước kết quả trước khi lưu, và có
-          thể hoàn tác cả lần nhập sau đó.
+          Chọn tệp .json hoặc dán JSON chứa {copy.list}. Bạn sẽ xem trước kết quả trước khi
+          lưu, và có thể hoàn tác cả lần nhập sau đó.
         </p>
       </div>
 
-      <label
-        htmlFor="import-file"
-        className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-8 text-center transition-colors hover:border-[var(--brand)]"
+      <div
+        role="radiogroup"
+        aria-label="Nguồn dữ liệu"
+        className="mb-3 inline-flex items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-muted)]/70 p-0.5"
       >
-        <Upload className="h-6 w-6 text-[var(--brand)]" />
-        <span className="text-sm font-semibold text-[var(--text-primary)]">
-          {file ? file.name : 'Chọn tệp .json'}
-        </span>
-        <span className="text-xs text-[var(--text-muted)]">
-          {status === 'reading' ? 'Đang kiểm tra…' : `Tối đa 1000 ${copy.noun}, 2 MB`}
-        </span>
-        <input
-          id="import-file"
-          ref={fileRef}
-          type="file"
-          accept="application/json,.json"
-          className="sr-only"
-          onChange={(e) => void handleFile(e.target.files?.[0])}
-        />
-      </label>
+        {INPUTS.map(({ input: option, label, Icon }) => {
+          const active = option === input;
+          return (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => switchInput(option)}
+              className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
+                active
+                  ? 'border-[var(--brand-border)]/70 bg-[var(--bg-surface)] font-semibold text-[var(--brand)] shadow-xs'
+                  : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {input === 'file' ? (
+        <label
+          htmlFor="import-file"
+          className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-8 text-center transition-colors hover:border-[var(--brand)]"
+        >
+          <Upload className="h-6 w-6 text-[var(--brand)]" />
+          <span className="text-sm font-semibold text-[var(--text-primary)]">
+            {file ? file.name : 'Chọn tệp .json'}
+          </span>
+          <span className="text-xs text-[var(--text-muted)]">
+            {status === 'reading' ? 'Đang kiểm tra…' : `Tối đa 1000 ${copy.noun}, 2 MB`}
+          </span>
+          <input
+            id="import-file"
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            onChange={(e) => void handleFile(e.target.files?.[0])}
+          />
+        </label>
+      ) : (
+        <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-2 transition-colors focus-within:border-[var(--brand)]">
+          <label htmlFor="import-paste" className="sr-only">
+            JSON chứa {copy.list}
+          </label>
+          <textarea
+            id="import-paste"
+            value={draft}
+            onChange={(e) => changeDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                handlePaste();
+              }
+            }}
+            readOnly={status === 'reading' || status === 'importing'}
+            rows={10}
+            spellCheck={false}
+            placeholder={`{\n  "source": "…",\n  "${copy.rowsKey}": [ … ]\n}`}
+            className="block max-h-[50vh] min-h-32 w-full resize-y bg-transparent px-2 py-1.5 font-mono text-xs leading-relaxed text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 px-2 pt-1.5">
+            <span className="text-xs text-[var(--text-muted)]">
+              Tối đa 1000 {copy.noun}, 2 MB
+            </span>
+            <button
+              type="button"
+              onClick={handlePaste}
+              disabled={!draft.trim() || status !== 'idle'}
+              title="Ctrl+Enter"
+              className="cursor-pointer rounded-xl border border-[var(--border-subtle)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] transition-colors enabled:hover:border-[var(--brand)] enabled:hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {status === 'reading' ? 'Đang kiểm tra…' : 'Xem trước'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <p role="alert" className="mt-3 text-sm font-medium text-[var(--danger)]">
@@ -287,10 +405,13 @@ export function BulkImportScreen({
                 </span>
                 <button
                   type="button"
-                  onClick={reset}
+                  onClick={() => {
+                    reset();
+                    setDraft('');
+                  }}
                   className="cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 >
-                  Nhập tệp khác
+                  {input === 'paste' ? 'Dán JSON khác' : 'Nhập tệp khác'}
                 </button>
               </div>
             ) : (

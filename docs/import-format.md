@@ -6,6 +6,14 @@ write only after confirmation. The whole file becomes one `import_batches` row,
 tagged with its `kind`, and can be undone as a unit from the screen it came in
 through.
 
+Either screen also takes the JSON pasted ("Dán JSON"). The browser wraps the
+text in a file named `JSON đã dán.json` and from there it is a file like any
+other — same route, same two passes, same edits — so a paste without a
+`source` makes a batch called "JSON đã dán". One code block enclosing the
+whole paste is dropped first (`unfence` in `lib/import-edit.ts`), since the
+prompts ask for exactly that and copying the whole reply brings the fence
+along.
+
 ## File shape
 
 ```json
@@ -108,7 +116,8 @@ pattern is a card you will fail correctly.
 ## The prompts that generate a file
 
 Each is a plain-text file: copy the whole file into Claude, then paste your
-list after the last line.
+list after the last line. Claude's reply can be saved as a file or pasted
+straight into the import screen.
 
 | Prompt | List to paste | Keep in step with |
 |---|---|---|

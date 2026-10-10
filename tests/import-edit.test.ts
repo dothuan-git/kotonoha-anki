@@ -5,6 +5,7 @@ import {
   grammarPatch,
   readRow,
   replaceRow,
+  unfence,
   wordDraft,
   wordPatch,
 } from '@/lib/import-edit';
@@ -109,6 +110,22 @@ describe('grammar drafts', () => {
     expect(grammarPatch(grammarDraft({ ...point, sentences: many })).sentences).toHaveLength(
       MAX_GRAMMAR_SENTENCES,
     );
+  });
+});
+
+describe('unfence', () => {
+  const file = JSON.stringify({ words: [cat] }, null, 2);
+
+  it('drops the one code block around a pasted reply', () => {
+    expect(unfence('```json\n' + file + '\n```')).toBe(file);
+    expect(unfence('\n```\r\n' + file + '\r\n```\n')).toBe(file);
+    expect(parseOk(parseImport(unfence('```json\n' + file + '\n```'), 'f'))[0]?.status).toBe('ok');
+  });
+
+  it('leaves unfenced text, and a fence that does not enclose it, alone', () => {
+    expect(unfence(file)).toBe(file);
+    const trailing = file + '\n```\nmore\n```';
+    expect(unfence(trailing)).toBe(trailing);
   });
 });
 

@@ -61,6 +61,16 @@ export function replaceRow(text: string, kind: CardKind, index: number, row: Raw
   return JSON.stringify(file, null, 2);
 }
 
+/**
+ * Pasted text as the file it stands for. The prompts ask for one JSON code
+ * block, so a paste of the whole reply arrives fenced; the one enclosing
+ * fence is dropped and anything else is left for the parser to judge.
+ */
+export function unfence(text: string): string {
+  const fenced = /^\s*```[\w-]*[ \t]*\r?\n([\s\S]*?)\r?\n?```\s*$/.exec(text);
+  return fenced?.[1] ?? text;
+}
+
 export interface SentenceDraft {
   jpRuby: string;
   vi: string;
