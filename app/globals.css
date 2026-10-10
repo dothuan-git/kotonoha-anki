@@ -33,7 +33,7 @@
     --border-strong: #CEC5B5;
     --text-primary: #1C231B;
     --text-secondary: #4D574B;
-    --text-muted: #727C70;
+    --text-muted: #636D61; /* 4.9:1 on the page; #727C70 was 3.9:1 */
     
     /* Brand (bamboo) primary colors */
     --brand: #35652E;
@@ -105,6 +105,90 @@
     --chart-seq-3: #5A8F5C;
     --chart-seq-4: #6FA571;
     --chart-seq-5: #85BB86;
+  }
+
+  /* Momiji (紅葉) — grammar mode. `data-mode` is set on <html> before first
+     paint by ThemeScript, from the URL (lib/mode.ts), so these tokens replace
+     the bamboo ones and no component knows which palette it is in.
+
+     The brand moves to maple red, which moves two more tokens with it: on
+     green, red danger and orange warning stood apart; next to a red brand
+     they would read as the brand. So danger shifts to rose and warning to
+     yamabuki gold, and success stays pine — green among maples. The charts
+     keep red against blue, the pair that survives colour blindness. */
+  [data-mode='grammar'] {
+    --bg-page: #F7F2EB;
+    --bg-surface: #FCF8F3;
+    --bg-surface-elevated: #FFFFFF;
+    --bg-muted: #F1E8DD;
+    --bg-subtle: #E7DBCD;
+    --border-subtle: #E6DACB;
+    --border-strong: #D2C1AE;
+    --text-primary: #261A17;
+    --text-secondary: #5A4842;
+    --text-muted: #7A6660;
+
+    --brand: #A93A26;
+    --brand-hover: #8C2E1E;
+    --brand-light: #C9533A;
+    --brand-subtle: #FBEBE5;
+    --brand-border: #EDBFB2;
+
+    --accent: #A93A26;
+    --accent-subtle: #FBEBE5;
+    --success: #2E6A3B;
+    --success-subtle: #E3F2E6;
+    --warning: #9A6B00;
+    --warning-subtle: #FBF3DC;
+    --danger: #B0243F;
+    --danger-subtle: #FBE9EE;
+
+    --chart-review: #A93A26;
+    --chart-new: #1E5F94;
+    --chart-grid: #E6DACB;
+    --chart-seq-1: #E39A82;
+    --chart-seq-2: #D27B62;
+    --chart-seq-3: #BF5F46;
+    --chart-seq-4: #A84630;
+    --chart-seq-5: #8C321F;
+  }
+
+  /* Yoru-momiji (夜紅葉) — maples lit at night. */
+  .dark[data-mode='grammar'] {
+    --bg-page: #171312;
+    --bg-surface: #211A18;
+    --bg-surface-elevated: #2A2220;
+    --bg-muted: #2B2321;
+    --bg-subtle: #382D2A;
+    --border-subtle: #342A27;
+    --border-strong: #4A3C38;
+    --text-primary: #F2ECE6;
+    --text-secondary: #D3C6BF;
+    --text-muted: #9C8B84;
+
+    --brand: #E2694C;
+    --brand-hover: #EE7D60;
+    --brand-light: #F59478;
+    --brand-subtle: #3A1C15;
+    --brand-border: #6A3326;
+
+    --accent: #E2694C;
+    --accent-subtle: #3A1C15;
+    --success: #4EAD62;
+    --success-subtle: #13331D;
+    --warning: #D9A83A;
+    --warning-subtle: #3A2C0C;
+    --danger: #E8577A;
+    --danger-subtle: #3D1622;
+
+    --chart-review: #E2694C;
+    --chart-new: #4E93CE;
+    --chart-grid: #342A27;
+    --chart-seq-1: #6E2A1C;
+    --chart-seq-2: #8E3B27;
+    --chart-seq-3: #AE4F35;
+    --chart-seq-4: #CA6748;
+    --chart-seq-5: #E2835F;
   }
 
   body {

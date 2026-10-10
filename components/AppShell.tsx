@@ -29,13 +29,7 @@ import { KotonohaLogo } from '@/components/KotonohaLogo';
  * its chrome fixed and scrolls its content, which is what the `overflow-hidden`
  * on the design's inner screen was already describing.
  */
-export function AppShell({
-  children,
-  dueCount,
-}: {
-  children: React.ReactNode;
-  dueCount: number;
-}) {
+export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   // Sign-in is not part of the app yet — no frame, no brand bar, no nav.
@@ -43,7 +37,7 @@ export function AppShell({
 
   return (
     <div className="flex h-full max-h-full w-full min-h-0 justify-center sm:max-h-[900px]">
-      <AppNav dueCount={dueCount} variant="sidebar" className="hidden lg:flex" />
+      <AppNav variant="sidebar" className="hidden lg:flex" />
 
       {/* The bezel. Borderless and square on phones so the screen inside it
           can reach the edges; the washi frame from sm up. */}
@@ -82,7 +76,7 @@ export function AppShell({
 
           {/* The rail replaces the strip on desktop rather than joining it. */}
           <div className="mt-3 shrink-0 pt-1 lg:hidden">
-            <AppNav dueCount={dueCount} variant="bar" />
+            <AppNav variant="bar" />
           </div>
         </div>
       </div>

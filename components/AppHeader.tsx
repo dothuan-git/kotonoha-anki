@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 import { KotonohaLogo } from '@/components/KotonohaLogo';
+import { ModeToggle } from '@/components/ModeToggle';
+import { useStudyMode } from '@/components/StudyMode';
 import { useTheme } from '@/lib/client/theme';
 
 /**
@@ -19,6 +21,7 @@ import { useTheme } from '@/lib/client/theme';
 export function AppHeader() {
   const pathname = usePathname();
   const { dark, toggle } = useTheme();
+  const { mode } = useStudyMode();
 
   // Sign-in renders its own centred logo; a header above it would be two.
   if (pathname === '/signin') return null;
@@ -30,19 +33,23 @@ export function AppHeader() {
           <KotonohaLogo size="md" showSubtitle={false} />
         </Link>
         <span className="hidden truncate border-l border-[var(--border-subtle)] pl-3 text-xs text-[var(--text-muted)] sm:inline">
-          Sổ tay tiếng Nhật cá nhân · Giấy Washi &amp; Tre non
+          Sổ tay tiếng Nhật cá nhân · Giấy Washi &amp;{' '}
+          {mode === 'grammar' ? 'Lá phong đỏ' : 'Tre non'}
         </span>
       </div>
 
-      <button
-        type="button"
-        onClick={toggle}
-        aria-label="Đổi giao diện sáng / tối"
-        title={dark ? 'Chuyển sang nền Washi sáng' : 'Chuyển sang nền than tre tối'}
-        className="shrink-0 rounded-lg border border-[var(--border-subtle)] p-2 text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
-      >
-        {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-      </button>
+      <div className="flex shrink-0 items-center gap-2">
+        <ModeToggle />
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="Đổi giao diện sáng / tối"
+          title={dark ? 'Chuyển sang nền Washi sáng' : 'Chuyển sang nền than tre tối'}
+          className="shrink-0 rounded-lg border border-[var(--border-subtle)] p-2 text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
+        >
+          {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+      </div>
     </header>
   );
 }

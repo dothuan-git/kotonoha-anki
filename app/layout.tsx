@@ -1,11 +1,14 @@
 import type { Metadata, Viewport } from 'next';
+import { cookies } from 'next/headers';
 
 import { AppHeader } from '@/components/AppHeader';
 import { AppShell } from '@/components/AppShell';
 import { ServiceWorkerRegistrar } from '@/components/ServiceWorkerRegistrar';
+import { StudyModeProvider, type DueCounts } from '@/components/StudyMode';
 import { ThemeScript } from '@/components/ThemeScript';
 import { auth } from '@/lib/auth';
 import { countNextSession } from '@/lib/db/review';
+import { MODE_COOKIE } from '@/lib/mode';
 
 import './globals.css';
 
@@ -60,24 +63,32 @@ const FONTS =
   '&family=Shippori+Mincho:wght@400;500;600;700;800&display=swap';
 
 /**
- * The badge on the Ôn tập tab, for a signed-in visitor only.
+ * The badges — one per mode, since the toggle shows the other mode's count —
+ * for a signed-in visitor only.
  *
  * The layout renders for /signin too, where there is no session and the
  * database must not be touched; a failed count is also not worth failing a
  * page render over, so both roads lead to no badge rather than an error.
  */
-async function dueBadge(): Promise<number> {
+async function dueBadges(): Promise<DueCounts> {
+  const none = { word: 0, grammar: 0 };
   try {
     const session = await auth();
-    if (!session?.user?.email) return 0;
-    return await countNextSession();
+    if (!session?.user?.email) return none;
+    const [word, grammar] = await Promise.all([
+      countNextSession('word'),
+      countNextSession('grammar'),
+    ]);
+    return { word, grammar };
   } catch {
-    return 0;
+    return none;
   }
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const dueCount = await dueBadge();
+  const [due, cookieStore] = await Promise.all([dueBadges(), cookies()]);
+  // Which mode /stats and /settings keep. Everything else reads it off the URL.
+  const remembered = cookieStore.get(MODE_COOKIE)?.value === 'grammar' ? 'grammar' : null;
 
   return (
     <html lang="vi" suppressHydrationWarning>
@@ -94,10 +105,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         its height from this one instead of guessing at it.
       */}
       <body className="flex h-dvh flex-col overflow-hidden bg-[var(--bg-page)] text-[var(--text-primary)] antialiased">
-        <AppHeader />
-        <main className="flex min-h-0 flex-1 items-center justify-center p-0 sm:p-5 md:p-6 lg:p-6">
-          <AppShell dueCount={dueCount}>{children}</AppShell>
-        </main>
+        <StudyModeProvider remembered={remembered} due={due}>
+          <AppHeader />
+          <main className="flex min-h-0 flex-1 items-center justify-center p-0 sm:p-5 md:p-6 lg:p-6">
+            <AppShell>{children}</AppShell>
+          </main>
+        </StudyModeProvider>
         <ServiceWorkerRegistrar />
       </body>
     </html>
