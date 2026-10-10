@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -146,8 +148,73 @@ export const sentences = pgTable(
 );
 
 /**
- * The scheduling identity — one row per word, the thing `review_logs` and
- * `card_states` hang off.
+ * A grammar point — 〜てしまう, 〜ばかり — the second thing a card can stand for.
+ *
+ * Shaped after `words` where the two overlap (`suspended`, `created_at`,
+ * `sort_order`, `import_batch_id` all mean the same here) and nowhere else:
+ * a pattern has no reading, no part of speech and no kanji links, and what it
+ * does have — how it is formed — a word does not.
+ *
+ * The same pattern can carry two meanings (〜ばかり "only" and "just did"), and
+ * each is its own thing to learn, so the identity is the pair.
+ */
+export const grammarPoints = pgTable(
+  'grammar_points',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The pattern as it is written in a grammar book: 〜てしまう. */
+    pattern: text('pattern').notNull(),
+    /** Vietnamese, like a word's meaning. */
+    meaning: text('meaning').notNull(),
+    /** How it attaches: V-て + しまう. Free text, shown on the back of the card. */
+    formation: text('formation'),
+    note: text('note'),
+    jlpt: jlptEnum('jlpt'),
+    suspended: boolean('suspended').notNull().default(false),
+    /** Seeds the card's fold, exactly as `words.created_at` does. Never edited. */
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Same job as `words.sort_order`: the intro order inside one import. */
+    sortOrder: integer('sort_order').notNull().default(0),
+    importBatchId: uuid('import_batch_id').references(() => importBatches.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (t) => [
+    uniqueIndex('grammar_points_pattern_meaning_idx').on(t.pattern, t.meaning),
+    index('grammar_points_intro_idx').on(t.createdAt, t.sortOrder),
+    index('grammar_points_import_batch_idx').on(t.importBatchId),
+  ],
+);
+
+/**
+ * The examples a grammar card is asked from — several per point, unlike a
+ * word's single sentence, and on purpose: the card shows a different one each
+ * time, so what gets learned is the pattern rather than one sentence's answer.
+ */
+export const grammarSentences = pgTable(
+  'grammar_sentences',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    grammarId: uuid('grammar_id')
+      .notNull()
+      .references(() => grammarPoints.id, { onDelete: 'cascade' }),
+    /** Derived from `jp_ruby`, never typed twice — as for `sentences`. */
+    jp: text('jp').notNull(),
+    /** Ruby format: 財布[さいふ]をなくしてしまった。 */
+    jpRuby: text('jp_ruby').notNull(),
+    vi: text('vi').notNull(),
+    /** Display order, and the order the card rotates through. */
+    sortOrder: integer('sort_order').notNull().default(0),
+    source: sentenceSourceEnum('source'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('grammar_sentences_grammar_idx').on(t.grammarId, t.sortOrder)],
+);
+
+/**
+ * The scheduling identity — one row per word or grammar point, the thing
+ * `review_logs` and `card_states` hang off. Which of the two it stands for is
+ * the only thing about a card that differs by kind.
  *
  * It carried a `card_type` until the model settled on one card asked from both
  * sides, and an `active` flag that was written `true` at insert and never once
@@ -158,9 +225,10 @@ export const cards = pgTable(
   'cards',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    wordId: uuid('word_id')
-      .notNull()
-      .references(() => words.id, { onDelete: 'cascade' }),
+    /** The word this card stands for — or null, when it is a grammar card. */
+    wordId: uuid('word_id').references(() => words.id, { onDelete: 'cascade' }),
+    /** The grammar point this card stands for — or null, when it is a word card. */
+    grammarId: uuid('grammar_id').references(() => grammarPoints.id, { onDelete: 'cascade' }),
     /**
      * The leech flag, acknowledged. Not derived: `card_states.lapses` says
      * when a card *is* a leech, and the log says it the same way a year from
@@ -169,13 +237,23 @@ export const cards = pgTable(
      */
     leechAckedAt: timestamp('leech_acked_at', { withTimezone: true }),
   },
-  // One card per word, enforced.
+  // One card per word, and one per grammar point, enforced.
   //
   // Not only tidiness: it is what lets the session queries apply their caps as
   // a SQL `LIMIT`. `buildQueue` drops a second card for a word it has already
   // taken, so a bounded query could otherwise ask for twelve rows and yield
-  // fewer than twelve cards. With one card per word that cannot happen.
-  (t) => [uniqueIndex('cards_word_idx').on(t.wordId)],
+  // fewer than twelve cards. With one card per owner that cannot happen.
+  // Postgres lets a unique index hold any number of NULLs, so each kind's
+  // index ignores the other kind's cards.
+  //
+  // Exactly one owner, also enforced. Everything below a card — the log, the
+  // fold, the outbox, sync, undo — is shared by both kinds, and a card with
+  // neither owner or both would have nothing to seed its fold from.
+  (t) => [
+    uniqueIndex('cards_word_idx').on(t.wordId),
+    uniqueIndex('cards_grammar_idx').on(t.grammarId),
+    check('cards_one_owner', sql`num_nonnulls(${t.wordId}, ${t.grammarId}) = 1`),
+  ],
 );
 
 /**
@@ -292,6 +370,12 @@ export const settings = pgTable('settings', {
    * is a perfectly ordinary way to want this.
    */
   practiceWords: integer('practice_words').notNull().default(50),
+  /**
+   * How many grammar cards one grammar session may deal. Its own number: a
+   * grammar card is one showing and a slow one — a sentence to produce, not a
+   * word to recall — so it is sized separately from `cardsPerSession`.
+   */
+  grammarPerSession: integer('grammar_per_session').notNull().default(20),
   requestRetention: real('request_retention').notNull().default(0.9),
   theme: text('theme').notNull().default('light'),
 });
@@ -302,6 +386,8 @@ export type NewWord = typeof words.$inferInsert;
 export type Kanji = typeof kanji.$inferSelect;
 export type Sentence = typeof sentences.$inferSelect;
 export type NewSentence = typeof sentences.$inferInsert;
+export type GrammarPoint = typeof grammarPoints.$inferSelect;
+export type GrammarSentence = typeof grammarSentences.$inferSelect;
 export type Card = typeof cards.$inferSelect;
 export type CardState = typeof cardStates.$inferSelect;
 export type ReviewLog = typeof reviewLogs.$inferSelect;

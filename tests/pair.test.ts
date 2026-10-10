@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { resolvePair, revises, worseOf, type PriorGrade } from '@/lib/fsrs/pair';
 import type { RatingValue } from '@/lib/fsrs/replay';
+import type { Face } from '@/lib/types';
 
 /**
  * A word is asked twice and graded once. These are the rules that make the
  * second answer count without letting it become a second review.
  */
 
-const prior = (rating: RatingValue, face: 'word' | 'meaning' = 'word'): PriorGrade => ({
+const prior = (rating: RatingValue, face: Face = 'word'): PriorGrade => ({
   logId: 'a1000000-0000-4000-8000-00000000000a',
   rating,
   face,
@@ -55,6 +56,12 @@ describe('revises', () => {
   it('a repeat adds a review even when the other face went first', () => {
     expect(revises(prior(2, 'meaning'), { face: 'word', repeat: true })).toBe(false);
     expect(revises(prior(2, 'word'), { face: 'meaning', repeat: true })).toBe(false);
+  });
+
+  /** A grammar card is asked once: every showing of it after the first is a step. */
+  it('a single-face card never revises', () => {
+    expect(revises(prior(1, 'produce'), { face: 'produce' })).toBe(false);
+    expect(revises(prior(1, 'produce'), { face: 'produce', repeat: true })).toBe(false);
   });
 });
 

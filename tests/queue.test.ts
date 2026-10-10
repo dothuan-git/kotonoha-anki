@@ -15,12 +15,12 @@ import {
 
 /** The queue order, with the session budget and the same-word rule applied. */
 
-function review(id: string, minutesOverdue: number, wordId = `w-${id}`): QueueCandidate {
-  return { cardId: id, wordId, order: -minutesOverdue };
+function review(id: string, minutesOverdue: number, ownerId = `w-${id}`): QueueCandidate {
+  return { cardId: id, ownerId, order: -minutesOverdue };
 }
 
-function fresh(id: string, createdOrder: number, wordId = `w-${id}`): QueueCandidate {
-  return { cardId: id, wordId, order: createdOrder };
+function fresh(id: string, createdOrder: number, ownerId = `w-${id}`): QueueCandidate {
+  return { cardId: id, ownerId, order: createdOrder };
 }
 
 const NO_LIMIT = 1000;
@@ -163,7 +163,7 @@ describe('buildQueue', () => {
       reviews: [review('due', 5, 'word-1')],
       news: [fresh('unseen', 1, 'word-1')],
     });
-    expect(queue).toEqual([{ cardId: 'due', wordId: 'word-1', isNew: false }]);
+    expect(queue).toEqual([{ cardId: 'due', ownerId: 'word-1', isNew: false }]);
   });
 
   it('lets a learning card win that collision over a merely due one', () => {
@@ -262,7 +262,7 @@ describe('expandFaces', () => {
   const entries = (n: number): QueueEntry[] =>
     Array.from({ length: n }, (_, i) => ({
       cardId: `card-${i}`,
-      wordId: `word-${i}`,
+      ownerId: `word-${i}`,
       isNew: false,
     }));
 
@@ -277,8 +277,8 @@ describe('expandFaces', () => {
   });
 
   it('carries the queue entry through unchanged', () => {
-    const [showing] = expandFaces([{ cardId: 'c', wordId: 'w', isNew: true }], 7);
-    expect(showing).toMatchObject({ cardId: 'c', wordId: 'w', isNew: true });
+    const [showing] = expandFaces([{ cardId: 'c', ownerId: 'w', isNew: true }], 7);
+    expect(showing).toMatchObject({ cardId: 'c', ownerId: 'w', isNew: true });
   });
 
   /** Seeing 開ける and then "mở" is one question and its answer, not two. */
@@ -328,6 +328,16 @@ describe('expandFaces', () => {
     const inOrder = entries(12).flatMap((e) => [`${e.cardId}:word`, `${e.cardId}:meaning`]);
     const shuffled = expandFaces(entries(12), 5).map((s) => `${s.cardId}:${s.face}`);
     expect(shuffled).not.toEqual(inOrder);
+  });
+
+  /**
+   * A grammar card has one face, so there is no twin to keep apart and no
+   * reason to throw away the order `buildQueue` chose.
+   */
+  it('deals a single-face card once, in queue order', () => {
+    const showings = expandFaces(entries(6), 5, 1);
+    expect(showings.map((s) => s.cardId)).toEqual(entries(6).map((e) => e.cardId));
+    expect(new Set(showings.map((s) => s.face))).toEqual(new Set(['produce']));
   });
 });
 

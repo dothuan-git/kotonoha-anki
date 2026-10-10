@@ -4,7 +4,7 @@ import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
 import { getSettings, hydrateWords } from '@/lib/db/queries';
-import { cardStates, cards, reviewLogs, words } from '@/lib/db/schema';
+import { cardStates, cards, grammarPoints, reviewLogs, words } from '@/lib/db/schema';
 import { startOfStudyDay } from '@/lib/fsrs/day';
 import { LEARN_AHEAD_MINUTES, LEECH_LAPSES, schedulerParams } from '@/lib/fsrs/params';
 import {
@@ -25,6 +25,7 @@ import {
 import { staysInSession, toCard, toPreviews, toStateView } from '@/lib/fsrs/state';
 import { UNDO_WINDOW_MS } from '@/lib/types';
 import type {
+  CardKind,
   CardStateView,
   PendingReview,
   RateResult,
@@ -61,6 +62,65 @@ export const inRotation = eq(words.suspended, false);
 export const isNew = eq(cardStates.state, State.New);
 
 /**
+ * What a card of one kind hangs off: the table to join, and the three things
+ * the scheduler reads from it — when it was created (the fold's seed and the
+ * new-card order), its tie-break inside an import, and whether it is in
+ * rotation.
+ *
+ * Sessions are dealt one kind at a time, so these queries inner-join the one
+ * owner table rather than both. That keeps them on the owner's intro index the
+ * way the word queries always were, instead of sorting a coalesce.
+ */
+function ownerOf(kind: CardKind) {
+  if (kind === 'word') {
+    return {
+      table: words,
+      join: eq(words.id, cards.wordId),
+      id: cards.wordId,
+      createdAt: words.createdAt,
+      sortOrder: words.sortOrder,
+      inRotation,
+    };
+  }
+  return {
+    // Typed as its `words` twin. The query builder cannot join a union of
+    // tables, and nothing is selected from the joined table by its type —
+    // every column below is named explicitly — so the cast changes what the
+    // compiler is told and nothing that runs.
+    table: grammarPoints as unknown as typeof words,
+    join: eq(grammarPoints.id, cards.grammarId),
+    id: cards.grammarId,
+    createdAt: grammarPoints.createdAt,
+    sortOrder: grammarPoints.sortOrder,
+    inRotation: eq(grammarPoints.suspended, false),
+  };
+}
+
+/**
+ * The same facts for a card whose kind is not known — the paths that start
+ * from a card id: a rating, an undo, a recompute. Both owners are left-joined
+ * and exactly one of them is there (`cards_one_owner`), so the coalesce is a
+ * choice, not a merge.
+ */
+const anyOwner = {
+  createdAt: sql<Date>`coalesce(${words.createdAt}, ${grammarPoints.createdAt})`.mapWith(
+    words.createdAt,
+  ),
+  inRotation: sql`not coalesce(${words.suspended}, ${grammarPoints.suspended})`,
+};
+
+/** How many showings one card is dealt as: a word both ways, a grammar point once. */
+export const FACES_PER_CARD: Record<CardKind, number> = { word: 2, grammar: 1 };
+
+/** The session budget for one kind — each has its own setting. */
+function sessionCap(
+  settings: { cardsPerSession: number; grammarPerSession: number },
+  kind: CardKind,
+): number {
+  return kind === 'word' ? settings.cardsPerSession : settings.grammarPerSession;
+}
+
+/**
  * The two halves of "due", kept apart because the session budgets them
  * differently: a card put back by a learning step is dealt whatever the budget
  * says, a merely due card spends it.
@@ -94,7 +154,10 @@ function dealable(now: Date) {
  * `nextDue` is the earliest card that is neither new nor dealable now — the
  * "come back at" time, which only means anything once nothing is waiting.
  */
-async function scanRotation(now: Date): Promise<{
+async function scanRotation(
+  now: Date,
+  kind: CardKind,
+): Promise<{
   total: number;
   newCards: number;
   dueReviews: number;
@@ -102,6 +165,7 @@ async function scanRotation(now: Date): Promise<{
   nextDue: Date | null;
 }> {
   const { learning, review } = dealable(now);
+  const owner = ownerOf(kind);
   const [row] = await db
     .select({
       total: sql<number>`count(*)::int`,
@@ -112,8 +176,8 @@ async function scanRotation(now: Date): Promise<{
     })
     .from(cards)
     .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
-    .innerJoin(words, eq(words.id, cards.wordId))
-    .where(inRotation);
+    .innerJoin(owner.table, owner.join)
+    .where(owner.inRotation);
 
   return {
     total: row?.total ?? 0,
@@ -124,10 +188,7 @@ async function scanRotation(now: Date): Promise<{
   };
 }
 
-/** Every card is asked from both sides, so a session is twice its cards long. */
-const FACES_PER_CARD = 2;
-
-type CardRow = { cardId: string; wordId: string; createdAt: Date };
+type CardRow = { cardId: string; createdAt: Date };
 
 /**
  * How many showings the next session would hand you — the nav badge.
@@ -141,20 +202,24 @@ type CardRow = { cardId: string; wordId: string; createdAt: Date };
  * outstanding is reachable in a few sittings. A badge reading 4800 after a
  * fortnight away is not information; the finish screen carries the real total.
  *
- * Doubled because every card is asked from both sides — the badge is a promise
- * about how much work is waiting, not about how much vocabulary it covers.
+ * Doubled for words because every word is asked from both sides — the badge is
+ * a promise about how much work is waiting, not about how much vocabulary it
+ * covers. A grammar card is asked once.
  */
-export async function countNextSession(now = new Date()): Promise<number> {
-  const [settings, scan] = await Promise.all([getSettings(), scanRotation(now)]);
+export async function countNextSession(
+  kind: CardKind = 'word',
+  now = new Date(),
+): Promise<number> {
+  const [settings, scan] = await Promise.all([getSettings(), scanRotation(now, kind)]);
 
-  const cap = settings.cardsPerSession;
+  const cap = sessionCap(settings, kind);
   const slots = sessionSlots({
     dueReviews: scan.dueReviews,
     newCards: scan.newCards,
     learning: scan.learningCards,
     cap,
   });
-  return (Math.min(scan.learningCards, cap) + slots.reviews + slots.news) * FACES_PER_CARD;
+  return (Math.min(scan.learningCards, cap) + slots.reviews + slots.news) * FACES_PER_CARD[kind];
 }
 
 /**
@@ -187,18 +252,22 @@ const LOOKAHEAD_SESSIONS = 2;
  * cards, below what a single day's queue used to carry, so this costs nothing
  * that was not already being paid.
  */
-export async function buildSession(now = new Date()): Promise<SessionView> {
-  const [settings, scan] = await Promise.all([getSettings(), scanRotation(now)]);
+export async function buildSession(
+  now = new Date(),
+  kind: CardKind = 'word',
+): Promise<SessionView> {
+  const [settings, scan] = await Promise.all([getSettings(), scanRotation(now, kind)]);
   const params = schedulerParams(settings.requestRetention);
-  const cap = settings.cardsPerSession;
+  const cap = sessionCap(settings, kind);
+  const owner = ownerOf(kind);
 
   const selected = {
     cardId: cards.id,
-    wordId: cards.wordId,
+    ownerId: owner.id,
     leechAckedAt: cards.leechAckedAt,
     due: cardStates.due,
     state: cardStates.state,
-    createdAt: words.createdAt,
+    createdAt: owner.createdAt,
   };
   const { learning, review } = dealable(now);
   const from = () =>
@@ -206,7 +275,7 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
       .select(selected)
       .from(cards)
       .innerJoin(cardStates, eq(cardStates.cardId, cards.id))
-      .innerJoin(words, eq(words.id, cards.wordId));
+      .innerJoin(owner.table, owner.join);
 
   // Three queries, not two. Merging the first into the second would sort
   // overdue reviews ahead of learning cards — which are due a few minutes out
@@ -215,22 +284,22 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
   const reach = LOOKAHEAD_SESSIONS * cap;
   const [learningRows, dueRows, newRows] = await Promise.all([
     from()
-      .where(and(inRotation, learning))
+      .where(and(owner.inRotation, learning))
       .orderBy(asc(cardStates.due), asc(cards.id))
       .limit(FREE_RIDERS),
     reach === 0
       ? []
       : from()
-          .where(and(inRotation, review))
+          .where(and(owner.inRotation, review))
           .orderBy(asc(cardStates.due), asc(cards.id))
           .limit(reach),
     reach === 0
       ? []
       : from()
-          .where(and(inRotation, isNew))
+          .where(and(owner.inRotation, isNew))
           // `sort_order` breaks the tie inside an import, where a thousand
           // words share one `created_at` and insertion order means nothing.
-          .orderBy(asc(words.createdAt), asc(words.sortOrder), asc(cards.id))
+          .orderBy(asc(owner.createdAt), asc(owner.sortOrder), asc(cards.id))
           .limit(reach),
   ]);
 
@@ -240,10 +309,13 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
   // throw away the `sort_order` tiebreak the query just applied, since a
   // thousand imported words share one `created_at` and the sort would fall
   // through to the card's UUID.
+  //
+  // `ownerId` is never null here — the owner was inner-joined — but the column
+  // is nullable, since a card has one owner of two.
   const byDue = (rows: typeof dueRows): QueueCandidate[] =>
-    rows.map((row) => ({ cardId: row.cardId, wordId: row.wordId, order: row.due.getTime() }));
+    rows.map((row) => ({ cardId: row.cardId, ownerId: row.ownerId!, order: row.due.getTime() }));
   const byPosition = (rows: typeof newRows): QueueCandidate[] =>
-    rows.map((row, i) => ({ cardId: row.cardId, wordId: row.wordId, order: i }));
+    rows.map((row, i) => ({ cardId: row.cardId, ownerId: row.ownerId!, order: i }));
 
   const reviewPool = byDue(dueRows);
   const newPool = byPosition(newRows);
@@ -277,8 +349,8 @@ export async function buildSession(now = new Date()): Promise<SessionView> {
   const seed = startOfStudyDay(now).getTime();
   const meta = new Map([...learningRows, ...dueRows, ...newRows].map((c) => [c.cardId, c]));
   const [items, next] = await Promise.all([
-    hydrateQueue(expandFaces(queue, seed), meta, params, now),
-    hydrateQueue(expandFaces(nextQueue, seed + 1), meta, params, now),
+    hydrateQueue(expandFaces(queue, seed, FACES_PER_CARD[kind]), meta, params, now),
+    hydrateQueue(expandFaces(nextQueue, seed + 1, FACES_PER_CARD[kind]), meta, params, now),
   ]);
 
   return {
@@ -325,7 +397,7 @@ export async function hydrateQueue(
   if (queue.length === 0) return [];
 
   const cardIds = queue.map((q) => q.cardId);
-  const wordIds = [...new Set(queue.map((q) => q.wordId))];
+  const wordIds = [...new Set(queue.map((q) => q.ownerId))];
 
   const [logRows, wordRows] = await Promise.all([
     selectLogs(cardIds),
@@ -343,7 +415,7 @@ export async function hydrateQueue(
   const items: ReviewItem[] = [];
   for (const entry of queue) {
     const card = meta.get(entry.cardId);
-    const word = wordViews.get(entry.wordId);
+    const word = wordViews.get(entry.ownerId);
     if (!card || !word) continue;
 
     let folded = folds.get(entry.cardId);
@@ -370,9 +442,10 @@ export async function loadFoldedCard(
   cardId: string,
 ): Promise<{ card: Card; params: FsrsParams; lastReviewedAt: Date | null } | null> {
   const [row] = await db
-    .select({ cardId: cards.id, wordId: cards.wordId, createdAt: words.createdAt })
+    .select({ cardId: cards.id, createdAt: anyOwner.createdAt })
     .from(cards)
-    .innerJoin(words, eq(words.id, cards.wordId))
+    .leftJoin(words, eq(words.id, cards.wordId))
+    .leftJoin(grammarPoints, eq(grammarPoints.id, cards.grammarId))
     .where(eq(cards.id, cardId))
     .limit(1);
   if (!row) return null;
@@ -430,18 +503,14 @@ export async function applyReview(input: {
 }): Promise<RateResult> {
   const now = input.now ?? new Date();
 
-  // A suspended word rejects the review: suspension takes the word out of the
-  // collection, not merely out of rotation.
+  // A suspended word — or grammar point — rejects the review: suspension takes
+  // it out of the collection, not merely out of rotation.
   const [available] = await db
-    .select({
-      id: cards.id,
-      wordId: cards.wordId,
-      leechAckedAt: cards.leechAckedAt,
-      wordCreatedAt: words.createdAt,
-    })
+    .select({ id: cards.id, leechAckedAt: cards.leechAckedAt })
     .from(cards)
-    .innerJoin(words, eq(words.id, cards.wordId))
-    .where(and(eq(cards.id, input.cardId), eq(words.suspended, false)))
+    .leftJoin(words, eq(words.id, cards.wordId))
+    .leftJoin(grammarPoints, eq(grammarPoints.id, cards.grammarId))
+    .where(and(eq(cards.id, input.cardId), anyOwner.inRotation))
     .limit(1);
   if (!available) throw new ReviewError('card-unavailable');
 
@@ -716,11 +785,15 @@ export async function recomputeAllCardStates(
   const settings = await getSettings();
   const params = schedulerParams(settings.requestRetention);
 
+  // Both kinds. An inner join on `words` here would drop every grammar card
+  // from the check without a word of complaint — a clean report that never
+  // looked.
   const allCards: CardRow[] = await db
-    .select({ cardId: cards.id, wordId: cards.wordId, createdAt: words.createdAt })
+    .select({ cardId: cards.id, createdAt: anyOwner.createdAt })
     .from(cards)
-    .innerJoin(words, eq(words.id, cards.wordId))
-    .orderBy(asc(words.createdAt));
+    .leftJoin(words, eq(words.id, cards.wordId))
+    .leftJoin(grammarPoints, eq(grammarPoints.id, cards.grammarId))
+    .orderBy(asc(anyOwner.createdAt), asc(cards.id));
 
   const stored = new Map((await db.select().from(cardStates)).map((s) => [s.cardId, s] as const));
 

@@ -162,14 +162,23 @@ export interface CardStateView {
 }
 
 /**
- * Which way round a word is being asked.
+ * What a card stands for. Everything below the card — the log, the fold, the
+ * outbox, sync, undo — is the same for both; what differs is what is shown.
+ */
+export type CardKind = 'word' | 'grammar';
+
+/**
+ * Which way round a card is being asked.
  *
  * A word is one card with one schedule, shown twice in a session: `word` puts
  * the Japanese on the prompt side, `meaning` puts the Vietnamese there and
  * asks you to come back the other way. Both showings answer for the same
  * card, which is why the pair is graded once — see `RateResult`.
+ *
+ * A grammar card is shown once, as `produce`: a Vietnamese sentence to say in
+ * Japanese. With one face there is no pair, and nothing to grade twice.
  */
-export type Face = 'word' | 'meaning';
+export type Face = 'word' | 'meaning' | 'produce';
 
 /** How many times a typed answer may be wrong before the card gives it up. */
 export const MAX_ANSWER_ATTEMPTS = 3;

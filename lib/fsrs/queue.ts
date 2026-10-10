@@ -4,14 +4,18 @@ import type { Face } from '@/lib/types';
 /** What the queue builder needs to know about a card. Nothing else. */
 export interface QueueCandidate {
   cardId: string;
-  wordId: string;
+  /**
+   * The word or grammar point the card stands for — the dedupe key. One card
+   * per owner is a unique index, so this only ever matters if that changes.
+   */
+  ownerId: string;
   /** Ordering key: `card_states.due` for reviews, the word's creation time for new cards. */
   order: number;
 }
 
 export interface QueueEntry {
   cardId: string;
-  wordId: string;
+  ownerId: string;
   isNew: boolean;
 }
 
@@ -81,7 +85,7 @@ export function buildQueue(input: {
   /** `settings.cardsPerSession`. */
   cap: number;
 }): QueueEntry[] {
-  const seenWords = new Set<string>();
+  const seenOwners = new Set<string>();
   const seenCards = new Set<string>();
 
   const byOrder = (a: QueueCandidate, b: QueueCandidate) =>
@@ -93,8 +97,8 @@ export function buildQueue(input: {
   const claim = (candidates: readonly QueueCandidate[]): QueueCandidate[] => {
     const out: QueueCandidate[] = [];
     for (const c of [...candidates].sort(byOrder)) {
-      if (seenWords.has(c.wordId) || seenCards.has(c.cardId)) continue;
-      seenWords.add(c.wordId);
+      if (seenOwners.has(c.ownerId) || seenCards.has(c.cardId)) continue;
+      seenOwners.add(c.ownerId);
       seenCards.add(c.cardId);
       out.push(c);
     }
@@ -123,16 +127,16 @@ export function buildQueue(input: {
   let nextNew = 0;
 
   revisions.forEach((review, i) => {
-    queue.push({ cardId: review.cardId, wordId: review.wordId, isNew: false });
+    queue.push({ cardId: review.cardId, ownerId: review.ownerId, isNew: false });
     if ((i + 1) % NEW_PER_REVIEWS === 0 && nextNew < introductions.length) {
       const card = introductions[nextNew++]!;
-      queue.push({ cardId: card.cardId, wordId: card.wordId, isNew: true });
+      queue.push({ cardId: card.cardId, ownerId: card.ownerId, isNew: true });
     }
   });
 
   for (; nextNew < introductions.length; nextNew++) {
     const card = introductions[nextNew]!;
-    queue.push({ cardId: card.cardId, wordId: card.wordId, isNew: true });
+    queue.push({ cardId: card.cardId, ownerId: card.ownerId, isNew: true });
   }
 
   return queue;
@@ -153,7 +157,14 @@ export interface QueueShowing extends QueueEntry {
 export const MIN_SIBLING_GAP = 3;
 
 /**
- * Every card, twice, shuffled — the day's queue as the reviewer sees it.
+ * Every card, as many times as it is asked — the queue as the reviewer sees it.
+ *
+ * A grammar card is asked once (`faces` = 1) and keeps the order
+ * `buildQueue` gave it: overdue first, new cards paced among the reviews. That
+ * order is only thrown away below because doubling it would put a word and its
+ * twin in lockstep, and a single face has no twin.
+ *
+ * A word is asked twice (`faces` = 2, the default), shuffled, as follows.
  *
  * Deliberately not the order `buildQueue` produced. That order was overdue
  * first with new cards paced one per five reviews, which is an order that
@@ -174,7 +185,13 @@ export const MIN_SIBLING_GAP = 3;
  * stored and resumed, and a queue that reshuffled on every reload would put a
  * card you just answered back in front of you in a different position.
  */
-export function expandFaces(queue: readonly QueueEntry[], seed: number): QueueShowing[] {
+export function expandFaces(
+  queue: readonly QueueEntry[],
+  seed: number,
+  faces = 2,
+): QueueShowing[] {
+  if (faces === 1) return queue.map((entry) => ({ ...entry, face: 'produce' as Face }));
+
   const random = mulberry32(seed);
   const pool: QueueShowing[] = queue.flatMap((entry) => [
     { ...entry, face: 'word' as Face },
