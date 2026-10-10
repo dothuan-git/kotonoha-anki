@@ -11,6 +11,7 @@ import { createWord } from '@/lib/actions/words';
 import { hasJapaneseVoice, onVoicesReady, playJapaneseAudio } from '@/lib/client/audio';
 import { rubyToPlain } from '@/lib/ruby';
 import {
+  JLPT_LABELS,
   JLPT_VALUES,
   POS_LABELS,
   POS_VALUES,
@@ -18,14 +19,6 @@ import {
   type LookupCandidate,
   type Pos,
 } from '@/lib/types';
-
-const JLPT_LABELS: Record<Jlpt, string> = {
-  N5: 'N5 (Cơ bản)',
-  N4: 'N4 (Sơ cấp)',
-  N3: 'N3 (Trung cấp)',
-  N2: 'N2 (Trung-Cao cấp)',
-  N1: 'N1 (Cao cấp)',
-};
 
 type Status = 'idle' | 'looking' | 'saving' | 'saved';
 

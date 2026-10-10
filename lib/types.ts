@@ -53,6 +53,26 @@ export interface WordView {
 }
 
 /**
+ * One grammar point as the screens see it: the pattern, what it means, how it
+ * is formed, and the sentences a card is asked from — in the order the card
+ * rotates through them.
+ *
+ * Scheduling fields are absent for the same reason they are absent from
+ * `WordView`.
+ */
+export interface GrammarView {
+  id: string;
+  pattern: string;
+  meaning: string;
+  formation: string | null;
+  note: string | null;
+  jlpt: Jlpt | null;
+  suspended: boolean;
+  createdAt: string;
+  sentences: SentenceView[];
+}
+
+/**
  * One past bulk import, as /add/bulk lists it. `wordCount` is how many of its
  * words survive now, not how many the file held.
  */
@@ -103,6 +123,15 @@ export function formatHanViet(refs: readonly KanjiRef[]): string {
     .map((k) => `${k.char} ${k.hanViet.join('/').toUpperCase()}`);
   return parts.length > 0 ? parts.join(' · ') : '—';
 }
+
+/** The JLPT selector's labels, shared by the word and grammar forms. */
+export const JLPT_LABELS: Record<Jlpt, string> = {
+  N5: 'N5 (Cơ bản)',
+  N4: 'N4 (Sơ cấp)',
+  N3: 'N3 (Trung cấp)',
+  N2: 'N2 (Trung-Cao cấp)',
+  N1: 'N1 (Cao cấp)',
+};
 
 /**
  * Vietnamese display labels for the stored (English) part-of-speech values.
