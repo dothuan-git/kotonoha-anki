@@ -1,14 +1,18 @@
 import { z } from 'zod';
 
+import type { GrammarInsert } from '@/lib/db/grammar';
 import type { WordInsert } from '@/lib/db/words';
 import { extractKanji } from '@/lib/dict/furigana';
+import { MAX_GRAMMAR_SENTENCES } from '@/lib/grammar';
 import { parseRuby, rubyToPlain } from '@/lib/ruby';
 import {
   JLPT_VALUES,
   POS_LABELS,
   POS_VALUES,
   TRANSITIVITY_VALUES,
+  type Jlpt,
   type Pos,
+  type Transitivity,
 } from '@/lib/types';
 
 /**
@@ -36,34 +40,57 @@ export type RowStatus = 'ok' | 'invalid' | 'duplicate' | 'excluded';
  * the word it is refusing. `data` is present only on a row that will be
  * written — not on a rejected one, nor on one the user struck off.
  */
-export interface ParsedRow {
+export interface ParsedRow<T = WordInsert> {
   index: number;
   status: RowStatus;
   /** Vietnamese, shown in the preview. Present on a row the parser refused. */
   reason?: string;
+  /** A word's headword, or a grammar point's pattern. */
   headword: string;
+  /** Empty for a grammar point. */
   reading: string;
   meaning: string;
-  data?: WordInsert;
+  data?: T;
 }
 
-export interface ParseResult {
+export interface ParseResult<T = WordInsert> {
   source: string;
   note: string | null;
-  rows: ParsedRow[];
+  rows: ParsedRow<T>[];
 }
 
-export type ParseOutcome =
-  | { ok: true; result: ParseResult }
+export type ParseOutcome<T = WordInsert> =
+  | { ok: true; result: ParseResult<T> }
   | { ok: false; error: string };
 
+/** What the preview's detail dialog shows for a row that parsed. */
+export type PreviewDetail =
+  | {
+      kind: 'word';
+      pos: Pos;
+      transitivity: Transitivity;
+      jlpt: Jlpt | null;
+      note: string | null;
+      hanViet: Record<string, string[]>;
+      sentence: { jpRuby: string; vi: string } | null;
+    }
+  | {
+      kind: 'grammar';
+      formation: string | null;
+      jlpt: Jlpt | null;
+      note: string | null;
+      sentences: { jpRuby: string; vi: string }[];
+    };
+
 /**
- * A row on its way to the browser. `data` is dropped: the preview needs to
- * name each word and say what will happen to it, and shipping the full insert
- * payload back out would double the response for nothing — the file is posted
- * again to commit, so the server re-parses rather than trusting a round trip.
+ * A row on its way to the browser. `data` is dropped for `detail`: the
+ * display fields only, never the insert payload — the file is posted again to
+ * commit, so the server re-parses rather than trusting a round trip.
+ *
+ * `detail` is present on every row that parsed, including one later found to
+ * be a duplicate, so the preview can show what the file says about it.
  */
-export type PreviewRow = Omit<ParsedRow, 'data'>;
+export type PreviewRow = Omit<ParsedRow<unknown>, 'data'> & { detail?: PreviewDetail };
 
 export interface ImportReport {
   source: string;
@@ -74,8 +101,51 @@ export interface ImportReport {
   inserted?: number;
 }
 
-export function toPreview(rows: readonly ParsedRow[]): PreviewRow[] {
-  return rows.map(({ data: _data, ...row }) => row);
+/**
+ * `details` is keyed by file position and taken from the parse, before the
+ * duplicate check and the exclusions clear `data` — so a skipped row keeps
+ * its detail without its insert payload surviving the skip.
+ */
+export function toPreview(
+  rows: readonly ParsedRow<unknown>[],
+  details: ReadonlyMap<number, PreviewDetail> = new Map(),
+): PreviewRow[] {
+  return rows.map(({ data: _data, ...row }) => {
+    const detail = details.get(row.index);
+    return detail ? { ...row, detail } : row;
+  });
+}
+
+/** The details of every row that parsed, by file position. */
+export function previewDetails<T>(
+  rows: readonly ParsedRow<T>[],
+  detailOf: (data: T) => PreviewDetail,
+): Map<number, PreviewDetail> {
+  const details = new Map<number, PreviewDetail>();
+  for (const row of rows) if (row.data) details.set(row.index, detailOf(row.data));
+  return details;
+}
+
+export function wordDetail(word: WordInsert): PreviewDetail {
+  return {
+    kind: 'word',
+    pos: word.pos,
+    transitivity: word.transitivity,
+    jlpt: word.jlpt,
+    note: word.note,
+    hanViet: word.hanViet,
+    sentence: word.sentence && { jpRuby: word.sentence.jpRuby, vi: word.sentence.vi },
+  };
+}
+
+export function grammarDetail(point: GrammarInsert): PreviewDetail {
+  return {
+    kind: 'grammar',
+    formation: point.formation,
+    jlpt: point.jlpt,
+    note: point.note,
+    sentences: point.sentences.map(({ jpRuby, vi }) => ({ jpRuby, vi })),
+  };
 }
 
 /**
@@ -145,7 +215,7 @@ const POS_BY_LABEL = new Map<string, Pos>(
 );
 const POS_BY_VALUE = new Map<string, Pos>(POS_VALUES.map((p) => [p.toLowerCase(), p]));
 
-function normalisePos(raw: string): Pos | null {
+export function normalisePos(raw: string): Pos | null {
   const key = raw.trim().toLowerCase();
   return POS_BY_VALUE.get(key) ?? POS_BY_LABEL.get(key) ?? null;
 }
@@ -298,7 +368,9 @@ function parseRow(raw: unknown, index: number, seen: Map<string, number>): Parse
  * for a generated file to get subtly wrong. Deriving it removes the failure
  * mode instead of reporting it.
  */
-function toSentence(input: { jpRuby: string; vi: string }): WordInsert['sentence'] | string {
+function toSentence(
+  input: { jpRuby: string; vi: string },
+): { jp: string; jpRuby: string; vi: string; source: 'ai' } | string {
   const jp = rubyToPlain(input.jpRuby);
   if (jp.trim() === '') {
     return 'Câu ví dụ rỗng sau khi bỏ furigana';
@@ -330,10 +402,10 @@ export function pairKey(word: { headword: string; reading: string }): string {
  * intact — `sortOrder` is the file's order, and a removed word spends its
  * place the same way a rejected one does.
  */
-export function applyExclusions(
-  rows: readonly ParsedRow[],
+export function applyExclusions<T>(
+  rows: readonly ParsedRow<T>[],
   excluded: ReadonlySet<number>,
-): ParsedRow[] {
+): ParsedRow<T>[] {
   if (excluded.size === 0) return [...rows];
 
   // No reason: the row carries the "Đã bỏ" label and a button to put it back,
@@ -359,5 +431,169 @@ export function countRows(
     duplicate: rows.filter((r) => r.status === 'duplicate').length,
     invalid: rows.filter((r) => r.status === 'invalid').length,
     excluded: rows.filter((r) => r.status === 'excluded').length,
+  };
+}
+
+/**
+ * The grammar file, as Claude is asked to emit it — see
+ * docs/import-format.md. Forgiving in the same ways as `rowSchema`: unknown
+ * keys are ignored, and a supplied `jp` is ignored in favour of the ruby.
+ */
+const grammarRowSchema = z.object({
+  pattern: z.string({ error: 'Thiếu mẫu ngữ pháp' }).trim().min(1, 'Thiếu mẫu ngữ pháp'),
+  meaning: z.string({ error: 'Thiếu nghĩa tiếng Việt' }).trim().min(1, 'Thiếu nghĩa tiếng Việt'),
+  formation: z.string({ error: 'Cách chia phải là chữ' }).trim().max(500).nullish(),
+  note: z.string({ error: 'Ghi chú phải là chữ' }).trim().max(2000, 'Ghi chú quá dài').nullish(),
+  jlpt: z.enum(JLPT_VALUES, { error: 'Cấp JLPT phải là N5, N4, N3, N2 hoặc N1' }).nullish(),
+  sentences: z
+    .array(
+      z.object(
+        {
+          jpRuby: z
+            .string({ error: 'Câu ví dụ thiếu phần tiếng Nhật' })
+            .trim()
+            .min(1, 'Câu ví dụ thiếu phần tiếng Nhật'),
+          vi: z
+            .string({ error: 'Câu ví dụ thiếu bản dịch tiếng Việt' })
+            .trim()
+            .min(1, 'Câu ví dụ thiếu bản dịch tiếng Việt'),
+        },
+        { error: 'Mỗi câu ví dụ phải là object có jpRuby và vi' },
+      ),
+      { error: 'Thiếu danh sách câu ví dụ' },
+    )
+    .min(1, 'Cần ít nhất một câu ví dụ')
+    .max(MAX_GRAMMAR_SENTENCES, `Tối đa ${MAX_GRAMMAR_SENTENCES} câu ví dụ`),
+});
+
+const grammarFileSchema = z.union([
+  z.array(z.unknown()),
+  z.object({
+    source: z.string().trim().nullish(),
+    note: z.string().trim().nullish(),
+    grammar: z.array(z.unknown()),
+  }),
+]);
+
+/**
+ * The identity of a grammar point: the same pattern can carry two meanings
+ * (〜ばかり "only" and "just did"), each its own card.
+ */
+export function grammarKey(point: { pattern: string; meaning: string }): string {
+  return `${point.pattern}\u0000${point.meaning}`;
+}
+
+/** Parses a grammar bulk-import file into rows ready for `insertGrammar`. */
+export function parseGrammarImport(
+  text: string,
+  fallbackSource: string,
+): ParseOutcome<GrammarInsert> {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'Tệp không phải JSON hợp lệ' };
+  }
+
+  const file = grammarFileSchema.safeParse(json);
+  if (!file.success) {
+    return {
+      ok: false,
+      error: 'Tệp phải là một mảng mẫu ngữ pháp, hoặc một object có trường "grammar"',
+    };
+  }
+
+  const envelope = Array.isArray(file.data)
+    ? { source: null, note: null, grammar: file.data }
+    : file.data;
+
+  if (envelope.grammar.length === 0) {
+    return { ok: false, error: 'Tệp không có mẫu ngữ pháp nào' };
+  }
+  if (envelope.grammar.length > MAX_IMPORT_ROWS) {
+    return {
+      ok: false,
+      error: `Tệp có ${envelope.grammar.length} mẫu, tối đa ${MAX_IMPORT_ROWS} mẫu mỗi lần nhập`,
+    };
+  }
+
+  const seen = new Map<string, number>();
+  const rows = envelope.grammar.map((raw, index) => parseGrammarRow(raw, index, seen));
+
+  return {
+    ok: true,
+    result: {
+      source: envelope.source?.trim() || fallbackSource,
+      note: envelope.note?.trim() || null,
+      rows,
+    },
+  };
+}
+
+function parseGrammarRow(
+  raw: unknown,
+  index: number,
+  seen: Map<string, number>,
+): ParsedRow<GrammarInsert> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return {
+      index,
+      headword: '',
+      reading: '',
+      meaning: '',
+      status: 'invalid',
+      reason: 'Dòng này không phải là một mẫu ngữ pháp',
+    };
+  }
+
+  const parsed = grammarRowSchema.safeParse(raw);
+  if (!parsed.success) {
+    const loose = raw as Partial<Record<string, unknown>>;
+    return {
+      index,
+      headword: typeof loose.pattern === 'string' ? loose.pattern : '',
+      reading: '',
+      meaning: typeof loose.meaning === 'string' ? loose.meaning : '',
+      status: 'invalid',
+      reason: parsed.error.issues[0]?.message ?? 'Dòng không hợp lệ',
+    };
+  }
+
+  const row = parsed.data;
+  const identity = { index, headword: row.pattern, reading: '', meaning: row.meaning };
+  const invalid = (reason: string): ParsedRow<GrammarInsert> => ({
+    ...identity,
+    status: 'invalid',
+    reason,
+  });
+
+  const key = grammarKey(row);
+  const firstSeen = seen.get(key);
+  if (firstSeen !== undefined) {
+    return invalid(`Trùng với dòng ${firstSeen + 1} trong tệp`);
+  }
+  seen.set(key, index);
+
+  // The same furigana rule a word's example sentence is held to: a sentence
+  // with kanji is spoken from its ruby, so it must have some.
+  const sentences: GrammarInsert['sentences'] = [];
+  for (const [i, input] of row.sentences.entries()) {
+    const sentence = toSentence(input);
+    if (typeof sentence === 'string') return invalid(`Câu ${i + 1}: ${sentence}`);
+    sentences.push({ jpRuby: sentence.jpRuby, vi: sentence.vi, source: sentence.source });
+  }
+
+  return {
+    ...identity,
+    status: 'ok',
+    data: {
+      pattern: row.pattern,
+      meaning: row.meaning,
+      formation: row.formation?.trim() || null,
+      note: row.note?.trim() || null,
+      jlpt: row.jlpt ?? null,
+      sentences,
+      sortOrder: index,
+    },
   };
 }

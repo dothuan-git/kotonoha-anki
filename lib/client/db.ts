@@ -114,9 +114,11 @@ const DB_VERSION = 5;
  */
 export const SESSION_KEY = 'current';
 export const PRACTICE_SESSION_KEY = 'practice';
+/** The grammar reviewer's queue — its own, for the same reason practice has one. */
+export const GRAMMAR_SESSION_KEY = 'grammar';
 
 /** Every stored queue, for the sign-out sweep. */
-export const SESSION_KEYS = [SESSION_KEY, PRACTICE_SESSION_KEY] as const;
+export const SESSION_KEYS = [SESSION_KEY, PRACTICE_SESSION_KEY, GRAMMAR_SESSION_KEY] as const;
 
 let handle: Promise<IDBPDatabase<KotonohaDB>> | null = null;
 

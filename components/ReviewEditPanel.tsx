@@ -45,7 +45,7 @@ export function ReviewEditPanel({
   const [note, setNote] = useState(word.note ?? '');
 
   const field =
-    'w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 outline-none focus:border-[var(--bamboo)]';
+    'w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 outline-none focus:border-[var(--brand)]';
 
   return (
     <div
@@ -102,7 +102,7 @@ export function ReviewEditPanel({
               note: note.trim() || null,
             })
           }
-          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--bamboo)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
         >
           <Check className="h-3.5 w-3.5" />
           Lưu

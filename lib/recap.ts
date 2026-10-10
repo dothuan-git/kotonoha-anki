@@ -25,7 +25,9 @@ const WORST_PASSING: RatingValue = 2;
 
 export interface MissedWord {
   cardId: string;
+  /** A word's headword, or a grammar card's pattern. */
   headword: string;
+  /** Empty for a grammar card, which has no reading of its own. */
   reading: string;
   meaning: string;
   /** The worst grade pressed for this word today. */
@@ -39,10 +41,21 @@ export interface MissedWord {
  */
 export interface Showing {
   rating: RatingValue;
-  item: {
-    cardId: string;
-    word: { headword: string; reading: string; meaning: string };
-  };
+  item:
+    | {
+        cardId: string;
+        kind?: 'word';
+        word: { headword: string; reading: string; meaning: string };
+      }
+    | { cardId: string; kind: 'grammar'; grammar: { pattern: string; meaning: string } };
+}
+
+/** The three recap columns, for either kind of card. */
+function recapFields(item: Showing['item']): Pick<MissedWord, 'headword' | 'reading' | 'meaning'> {
+  if (item.kind === 'grammar') {
+    return { headword: item.grammar.pattern, reading: '', meaning: item.grammar.meaning };
+  }
+  return { headword: item.word.headword, reading: item.word.reading, meaning: item.word.meaning };
 }
 
 /**
@@ -68,9 +81,7 @@ export function missedWords(showings: readonly Showing[]): MissedWord[] {
     const combined = standing ? worseOf(standing.rating, rating) : rating;
     worst.set(item.cardId, {
       cardId: item.cardId,
-      headword: item.word.headword,
-      reading: item.word.reading,
-      meaning: item.word.meaning,
+      ...recapFields(item),
       // Narrowed by the guard above and by `worseOf` never returning worse
       // than its inputs — a standing entry is already 1 or 2.
       rating: combined as MissedRating,

@@ -1,11 +1,16 @@
 # Kotonoha
 
-A private Japanese vocabulary trainer with Vietnamese meanings, built around a
-washi-paper, wabi-sabi aesthetic. Single user, no sharing.
+A private Japanese vocabulary and grammar trainer with Vietnamese meanings,
+built around a washi-paper, wabi-sabi aesthetic. Single user, no sharing.
 
 Words go in by hand, by dictionary lookup, by share sheet or by JSON import.
 Reviews run on FSRS, ask every word from both sides, grade the pair once, and
 work with no signal. `/stats` is four charts over the review log.
+
+Grammar is a second study mode (the 語/文 toggle, in momiji red rather than
+bamboo green): each grammar point is a card that shows a Vietnamese sentence
+and the pattern, and you produce the Japanese — rotating through its example
+sentences, self-graded, on the same scheduler.
 
 Next.js 16 (App Router), TypeScript strict, Tailwind v4, Neon Postgres +
 Drizzle, Auth.js (Google, single allowlisted address), `ts-fsrs`, `idb`,
@@ -56,7 +61,8 @@ reproduce.
 | [data-model.md](docs/data-model.md) | Tables, relationships, the invariants everything else assumes |
 | [review-model.md](docs/review-model.md) | The card model, answer matching, FSRS config, the study day, leeches and confusions |
 | [offline.md](docs/offline.md) | The outbox, sync, the service worker, installing as a PWA |
-| [import-format.md](docs/import-format.md) | The bulk-import JSON contract, and the prompt that generates a file |
+| [import-format.md](docs/import-format.md) | The bulk-import JSON contract for words and grammar |
+| [prompts/](docs/prompts/) | The prompts that generate an import file: [words](docs/prompts/import-words.txt), [grammar](docs/prompts/import-grammar.txt) |
 
 ## Not built
 

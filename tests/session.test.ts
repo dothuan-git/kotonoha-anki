@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { STALE_PAYLOAD_MS, chooseSession, isSessionView } from '@/lib/client/session';
+import {
+  STALE_PAYLOAD_MS,
+  chooseSession,
+  isSessionView,
+  relevantPending,
+} from '@/lib/client/session';
 import type { SessionView } from '@/lib/types';
 
 /**
@@ -184,5 +189,35 @@ describe('isSessionView', () => {
     expect(isSessionView(null)).toBe(false);
     expect(isSessionView(undefined)).toBe(false);
     expect(isSessionView('session')).toBe(false);
+  });
+});
+
+describe('relevantPending', () => {
+  const withCards = (items: string[], next: string[] = []): SessionView => ({
+    ...fresh,
+    items: items.map((cardId) => ({ cardId }) as never),
+    next: next.map((cardId) => ({ cardId }) as never),
+  });
+
+  /**
+   * One outbox, two reviewers. A word rating still in flight is no reason for
+   * the grammar screen to distrust its server queue.
+   */
+  it('ignores ratings for cards the screen could never deal', () => {
+    const grammar = withCards(['g1', 'g2']);
+    expect(relevantPending([{ cardId: 'w1' }, { cardId: 'w2' }], [grammar, null])).toBe(0);
+  });
+
+  /** The case `chooseSession` exists for: the server queue still holds a rated card. */
+  it('counts a rating for a card the server is about to deal again', () => {
+    const server = withCards(['w1', 'w2']);
+    expect(relevantPending([{ cardId: 'w1' }, { cardId: 'g9' }], [server, null])).toBe(1);
+  });
+
+  it('counts cards in either queue, either lookahead, or graded in the stored session', () => {
+    const server = withCards(['a'], ['b']);
+    const stored = withCards(['c'], ['d']);
+    const entries = ['a', 'b', 'c', 'd', 'e', 'x'].map((cardId) => ({ cardId }));
+    expect(relevantPending(entries, [server, stored], { e: {} })).toBe(5);
   });
 });

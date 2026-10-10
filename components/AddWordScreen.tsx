@@ -11,6 +11,7 @@ import { createWord } from '@/lib/actions/words';
 import { hasJapaneseVoice, onVoicesReady, playJapaneseAudio } from '@/lib/client/audio';
 import { rubyToPlain } from '@/lib/ruby';
 import {
+  JLPT_LABELS,
   JLPT_VALUES,
   POS_LABELS,
   POS_VALUES,
@@ -18,14 +19,6 @@ import {
   type LookupCandidate,
   type Pos,
 } from '@/lib/types';
-
-const JLPT_LABELS: Record<Jlpt, string> = {
-  N5: 'N5 (Cơ bản)',
-  N4: 'N4 (Sơ cấp)',
-  N3: 'N3 (Trung cấp)',
-  N2: 'N2 (Trung-Cao cấp)',
-  N1: 'N1 (Cao cấp)',
-};
 
 type Status = 'idle' | 'looking' | 'saving' | 'saved';
 
@@ -201,7 +194,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
         </div>
         <Link
           href="/add/bulk"
-          className="mt-1 flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--bamboo)] hover:text-[var(--bamboo)]"
+          className="mt-1 flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
         >
           <Upload className="h-3.5 w-3.5" />
           Nhập hàng loạt
@@ -225,7 +218,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               onChange={(e) => setHeadword(e.target.value)}
               autoFocus
               autoComplete="off"
-              className="font-jp-serif w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-2xl font-semibold text-[var(--text-primary)] shadow-xs transition-all focus:border-[var(--bamboo)] focus:outline-none focus:ring-2 focus:ring-[var(--bamboo)]/20"
+              className="font-jp-serif w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-2xl font-semibold text-[var(--text-primary)] shadow-xs transition-all focus:border-[var(--brand)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/20"
             />
             {/* Overlay stands in for ::placeholder: a smaller placeholder than
                 the input's own font sits on its baseline, which reads as
@@ -240,7 +233,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
             )}
             {status === 'looking' ? (
               <div className="absolute right-3.5 top-3.5 flex animate-pulse items-center gap-1.5 text-xs text-[var(--text-muted)]">
-                <Sparkles className="h-4 w-4 text-[var(--bamboo)]" />
+                <Sparkles className="h-4 w-4 text-[var(--brand)]" />
                 <span>Đang tra cứu…</span>
               </div>
             ) : (
@@ -255,7 +248,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
                       : 'Nghe thử trước khi lưu'
                   }
                   aria-label="Nghe thử cách đọc"
-                  className="absolute right-3 top-3 rounded-lg border border-[var(--border-subtle)] p-1.5 text-[var(--text-secondary)] transition-colors hover:border-[var(--bamboo)] hover:text-[var(--bamboo)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="absolute right-3 top-3 rounded-lg border border-[var(--border-subtle)] p-1.5 text-[var(--text-secondary)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {canSpeak === false ? (
                     <VolumeX className="h-4 w-4" />
@@ -275,11 +268,11 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
         </div>
 
         {/* The user's own note — visually the primary field, as in the design. */}
-        <div className="rounded-xl border-2 border-[var(--bamboo)]/40 bg-[var(--bamboo-subtle)]/30 p-3.5 shadow-xs">
+        <div className="rounded-xl border-2 border-[var(--brand)]/40 bg-[var(--brand-subtle)]/30 p-3.5 shadow-xs">
           <div className="mb-1.5 flex items-center justify-between">
             <label
               htmlFor="meaning"
-              className="flex items-center gap-1.5 text-xs font-bold text-[var(--bamboo)]"
+              className="flex items-center gap-1.5 text-xs font-bold text-[var(--brand)]"
             >
               <UserCheck className="h-4 w-4" />
               <span>Nghĩa tiếng Việt (Ghi chú của bạn)</span>
@@ -292,7 +285,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               type="text"
               value={meaning}
               onChange={(e) => setMeaning(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-base font-medium text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+              className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-base font-medium text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none"
               required
             />
             {meaning === '' && (
@@ -318,7 +311,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               </span>
             </div>
             {autofilled && (
-              <span className="text-[11px] font-semibold text-[var(--bamboo)]">
+              <span className="text-[11px] font-semibold text-[var(--brand)]">
                 Đã tự động điền
               </span>
             )}
@@ -332,7 +325,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
                 type="text"
                 onChange={(e) => setReading(e.target.value)}
                 placeholder="akeru → あける"
-                className="font-jp-serif w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+                className="font-jp-serif w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none"
               />
             </Field>
 
@@ -342,7 +335,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
                 value={pos}
                 onChange={(e) => setPos(e.target.value as Pos | '')}
                 required
-                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none"
               >
                 <option value="">— chọn —</option>
                 {POS_VALUES.map((value) => (
@@ -360,7 +353,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
                 onChange={(e) =>
                   setTransitivity(e.target.value as 'transitive' | 'intransitive' | '')
                 }
-                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none"
               >
                 <option value="">—</option>
                 <option value="transitive">Tha động từ</option>
@@ -373,7 +366,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
                 id="jlpt"
                 value={jlpt}
                 onChange={(e) => setJlpt(e.target.value as Jlpt | '')}
-                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none"
               >
                 <option value="">— chưa rõ —</option>
                 {JLPT_VALUES.map((value) => (
@@ -421,7 +414,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               value={sentenceRuby}
               onChange={(e) => setSentenceRuby(e.target.value)}
               placeholder="窓[まど]を開[あ]けてください。"
-              className="font-jp-sans w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+              className="font-jp-sans w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none"
             />
             {sentenceRuby.trim() !== '' && (
               <div className="mt-1.5 rounded-lg bg-[var(--bg-surface)] px-2.5 py-2">
@@ -437,7 +430,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               value={sentenceVi}
               onChange={(e) => setSentenceVi(e.target.value)}
               placeholder="Xin hãy mở cửa sổ."
-              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none"
             />
           </Field>
 
@@ -448,7 +441,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Dễ lẫn với 開く…"
-              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--bamboo)] focus:outline-none"
+              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none"
             />
           </Field>
         </div>
@@ -470,7 +463,7 @@ export function AddWordScreen({ initialQuery = '' }: { initialQuery?: string }) 
                 ? 'bg-emerald-600 text-white'
                 : !canSave
                   ? 'cursor-not-allowed bg-[var(--bg-muted)] text-[var(--text-muted)]'
-                  : 'cursor-pointer bg-[var(--bamboo)] text-white hover:bg-[var(--bamboo-hover)]'
+                  : 'cursor-pointer bg-[var(--brand)] text-white hover:bg-[var(--brand-hover)]'
             }`}
           >
             {status === 'saved' ? (

@@ -29,7 +29,7 @@ export function KanjiDetail({ kanji, words }: { kanji: KanjiView; words: WordVie
         <div className="flex items-start gap-3.5">
           {/* The prototype's modal header seal: the glyph set in a bamboo tile
               rather than loose on the page. */}
-          <span className="font-jp-serif flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-3xl font-semibold text-[var(--bamboo)] sm:h-16 sm:w-16 sm:text-4xl">
+          <span className="font-jp-serif flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-subtle)] text-3xl font-semibold text-[var(--brand)] sm:h-16 sm:w-16 sm:text-4xl">
             {kanji.char}
           </span>
 
@@ -70,7 +70,7 @@ export function KanjiDetail({ kanji, words }: { kanji: KanjiView; words: WordVie
                         setEditing(false);
                       })
                     }
-                    className="flex items-center gap-1 rounded-lg bg-[var(--bamboo)] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                    className="flex items-center gap-1 rounded-lg bg-[var(--brand)] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60"
                   >
                     <Check className="h-3.5 w-3.5" />
                     Lưu
@@ -80,7 +80,7 @@ export function KanjiDetail({ kanji, words }: { kanji: KanjiView; words: WordVie
             ) : (
               <>
                 <div className="flex items-center gap-2">
-                  <p className="text-lg font-bold uppercase tracking-wide text-[var(--bamboo)]">
+                  <p className="text-lg font-bold uppercase tracking-wide text-[var(--brand)]">
                     {kanji.hanViet.length > 0 ? kanji.hanViet.join(' / ').toUpperCase() : '—'}
                   </p>
                   <button

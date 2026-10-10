@@ -24,6 +24,8 @@ const schema = z.object({
    * A drill of one word is just not a session.
    */
   practiceWords: z.number().int().min(5).max(500),
+  /** Floored at five for the same reason as `cardsPerSession`: the new-card reserve. */
+  grammarPerSession: z.number().int().min(5).max(500),
   requestRetention: z.number().min(0.7).max(0.99),
 });
 
@@ -43,6 +45,7 @@ export async function saveSettings(input: z.input<typeof schema>) {
   // Router Cache would happily serve a stale `/` for half a minute otherwise.
   revalidatePath('/');
   revalidatePath('/practice');
+  revalidatePath('/grammar');
   return { ok: true as const };
 }
 

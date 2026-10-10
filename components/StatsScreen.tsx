@@ -16,6 +16,7 @@ import {
   computeStreak,
   formatDayLabel,
   type HeatCell,
+  type StatsScope,
   type StatsView,
 } from '@/lib/stats';
 
@@ -28,10 +29,23 @@ import {
  * stay right across a `npm run recompute`; only the forecast reads the
  * projection, because "when is this due" is what the projection is for.
  */
-const SERIES = [
+/** What a new card is called, by scope. */
+const NEW_LABEL: Record<StatsScope, string> = {
+  word: 'Từ mới',
+  grammar: 'Mẫu mới',
+  all: 'Thẻ mới',
+};
+
+const seriesFor = (scope: StatsScope) => [
   { key: 'review', label: 'Ôn lại', color: 'var(--chart-review)' },
-  { key: 'new', label: 'Từ mới', color: 'var(--chart-new)' },
+  { key: 'new', label: NEW_LABEL[scope], color: 'var(--chart-new)' },
 ];
+
+const SCOPE_LABEL: Record<StatsScope, string> = {
+  word: 'Từ vựng',
+  grammar: 'Ngữ pháp',
+  all: 'Tất cả',
+};
 
 const FORECAST_SERIES = [{ key: 'due', label: 'Đến hạn', color: 'var(--chart-review)' }];
 
@@ -39,15 +53,19 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
   const [span, setSpan] = useState<30 | 90>(30);
 
   const volume = stats.volume.slice(-span);
+  const SERIES = seriesFor(stats.scope);
   const studiedDays = stats.volume.filter((day) => day.ratings > 0).length;
 
   return (
     <div className="w-full pb-4">
-      <div className="mb-4">
-        <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">Thống kê</h1>
-        <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Dựng từ lịch sử ôn tập thật — mỗi lượt chấm là một dòng trong sổ, không có số liệu mẫu.
-        </p>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">Thống kê</h1>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            Dựng từ lịch sử ôn tập thật — mỗi lượt chấm là một dòng trong sổ, không có số liệu mẫu.
+          </p>
+        </div>
+        <ScopeSwitch scope={stats.scope} />
       </div>
 
       <StreakCard stats={stats} />
@@ -62,7 +80,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
         <Heatmap stats={stats} />
 
         <ChartCard
-          title="Từ đã học mỗi ngày"
+          title="Thẻ đã học mỗi ngày"
           caption="Số thẻ khác nhau đã học mỗi ngày, tính theo ngày học bắt đầu lúc 04:00. Một thẻ chỉ tính một lần dù nó quay lại trong phiên, và một ngày có thể gồm nhiều phiên."
           legend={
             <div className="flex items-center gap-3">
@@ -75,7 +93,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
                     onClick={() => setSpan(option)}
                     className={`px-2 py-1 transition-colors ${
                       span === option
-                        ? 'bg-[var(--bamboo-subtle)] font-semibold text-[var(--bamboo)]'
+                        ? 'bg-[var(--brand-subtle)] font-semibold text-[var(--brand)]'
                         : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                     }`}
                   >
@@ -87,7 +105,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
           }
           table={
             <DataTable
-              head={['Ngày', 'Từ mới', 'Ôn lại', 'Lượt chấm']}
+              head={['Ngày', NEW_LABEL[stats.scope], 'Ôn lại', 'Lượt chấm']}
               rows={volume
                 .filter((day) => day.ratings > 0)
                 .reverse()
@@ -182,7 +200,7 @@ export function StatsScreen({ stats }: { stats: StatsView }) {
           <MaturityBar slices={stats.maturity} />
         </ChartCard>
 
-        <ConfusionCard confusions={stats.confusions} />
+        {stats.scope !== 'grammar' && <ConfusionCard confusions={stats.confusions} />}
         </div>
       </div>
     </div>
@@ -379,10 +397,45 @@ function ConfusionCard({ confusions }: { confusions: StatsView['confusions'] }) 
 
       <Link
         href="/words"
-        className="mt-3 inline-block text-[11px] font-medium text-[var(--bamboo)] hover:underline"
+        className="mt-3 inline-block text-[11px] font-medium text-[var(--brand)] hover:underline"
       >
         Sửa nghĩa hoặc thêm ghi chú ở Kho từ →
       </Link>
     </section>
+  );
+}
+
+/**
+ * The current mode's cards, or everything. The mode itself is the header
+ * toggle's — this only widens the view to both kinds, and back.
+ */
+function ScopeSwitch({ scope }: { scope: StatsScope }) {
+  return (
+    <div className="mt-1 flex shrink-0 overflow-hidden rounded-lg border border-[var(--border-subtle)] text-[11px]">
+      {scope === 'all' ? (
+        <Link
+          href="/stats"
+          className="px-2 py-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        >
+          Theo chế độ
+        </Link>
+      ) : (
+        <span className="bg-[var(--brand-subtle)] px-2 py-1 font-semibold text-[var(--brand)]">
+          {SCOPE_LABEL[scope]}
+        </span>
+      )}
+      {scope === 'all' ? (
+        <span className="bg-[var(--brand-subtle)] px-2 py-1 font-semibold text-[var(--brand)]">
+          {SCOPE_LABEL.all}
+        </span>
+      ) : (
+        <Link
+          href="/stats?scope=all"
+          className="px-2 py-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        >
+          {SCOPE_LABEL.all}
+        </Link>
+      )}
+    </div>
   );
 }

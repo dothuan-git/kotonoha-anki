@@ -2,18 +2,32 @@ import { revalidatePath } from 'next/cache';
 import { NextResponse } from 'next/server';
 
 import { requireSession } from '@/lib/auth';
-import { createImportBatch, deleteImportBatch, findExistingPairs } from '@/lib/db/imports';
+import { insertGrammarRows, type GrammarInsert } from '@/lib/db/grammar';
+import {
+  createImportBatch,
+  deleteImportBatch,
+  findExistingGrammar,
+  findExistingPairs,
+} from '@/lib/db/imports';
 import { insertWords } from '@/lib/db/words';
 import type { WordInsert } from '@/lib/db/words';
 import {
   applyExclusions,
   countRows,
+  grammarDetail,
+  grammarKey,
   pairKey,
+  parseGrammarImport,
   parseImport,
+  previewDetails,
   toPreview,
+  wordDetail,
   type ImportReport,
+  type ParseOutcome,
   type ParsedRow,
+  type PreviewDetail,
 } from '@/lib/import';
+import type { CardKind } from '@/lib/types';
 
 export const runtime = 'nodejs';
 
@@ -36,6 +50,10 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
  *
  * Errors here are Vietnamese, unlike /api/sync: that route answers a
  * background replay nobody reads, and this one answers a screen.
+ *
+ * Words by default; `kind=grammar` takes a grammar file through the same two
+ * passes — its own parser, duplicate check and insert, the same everything
+ * else. See `IMPORTERS`.
  */
 export async function POST(request: Request) {
   try {
@@ -64,7 +82,69 @@ export async function POST(request: Request) {
 
   const dryRun = form.get('dryRun') !== '0';
   const excluded = parseExclusions(form.get('exclude'));
+  const kind: CardKind = form.get('kind') === 'grammar' ? 'grammar' : 'word';
+  // Two arms rather than one lookup, so each importer keeps its own row type.
+  return kind === 'grammar'
+    ? run(IMPORTERS.grammar, file, dryRun, excluded)
+    : run(IMPORTERS.word, file, dryRun, excluded);
+}
 
+/** What differs between a word import and a grammar import. Nothing else does. */
+interface Importer<T> {
+  kind: CardKind;
+  parse: (text: string, fallbackSource: string) => ParseOutcome<T>;
+  /** The `ok` rows already in the book, as keys `keyOf` understands. */
+  existing: (rows: ParsedRow<T>[]) => Promise<Set<string>>;
+  keyOf: (row: ParsedRow<T>) => string;
+  /** What the preview dialog shows of a parsed row. */
+  detail: (data: T) => PreviewDetail;
+  insert: (rows: T[]) => Promise<{ index: number; error?: unknown; id?: string }[]>;
+  noun: string;
+  revalidate: () => void;
+}
+
+const IMPORTERS = {
+  word: {
+    kind: 'word',
+    parse: parseImport,
+    existing: (rows) => findExistingPairs(rows),
+    keyOf: pairKey,
+    detail: wordDetail,
+    insert: async (rows) =>
+      (await insertWords(rows)).map((o) => ({ index: o.index, error: o.error, id: o.wordId })),
+    noun: 'từ',
+    revalidate: () => {
+      revalidatePath('/words');
+      revalidatePath('/kanji');
+    },
+  } satisfies Importer<WordInsert>,
+  grammar: {
+    kind: 'grammar',
+    parse: parseGrammarImport,
+    existing: (rows) =>
+      findExistingGrammar(rows.map((r) => ({ pattern: r.headword, meaning: r.meaning }))),
+    keyOf: (row) => grammarKey({ pattern: row.headword, meaning: row.meaning }),
+    detail: grammarDetail,
+    insert: async (rows) =>
+      (await insertGrammarRows(rows)).map((o) => ({
+        index: o.index,
+        error: o.error,
+        id: o.grammarId,
+      })),
+    noun: 'mẫu',
+    revalidate: () => {
+      revalidatePath('/grammar/list');
+      revalidatePath('/grammar');
+    },
+  } satisfies Importer<GrammarInsert>,
+};
+
+async function run<T extends { createdAt?: Date; importBatchId?: string | null }>(
+  importer: Importer<T>,
+  file: File,
+  dryRun: boolean,
+  excluded: ReadonlySet<number>,
+) {
   let text: string;
   try {
     text = await file.text();
@@ -72,38 +152,45 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Không đọc được nội dung tệp' }, { status: 400 });
   }
 
-  const parsed = parseImport(text, stripExtension(file.name));
+  const parsed = importer.parse(text, stripExtension(file.name));
   if (!parsed.ok) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
   const { source, note, rows } = parsed.result;
+  // Taken now, before the duplicate check and the exclusions clear `data`.
+  const details = previewDetails(rows, importer.detail);
 
-  let checked: ParsedRow[];
+  let checked: ParsedRow<T>[];
   try {
-    checked = await markDuplicates(rows);
+    checked = await markDuplicates(importer, rows);
   } catch (error) {
     console.error('[import] duplicate check failed', error);
-    return NextResponse.json({ error: 'Không kiểm tra được từ trùng' }, { status: 503 });
+    return NextResponse.json(
+      { error: `Không kiểm tra được ${importer.noun} trùng` },
+      { status: 503 },
+    );
   }
 
   const marked = applyExclusions(checked, excluded);
   const counts = countRows(marked);
 
   if (dryRun) {
-    return NextResponse.json({ source, rows: toPreview(marked), counts } satisfies ImportReport);
+    return NextResponse.json({ source, rows: toPreview(marked, details), counts } satisfies ImportReport);
   }
 
   if (counts.ok === 0) {
-    return NextResponse.json({ error: 'Không có từ nào hợp lệ để nhập' }, { status: 400 });
+    return NextResponse.json(
+      { error: `Không có ${importer.noun} nào hợp lệ để nhập` },
+      { status: 400 },
+    );
   }
 
   try {
-    const inserted = await commit(marked, { source, note });
-    revalidatePath('/words');
-    revalidatePath('/kanji');
+    const inserted = await commit(importer, marked, { source, note });
+    importer.revalidate();
     return NextResponse.json({
       source,
-      rows: toPreview(marked),
+      rows: toPreview(marked, details),
       // Recounted: `commit` demotes any row the database refused.
       counts: countRows(marked),
       batchId: inserted.batchId,
@@ -111,18 +198,22 @@ export async function POST(request: Request) {
     } satisfies ImportReport);
   } catch (error) {
     console.error('[import] failed', error);
-    return NextResponse.json({ error: 'Không nhập được từ' }, { status: 503 });
+    return NextResponse.json({ error: `Không nhập được ${importer.noun}` }, { status: 503 });
   }
 }
 
 /** Flips the rows already in the book from `ok` to `duplicate`. */
-async function markDuplicates(rows: ParsedRow[]): Promise<ParsedRow[]> {
+async function markDuplicates<T>(
+  importer: Importer<T>,
+  rows: ParsedRow<T>[],
+): Promise<ParsedRow<T>[]> {
   const candidates = rows.filter((r) => r.status === 'ok');
-  const existing = await findExistingPairs(candidates);
+  const existing = await importer.existing(candidates);
+  const reason = importer.kind === 'grammar' ? 'Đã có trong kho ngữ pháp' : 'Đã có trong sổ từ';
 
   return rows.map((row) =>
-    row.status === 'ok' && existing.has(pairKey(row))
-      ? { ...row, status: 'duplicate' as const, reason: 'Đã có trong sổ từ', data: undefined }
+    row.status === 'ok' && existing.has(importer.keyOf(row))
+      ? { ...row, status: 'duplicate' as const, reason, data: undefined }
       : row,
   );
 }
@@ -136,33 +227,34 @@ async function markDuplicates(rows: ParsedRow[]): Promise<ParsedRow[]> {
  * does not tick between them — which is what puts the whole batch in one place
  * in the new-card queue and leaves `sortOrder` to carry the file's order.
  */
-async function commit(
-  rows: ParsedRow[],
+async function commit<T extends { createdAt?: Date; importBatchId?: string | null }>(
+  importer: Importer<T>,
+  rows: ParsedRow<T>[],
   batch: { source: string; note: string | null },
 ): Promise<{ batchId?: string; count: number }> {
-  const batchId = await createImportBatch(batch);
+  const batchId = await createImportBatch({ ...batch, kind: importer.kind });
   const createdAt = new Date();
 
   const pending = rows.filter((r) => r.status === 'ok' && r.data);
-  const payload: WordInsert[] = pending.map((r) => ({
-    ...(r.data as WordInsert),
+  const payload: T[] = pending.map((r) => ({
+    ...(r.data as T),
     createdAt,
     importBatchId: batchId,
   }));
 
-  const outcomes = await insertWords(payload);
+  const outcomes = await importer.insert(payload);
 
   let count = 0;
   for (const outcome of outcomes) {
     const row = pending[outcome.index];
     if (!row) continue;
-    if (outcome.wordId) {
+    if (outcome.id) {
       count++;
       continue;
     }
     console.error(`[import] row ${row.index} failed`, outcome.error);
     row.status = 'invalid';
-    row.reason = 'Không lưu được từ này';
+    row.reason = `Không lưu được ${importer.noun} này`;
   }
 
   // An import that wrote nothing leaves no batch behind to wonder about.

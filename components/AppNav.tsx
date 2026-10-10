@@ -5,21 +5,40 @@ import { motion } from 'motion/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
+import { useStudyMode } from '@/components/StudyMode';
+import type { CardKind } from '@/lib/types';
+
 /**
  * The prototype's ModernNavigation, rebuilt on the router. The active-tab
  * spring indicator and the badge slot are kept; the tab id becomes an href.
+ *
+ * Two tab sets, one per study mode, switched by the header's `ModeToggle`.
+ * Each mode's screens are their own routes, so swapping the set is all the
+ * nav does — no screen branches on the mode. Thống kê and Cài đặt are in both.
  */
-const TABS = [
-  { href: '/', label: 'Ôn tập', icon: Layers },
-  // Luyện tập is the drill, Ôn tập the scheduled review. It carries no badge:
-  // the badge means work that has come due, and practice never is.
-  { href: '/practice', label: 'Luyện tập', icon: Repeat },
-  { href: '/add', label: 'Thêm từ', icon: PlusCircle },
-  { href: '/words', label: 'Kho từ', icon: BookMarked },
-  { href: '/kanji', label: 'Hán tự', icon: Grid },
-  { href: '/stats', label: 'Thống kê', icon: BarChart2 },
-  { href: '/settings', label: 'Cài đặt', icon: Settings },
-] as const;
+const TABS = {
+  word: [
+    { href: '/', label: 'Ôn tập', icon: Layers },
+    // Luyện tập is the drill, Ôn tập the scheduled review. It carries no badge:
+    // the badge means work that has come due, and practice never is.
+    { href: '/practice', label: 'Luyện tập', icon: Repeat },
+    { href: '/add', label: 'Thêm từ', icon: PlusCircle },
+    { href: '/words', label: 'Kho từ', icon: BookMarked },
+    { href: '/kanji', label: 'Hán tự', icon: Grid },
+    { href: '/stats', label: 'Thống kê', icon: BarChart2 },
+    { href: '/settings', label: 'Cài đặt', icon: Settings },
+  ],
+  grammar: [
+    { href: '/grammar', label: 'Ôn tập', icon: Layers },
+    { href: '/grammar/add', label: 'Thêm mẫu', icon: PlusCircle },
+    { href: '/grammar/list', label: 'Kho mẫu', icon: BookMarked },
+    { href: '/stats', label: 'Thống kê', icon: BarChart2 },
+    { href: '/settings', label: 'Cài đặt', icon: Settings },
+  ],
+} as const;
+
+/** Each mode's review tab: where its badge goes, and a path matched exactly. */
+const HOME: Record<CardKind, string> = { word: '/', grammar: '/grammar' };
 
 /**
  * `bar` is the phone/tablet tab strip along the bottom of the sheet; `sidebar`
@@ -33,16 +52,18 @@ const TABS = [
 type Variant = 'bar' | 'sidebar';
 
 export function AppNav({
-  dueCount = 0,
   variant = 'bar',
   className = '',
 }: {
-  dueCount?: number;
   variant?: Variant;
   className?: string;
 }) {
   const pathname = usePathname();
+  const { mode, due } = useStudyMode();
   if (pathname === '/signin') return null;
+
+  const home = HOME[mode];
+  const dueCount = due[mode];
 
   const sidebar = variant === 'sidebar';
 
@@ -60,10 +81,11 @@ export function AppNav({
           sidebar ? 'flex flex-col gap-1' : 'mx-auto flex items-center justify-between'
         }
       >
-        {TABS.map((tab) => {
+        {TABS[mode].map((tab) => {
           const Icon = tab.icon;
-          const isActive =
-            tab.href === '/' ? pathname === '/' : pathname.startsWith(tab.href);
+          // A review tab is matched exactly: /grammar is a prefix of every
+          // grammar screen, as / is of every screen at all.
+          const isActive = tab.href === home ? pathname === home : pathname.startsWith(tab.href);
 
           return (
             <motion.div
@@ -80,14 +102,14 @@ export function AppNav({
                     : 'flex-col items-center rounded-xl px-1.5 py-1.5 sm:px-2'
                 } ${
                   isActive
-                    ? 'font-bold text-[var(--bamboo)]'
+                    ? 'font-bold text-[var(--brand)]'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 {isActive && (
                   <motion.div
                     layoutId={`activeTabIndicator-${variant}`}
-                    className="absolute inset-0 -z-10 rounded-xl border border-[var(--bamboo-border)]/60 bg-[var(--bamboo-subtle)]"
+                    className="absolute inset-0 -z-10 rounded-xl border border-[var(--brand-border)]/60 bg-[var(--brand-subtle)]"
                     transition={{ type: 'spring', stiffness: 450, damping: 32 }}
                   />
                 )}
@@ -97,8 +119,8 @@ export function AppNav({
                       isActive ? 'scale-105 stroke-[2.5]' : 'stroke-[1.75]'
                     }`}
                   />
-                  {tab.href === '/' && dueCount > 0 && (
-                    <span className="absolute -right-2 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--bamboo)] px-1 text-[9px] font-bold leading-none text-white shadow-xs">
+                  {tab.href === home && dueCount > 0 && (
+                    <span className="absolute -right-2 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--brand)] px-1 text-[9px] font-bold leading-none text-white shadow-xs">
                       {dueCount}
                     </span>
                   )}

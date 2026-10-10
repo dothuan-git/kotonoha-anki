@@ -1,47 +1,40 @@
 'use client';
 
-import {
-  Check,
-  CheckCircle2,
-  Copy,
-  Keyboard,
-  Pencil,
-  Play,
-  Sparkles,
-  Volume2,
-  X,
-} from 'lucide-react';
+import { Keyboard, Pencil } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
-import { AnswerInput } from '@/components/AnswerInput';
 import { LeechPanel } from '@/components/LeechPanel';
 import { ReviewEditPanel, type ReviewEdit } from '@/components/ReviewEditPanel';
-import { Ruby } from '@/components/Ruby';
 import { SyncStatus } from '@/components/SyncStatus';
 import { UndoToast } from '@/components/UndoToast';
+import { Finished } from '@/components/review/Finished';
+import { GrammarCard } from '@/components/review/GrammarCard';
+import { GrammarEditPanel, type GrammarEditPatch } from '@/components/review/GrammarEditPanel';
+import type { Attempt, FontStyle } from '@/components/review/types';
+import { WordCard } from '@/components/review/WordCard';
+import { patchGrammar } from '@/lib/actions/grammar';
 import { startPractice, startSession } from '@/lib/actions/review';
 import { updateWord } from '@/lib/actions/words';
 import { playSentenceAudio, playWordAudio } from '@/lib/client/audio';
-import { PRACTICE_SESSION_KEY, SESSION_KEY } from '@/lib/client/db';
+import { GRAMMAR_SESSION_KEY, PRACTICE_SESSION_KEY, SESSION_KEY } from '@/lib/client/db';
 import { useOnline } from '@/lib/client/online';
 import { practiceRecorder } from '@/lib/client/recorder';
 import { recordingRecorder } from '@/lib/client/recording';
-import { chooseSession, loadSession, saveSession } from '@/lib/client/session';
-import { formatDueIn } from '@/lib/fsrs/format';
+import { chooseSession, loadSession, relevantPending, saveSession } from '@/lib/client/session';
+import { pickSentence } from '@/lib/grammar';
 import { rateLocally } from '@/lib/fsrs/local';
-import { dropUnsettled, finishState, type FinishState } from '@/lib/session-end';
+import { dropUnsettled, finishState } from '@/lib/session-end';
 import { resolvePair, revises, type PriorGrade } from '@/lib/fsrs/pair';
 import { repeatSlot } from '@/lib/fsrs/queue';
-import { mergeMissed, missedWords, toCsv, type MissedWord } from '@/lib/recap';
+import { mergeMissed, missedWords, type MissedWord } from '@/lib/recap';
 import {
   RATING_LABELS,
   UNDO_WINDOW_MS,
-  formatHanViet,
-  formatPos,
+  type GrammarView,
   type RemainingWork,
   type ReviewItem,
+  type SentenceView,
   type SessionView,
   type SyncResult,
   type WordView,
@@ -54,8 +47,8 @@ type Rating = 1 | 2 | 3 | 4;
 const RATING_STYLES: Record<Rating, string> = {
   1: 'border border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20',
   2: 'border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20',
-  3: 'border border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-[var(--bamboo)] hover:opacity-90',
-  4: 'bg-[var(--bamboo)] text-white hover:opacity-90 shadow-xs',
+  3: 'border border-[var(--brand-border)] bg-[var(--brand-subtle)] text-[var(--brand)] hover:opacity-90',
+  4: 'bg-[var(--brand)] text-white hover:opacity-90 shadow-xs',
 };
 
 const ALL_RATINGS = [1, 2, 3, 4] as const;
@@ -68,14 +61,6 @@ interface Answered {
   logId: string;
   item: ReviewItem;
   rating: Rating;
-}
-
-/** A typed answer, already judged by the answer matcher. */
-interface Attempt {
-  input: string;
-  correct: boolean;
-  /** Tries spent getting here, out of `MAX_ANSWER_ATTEMPTS`. */
-  attempts: number;
 }
 
 /** The rating still inside the undo window. At most one; a new rating replaces it. */
@@ -154,8 +139,17 @@ export function ReviewScreen({
   );
   /** Practice writes nothing, so nothing downstream of a rating applies. */
   const records = mode === 'review';
-  /** Practice keeps its own stored queue: a drill must not evict a review. */
-  const storageKey = records ? SESSION_KEY : PRACTICE_SESSION_KEY;
+  /** Words or grammar. A session never mixes them; absent means words. */
+  const kind = serverSession.kind ?? 'word';
+  /**
+   * Each screen keeps its own stored queue: a drill must not evict a review,
+   * and a grammar session must not evict a word one.
+   */
+  const storageKey = !records
+    ? PRACTICE_SESSION_KEY
+    : kind === 'grammar'
+      ? GRAMMAR_SESSION_KEY
+      : SESSION_KEY;
 
   const [session, setSession] = useState<SessionView>(serverSession);
   const [queue, setQueue] = useState<ReviewItem[]>(serverSession.items);
@@ -205,7 +199,7 @@ export function ReviewScreen({
   const [editing, setEditing] = useState(false);
   /** The leech prompt, shown once for the card that just crossed six lapses. */
   const [leeched, setLeeched] = useState<ReviewItem | null>(null);
-  const [fontStyle, setFontStyle] = useState<'mincho' | 'gothic'>('mincho');
+  const [fontStyle, setFontStyle] = useState<FontStyle>('mincho');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, startTransition] = useTransition();
@@ -239,20 +233,14 @@ export function ReviewScreen({
   );
   const currentWord = queue[0];
   /**
-   * Which way round this showing is asked, and what it wants typed.
+   * Which way round this showing is asked.
    *
    * The face comes from the queue and is not negotiable — it is half of what
    * makes the session twenty cards rather than ten. What *is* negotiable is
-   * how you answer: turn it over, or type it.
-   *
-   * Typing means a different question on each face, which is why `expecting`
-   * is derived from the face rather than chosen. With the meaning on screen
-   * the answer is the word, and the kanji or the kana will both do. With the
-   * word on screen the only thing left to ask is its reading — accepting the
-   * headword there would be marking the card's own prompt correct.
+   * how you answer: turn it over, or type it. What typing then asks for is
+   * the card's business — see `WordCard`.
    */
   const face = currentWord?.face ?? 'word';
-  const expecting: 'word' | 'reading' = face === 'meaning' ? 'word' : 'reading';
 
   /**
    * Applying what came back from /api/sync: the server folded each card's
@@ -329,16 +317,25 @@ export function ReviewScreen({
 
     void (async () => {
       const now = new Date();
-      const [stored, waiting] = await Promise.all([
+      const [stored, entries] = await Promise.all([
         loadSession(now, storageKey),
-        recorder.pendingCount(),
+        recorder.pendingEntries(),
       ]);
       if (cancelled) return;
+      // Everything waiting, for the sync indicator and the flush loop — the
+      // outbox drains as one whichever screen is open.
+      const waiting = entries.length;
 
       const chosen = chooseSession({
         server: serverSession,
         stored: stored?.session ?? null,
-        pendingCount: waiting,
+        // Only the ratings for cards this screen could deal: the outbox is
+        // shared with the other kind of review.
+        pendingCount: relevantPending(
+          entries,
+          [serverSession, stored?.session],
+          stored?.graded,
+        ),
         online: typeof navigator === 'undefined' ? true : navigator.onLine,
         now,
       });
@@ -419,8 +416,19 @@ export function ReviewScreen({
   const handleReveal = useCallback(() => {
     if (!currentWord || typing) return;
     setIsRevealed(true);
-    playWordAudio(currentWord.word);
+    speak(currentWord);
   }, [currentWord, typing]);
+
+  /**
+   * A grammar card's scratch pad, submitted. Nothing is judged — the attempt
+   * stays on the card beside the model sentence — so this is a reveal that
+   * typing mode is allowed to make.
+   */
+  const handleWritten = useCallback(() => {
+    if (!currentWord) return;
+    setIsRevealed(true);
+    speak(currentWord);
+  }, [currentWord]);
 
   /**
    * The card is done being typed at — right, out of tries, or given up on.
@@ -430,7 +438,7 @@ export function ReviewScreen({
     (result: Attempt) => {
       setAttempt(result);
       setIsRevealed(true);
-      if (currentWord) playWordAudio(currentWord.word);
+      if (currentWord) speak(currentWord);
     },
     [currentWord],
   );
@@ -715,11 +723,21 @@ export function ReviewScreen({
     });
   }, [undoable, session.requestRetention, recorder]);
 
+  /**
+   * A word or grammar point was rewritten mid-session: every showing of it in
+   * the queue, and every answer already recorded against it, now says the new
+   * thing — so the recap reads as rewritten too.
+   */
+  const applyEdit = useCallback((edit: (item: ReviewItem) => ReviewItem) => {
+    setQueue((q) => q.map(edit));
+    setAnswered((a) => a.map((x) => ({ ...x, item: edit(x.item) })));
+  }, []);
+
   /** Edit mid-review. Server first: a failed save must not leave a lie on screen. */
   const handleEditSave = useCallback(
     (patch: ReviewEdit) => {
       const item = queue[0];
-      if (!item) return;
+      if (!item || item.kind === 'grammar') return;
       const wordId = item.word.id;
 
       startTransition(async () => {
@@ -728,14 +746,31 @@ export function ReviewScreen({
           setError(result.error);
           return;
         }
-
-        const apply = (w: WordView): WordView => (w.id === wordId ? { ...w, ...patch } : w);
-        setQueue((q) => q.map((i) => ({ ...i, word: apply(i.word) })));
-        setAnswered((a) => a.map((x) => ({ ...x, item: { ...x.item, word: apply(x.item.word) } })));
+        applyEdit(editWord(wordId, patch));
         setEditing(false);
       });
     },
-    [queue],
+    [queue, applyEdit],
+  );
+
+  /** The grammar twin of `handleEditSave`. */
+  const handleGrammarEditSave = useCallback(
+    (patch: GrammarEditPatch) => {
+      const item = queue[0];
+      if (!item || item.kind !== 'grammar') return;
+      const grammarId = item.grammar.id;
+
+      startTransition(async () => {
+        const result = await patchGrammar(grammarId, patch);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        applyEdit(editGrammar(grammarId, patch));
+        setEditing(false);
+      });
+    },
+    [queue, applyEdit],
   );
 
   /**
@@ -753,14 +788,17 @@ export function ReviewScreen({
    * prompt that only the server can remember having shown once.
    */
   const handleLeechDone = useCallback(
-    (patch?: ReviewEdit) => {
+    (patch?: ReviewEdit | GrammarEditPatch) => {
       const item = leeched;
       if (!item) return;
       setLeeched(null);
 
       startTransition(async () => {
         if (patch) {
-          const saved = await updateWord({ id: item.word.id, ...patch });
+          const saved =
+            item.kind === 'grammar'
+              ? await patchGrammar(item.grammar.id, patch as GrammarEditPatch)
+              : await updateWord({ id: item.word.id, ...(patch as ReviewEdit) });
           if (!saved.ok) {
             setError(saved.error);
             // The rewrite failed, so the prompt has not done its job. Put it
@@ -768,11 +806,10 @@ export function ReviewScreen({
             setLeeched(item);
             return;
           }
-          const apply = (w: WordView): WordView =>
-            w.id === item.word.id ? { ...w, ...patch } : w;
-          setQueue((q) => q.map((i) => ({ ...i, word: apply(i.word) })));
-          setAnswered((a) =>
-            a.map((x) => ({ ...x, item: { ...x.item, word: apply(x.item.word) } })),
+          applyEdit(
+            item.kind === 'grammar'
+              ? editGrammar(item.grammar.id, patch as GrammarEditPatch)
+              : editWord(item.word.id, patch as ReviewEdit),
           );
         }
 
@@ -784,7 +821,7 @@ export function ReviewScreen({
         setNotice('Đã ghi nhận thẻ khó.');
       });
     },
-    [leeched, recorder],
+    [leeched, recorder, applyEdit],
   );
 
   /**
@@ -843,7 +880,7 @@ export function ReviewScreen({
           // Practice queues nothing, so there is nothing to drain first and
           // no reason to make the next page wait on a flush.
           if (records) await sync();
-          const result = records ? await startSession() : await startPractice(nextPage);
+          const result = records ? await startSession(kind) : await startPractice(nextPage);
           if (!result.ok) {
             setError(result.error);
             return;
@@ -880,7 +917,7 @@ export function ReviewScreen({
         setNextPending(false);
       }
     })();
-  }, [ready, nextPending, session, graded, online, sync, recorder, records, storageKey]);
+  }, [ready, nextPending, session, graded, online, sync, recorder, records, storageKey, kind]);
 
   // Keyboard shortcut support
   useEffect(() => {
@@ -957,7 +994,8 @@ export function ReviewScreen({
           unsettled,
           practice: session.practice,
         })}
-        summary={answered.length > 0 ? summarise(answered) : null}
+        kind={kind}
+        summary={answered.length > 0 ? summarise(answered, kind) : null}
         missed={missed}
         now={session.now}
         busy={nextPending}
@@ -967,43 +1005,16 @@ export function ReviewScreen({
     );
   }
 
-  const { word } = currentWord;
   const total = answered.length + queue.length;
   const done = answered.length;
-  const hanViet = formatHanViet(word.kanji);
-  // The prompt side never changes once the card is on screen: the face decides
-  // it, and revealing adds the answer underneath rather than turning the card
-  // over. So a meaning card still reads as the meaning after you have answered
-  // it, with the word it was asking for below.
+  // Which way round the card is asked — the typing toggle's tooltip says what
+  // typing would mean for this face.
   const asking = face === 'meaning';
-  // Hearing the word before you have recalled it is the answer, out loud.
-  const canHearWord = !asking || isRevealed;
   // A typed attempt that ran out of tries. Every grade stays on offer — the
   // grading is yours, here as everywhere — but "gõ nhầm" is offered alongside
   // them, because three wrong spellings of a word you knew is the one case
   // where the honest answer is that no review happened at all.
   const missedAnswer = attempt !== null && !attempt.correct;
-  /**
-   * The answer, in rows, ordered so the thing the card actually asked for
-   * comes first and the half already on the prompt side never repeats.
-   *
-   * Hán Việt is not a row. The word card already wears it as a tag above its
-   * headword, so a row would be the same fact twice; the meaning card has no
-   * headword up there to hang it on, so it goes under the rows instead.
-   */
-  const revealedRows: RevealedRow[] = asking
-    ? [
-        { label: 'Từ tiếng Nhật', value: word.headword, kind: 'headword' },
-        // A kana-only word is its own reading. Printing it twice under two
-        // labels reads as a mistake rather than as a fact about the word.
-        ...(word.reading === word.headword
-          ? []
-          : [{ label: 'Cách đọc', value: word.reading, kind: 'reading' as const }]),
-      ]
-    : [
-        { label: 'Cách đọc', value: word.reading, kind: 'reading' },
-        { label: 'Nghĩa tiếng Việt', value: word.meaning, kind: 'vietnamese' },
-      ];
 
   return (
     /*
@@ -1023,7 +1034,7 @@ export function ReviewScreen({
           </span>
           <div className="w-24 h-1.5 bg-[var(--bg-muted)] rounded-full overflow-hidden">
             <div
-              className="h-full bg-[var(--bamboo)] rounded-full transition-all duration-300"
+              className="h-full bg-[var(--brand)] rounded-full transition-all duration-300"
               style={{ width: `${((done + 1) / total) * 100}%` }}
             />
           </div>
@@ -1054,12 +1065,16 @@ export function ReviewScreen({
             aria-pressed={typing}
             className={`px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:cursor-default disabled:opacity-60 ${
               typing
-                ? 'bg-[var(--bamboo-subtle)] border-[var(--bamboo-border)] text-[var(--bamboo)] font-semibold'
+                ? 'bg-[var(--brand-subtle)] border-[var(--brand-border)] text-[var(--brand)] font-semibold'
                 : 'border-[var(--border-subtle)] text-[var(--text-secondary)] enabled:hover:border-[var(--border-strong)]'
             } ${isRevealed ? '' : 'cursor-pointer'}`}
             title={
               isRevealed
                 ? 'Đáp án đã hiện — đổi cách trả lời ở thẻ sau'
+                : currentWord.kind === 'grammar'
+                  ? typing
+                    ? 'Chế độ gõ — viết câu tiếng Nhật rồi so với câu mẫu. Bấm hoặc Alt+` để quay lại thẻ lật.'
+                    : 'Thẻ lật — nói hoặc nghĩ câu trả lời rồi lật xem. Bấm hoặc Alt+` để chuyển sang viết câu.'
                 : typing
                   ? asking
                     ? 'Chế độ gõ — gõ từ tiếng Nhật bằng kanji hoặc hiragana. Bấm hoặc Alt+` để quay lại thẻ lật.'
@@ -1080,10 +1095,10 @@ export function ReviewScreen({
               onClick={() => setEditing((v) => !v)}
               className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${
                 editing
-                  ? 'border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-[var(--bamboo)]'
-                  : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--bamboo)]'
+                  ? 'border-[var(--brand-border)] bg-[var(--brand-subtle)] text-[var(--brand)]'
+                  : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--brand)]'
               }`}
-              title="Sửa từ này"
+              title={currentWord.kind === 'grammar' ? 'Sửa mẫu ngữ pháp này' : 'Sửa từ này'}
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
@@ -1097,7 +1112,7 @@ export function ReviewScreen({
         {undoable && (
           <UndoToast
             key={undoable.logId}
-            headword={undoable.item.word.headword}
+            headword={itemLabel(undoable.item)}
             rating={undoable.rating}
             expiresAt={undoable.expiresAt}
             busy={saving}
@@ -1106,14 +1121,25 @@ export function ReviewScreen({
           />
         )}
         {leeched && (
-          <LeechPanel
-            key={`leech-${leeched.cardId}`}
-            word={leeched.word}
-            lapses={leeched.state.lapses}
-            saving={saving}
-            onSave={(patch) => handleLeechDone(patch)}
-            onDismiss={() => handleLeechDone()}
-          />
+          <LeechPanel key={`leech-${leeched.cardId}`} lapses={leeched.state.lapses}>
+            {leeched.kind === 'grammar' ? (
+              <GrammarEditPanel
+                grammar={leeched.grammar}
+                saving={saving}
+                onCancel={() => handleLeechDone()}
+                onSave={(patch) => handleLeechDone(patch)}
+                cancelLabel="Để nguyên"
+              />
+            ) : (
+              <ReviewEditPanel
+                word={leeched.word}
+                saving={saving}
+                onCancel={() => handleLeechDone()}
+                onSave={(patch) => handleLeechDone(patch)}
+                cancelLabel="Để nguyên"
+              />
+            )}
+          </LeechPanel>
         )}
         {notice && (
           <motion.div
@@ -1122,7 +1148,7 @@ export function ReviewScreen({
             animate={{ opacity: 1, y: 0, height: 'auto' }}
             exit={{ opacity: 0, y: -8, height: 0 }}
             transition={{ duration: 0.18 }}
-            className="w-full mt-2 py-2 px-3 rounded-lg bg-[var(--bamboo-subtle)] border border-[var(--bamboo-border)] text-xs text-[var(--bamboo)] overflow-hidden"
+            className="w-full mt-2 py-2 px-3 rounded-lg bg-[var(--brand-subtle)] border border-[var(--brand-border)] text-xs text-[var(--brand)] overflow-hidden"
           >
             {notice}
           </motion.div>
@@ -1151,257 +1177,42 @@ export function ReviewScreen({
           transition={{ duration: 0.18, ease: 'easeOut' }}
           onClick={!isRevealed && !typing ? handleReveal : undefined}
           className={`w-full mt-3 flex-1 min-h-0 overflow-y-auto bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl p-5 sm:p-7 flex flex-col shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-colors ${
-            !isRevealed && !typing ? 'cursor-pointer hover:border-[var(--bamboo)]/50' : ''
+            !isRevealed && !typing ? 'cursor-pointer hover:border-[var(--brand)]/50' : ''
           }`}
         >
-          {/* Card Header Tags */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              {word.jlpt && (
-                <span className="px-2.5 py-0.5 rounded-md bg-[var(--bamboo-subtle)] border border-[var(--bamboo-border)]/50 text-[var(--bamboo)] text-xs font-semibold">
-                  {word.jlpt}
-                </span>
-              )}
-              <span className="text-xs text-[var(--text-muted)] font-medium">
-                {formatPos(word.pos, word.transitivity)}
-              </span>
-            </div>
-
-            {/*
-              The card's own controls: how the word is set, and how it sounds.
-              The speaker sits here rather than up in the session bar because
-              both of these act on the word in front of you, while everything
-              in that bar — progress, sync, the answer mode — acts on the
-              session. Sorting them that way puts each control next to the
-              thing it changes.
-            */}
-            <div className="flex items-center gap-1.5">
-              {/* Dedicated Japanese Font Toggle (Mincho Serif vs Gothic Sans) */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setFontStyle(fontStyle === 'mincho' ? 'gothic' : 'mincho');
-                }}
-                className="px-2 py-0.5 rounded-md text-[11px] font-medium border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 hover:bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer flex items-center gap-1 transition-colors"
-                title="Đổi phông chữ tiếng Nhật (Mincho Serif / Gothic Sans)"
-              >
-                <span
-                  className={
-                    fontStyle === 'mincho'
-                      ? 'font-jp-serif font-bold text-[var(--bamboo)]'
-                      : 'font-jp-sans'
-                  }
-                >
-                  {fontStyle === 'mincho' ? '明朝 (Serif)' : 'ゴシック (Sans)'}
-                </span>
-              </button>
-
-              {/*
-                Gated by `canHearWord`, and the click stops here: the card
-                itself is the reveal target, so a speaker that bubbled would
-                turn the card over on its way to making a sound.
-              */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  playWordAudio(word);
-                }}
-                disabled={!canHearWord}
-                className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 p-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--bamboo)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-                title={canHearWord ? 'Nghe phát âm' : 'Nghe phát âm sau khi trả lời'}
-              >
-                <Volume2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Center: the prompt — the headword, or the meaning to produce it from */}
-          <div className="relative flex min-h-fit flex-1 flex-col justify-center py-6 text-center">
-            {/*
-              Switching into typing does not replace the word, it makes room:
-              the word steps up, and the field opens outward from the middle
-              underneath it.
-
-              The step up is the layout's own — a centred column with a field
-              added below it puts the word higher, and `layout` is what turns
-              that jump into a movement. Animating `y` by hand on top of it
-              would be a second, disagreeing answer to where the word goes.
-
-              `popLayout` everywhere below, rather than `wait`, for the same
-              reason: what is leaving drops out of the flow immediately, so the
-              word begins moving on the frame the field arrives instead of
-              waiting out a fade first. `wait` is what made this feel stepped.
-            */}
-            <motion.div
-              layout
-              transition={{ layout: { type: 'spring', stiffness: 240, damping: 30, mass: 0.8 } }}
-            >
-              <AnimatePresence mode="popLayout" initial={false}>
-                <motion.div
-                  key={asking ? 'meaning' : 'word'}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.14 }}
-                >
-                  {asking ? (
-                    <>
-                      <span className="text-[11px] text-[var(--text-muted)] block font-medium">
-                        Nghĩa tiếng Việt
-                      </span>
-                      <p className="mt-1.5 text-3xl sm:text-4xl font-bold leading-snug text-[var(--text-primary)]">
-                        {word.meaning}
-                      </p>
-                      {!isRevealed && (
-                        <p className="mt-2 text-xs text-[var(--text-muted)]">
-                          {typing
-                            ? 'Gõ từ tiếng Nhật — kanji hoặc hiragana đều được'
-                            : 'Nhớ lại từ tiếng Nhật'}
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <h1
-                        className={`text-5xl sm:text-6xl text-[var(--text-primary)] select-all transition-all ${
-                          fontStyle === 'mincho'
-                            ? 'font-jp-serif font-medium sm:font-semibold tracking-wide'
-                            : 'font-jp-sans font-bold tracking-tight'
-                        }`}
-                      >
-                        {word.headword}
-                      </h1>
-
-                      {/* Hán Việt reading tag */}
-                      {hanViet !== '—' && (
-                        <div className="mt-3">
-                          <HanVietTag hanViet={hanViet} />
-                        </div>
-                      )}
-                    </>
-                  )}
-                </motion.div>
-              </AnimatePresence>
-            </motion.div>
-
-            {/* The field, or the invitation to turn the card over */}
-            <AnimatePresence mode="popLayout" initial={false}>
-              {!isRevealed &&
-                (typing ? (
-                  <motion.div
-                    key="typing"
-                    initial={{ opacity: 0, clipPath: 'inset(0% 44% 0% 44%)' }}
-                    animate={{ opacity: 1, clipPath: 'inset(0% 0% 0% 0%)' }}
-                    exit={{ opacity: 0, clipPath: 'inset(0% 44% 0% 44%)' }}
-                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                  >
-                    <AnswerInput
-                      // The input is uncontrolled, so it has to be remounted
-                      // rather than cleared — and the tries spent live inside
-                      // it, so a reused node would carry them to the next card.
-                      // `done` matters as much as the card id: on a short queue
-                      // a learning step can put the same showing straight back.
-                      key={`${currentWord.cardId}-${currentWord.face}-${done}-${attemptSeq}`}
-                      word={word}
-                      expect={expecting}
-                      disabled={saving}
-                      onAnswer={handleAnswer}
-                    />
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="hint"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.16 }}
-                    className="mt-8 text-xs text-[var(--text-muted)] flex items-center justify-center gap-1.5"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-[var(--bamboo)]" />
-                    <span>Chạm hoặc bấm Phím cách để xem đáp án</span>
-                  </motion.div>
-                ))}
-            </AnimatePresence>
-          </div>
-
-          {/* Revealed Content: Meaning, Furigana & Example Sentence */}
-          <AnimatePresence>
-            {isRevealed && (
-              <motion.div
-                initial={{ opacity: 0, height: 0, y: 6 }}
-                animate={{ opacity: 1, height: 'auto', y: 0 }}
-                exit={{ opacity: 0, height: 0, y: 6 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
-                className="border-t border-[var(--border-subtle)] pt-5 space-y-3.5 overflow-hidden"
-              >
-                {attempt && <Verdict attempt={attempt} />}
-
-                {/*
-                  What the card was asking for, which is the half that is not
-                  already above. Both faces go through the same rows in a
-                  different order — see `RevealedRows`, which is what keeps
-                  them from drifting into two layouts again.
-                */}
-                <RevealedRows rows={revealedRows} fontStyle={fontStyle} />
-                {asking && hanViet !== '—' && (
-                  <div>
-                    <HanVietTag hanViet={hanViet} />
-                  </div>
-                )}
-
-                {word.note && (
-                  <div>
-                    <span className="text-[11px] text-[var(--text-muted)] block font-medium">
-                      Ghi chú
-                    </span>
-                    <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
-                      {word.note}
-                    </p>
-                  </div>
-                )}
-
-                {/* Example Sentence with Furigana */}
-                {word.sentences.map((sentence) => (
-                  <div
-                    key={sentence.id}
-                    className="p-3 rounded-xl bg-[var(--bg-muted)]/70 border border-[var(--border-subtle)]"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <Ruby
-                          text={sentence.jpRuby}
-                          className="font-jp-sans text-sm sm:text-base font-medium text-[var(--text-primary)] leading-relaxed"
-                        />
-                        <p className="text-xs text-[var(--text-secondary)] mt-1">{sentence.vi}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          playSentenceAudio(sentence);
-                        }}
-                        className="p-1 text-[var(--text-muted)] hover:text-[var(--bamboo)] shrink-0 cursor-pointer"
-                        title="Nghe câu ví dụ"
-                      >
-                        <Volume2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {editing && (
-                  <ReviewEditPanel
-                    word={word}
-                    saving={saving}
-                    onCancel={() => setEditing(false)}
-                    onSave={handleEditSave}
-                  />
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {currentWord.kind === 'grammar' ? (
+            <GrammarCard
+              grammar={currentWord.grammar}
+              sentence={sentenceFor(currentWord)}
+              isRevealed={isRevealed}
+              typing={typing}
+              saving={saving}
+              editing={editing}
+              fontStyle={fontStyle}
+              setFontStyle={setFontStyle}
+              onSubmit={handleWritten}
+              onEditSave={handleGrammarEditSave}
+              onEditCancel={() => setEditing(false)}
+            />
+          ) : (
+            <WordCard
+              cardId={currentWord.cardId}
+              word={currentWord.word}
+              face={currentWord.face}
+              done={done}
+              isRevealed={isRevealed}
+              typing={typing}
+              attempt={attempt}
+              attemptSeq={attemptSeq}
+              saving={saving}
+              editing={editing}
+              fontStyle={fontStyle}
+              setFontStyle={setFontStyle}
+              onAnswer={handleAnswer}
+              onEditSave={handleEditSave}
+              onEditCancel={() => setEditing(false)}
+            />
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -1437,7 +1248,7 @@ export function ReviewScreen({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={handleReveal}
-                  className="w-full py-3.5 rounded-xl bg-[var(--bamboo)] hover:bg-[var(--bamboo-hover)] text-white text-sm font-semibold tracking-wide transition-colors cursor-pointer shadow-xs"
+                  className="w-full py-3.5 rounded-xl bg-[var(--brand)] hover:bg-[var(--brand-hover)] text-white text-sm font-semibold tracking-wide transition-colors cursor-pointer shadow-xs"
                 >
                   Hiện đáp án (Phím cách)
                 </motion.button>
@@ -1496,401 +1307,46 @@ export function ReviewScreen({
   );
 }
 
-/**
- * One line of the answer: what it is called, and what it says.
- *
- * `kind` rather than a className, because the whole point of routing both
- * faces through one component is that neither of them can restyle its own
- * copy. A reading looks like a reading whichever side of the card asked for it.
- */
-interface RevealedRow {
-  label: string;
-  value: string;
-  kind: 'headword' | 'reading' | 'vietnamese';
-}
-
-/**
- * The size a Japanese value is set at — a headword or a reading, on either
- * face. One constant rather than the same two classes written twice, because
- * two strings that happen to agree are two chances to disagree later.
- *
- * The Vietnamese gloss keeps its own smaller size below. That is the word
- * card's scale, unchanged; what moved is the meaning card, which had been
- * setting its headword a step larger than anything the word card ever used.
- */
-const JP_ROW_SIZE = 'text-xl sm:text-2xl';
-
-const ROW_STYLES: Record<RevealedRow['kind'], string> = {
-  headword: `${JP_ROW_SIZE} text-[var(--text-primary)] select-all`,
-  reading: `font-jp-serif ${JP_ROW_SIZE} font-semibold tracking-wide text-[var(--bamboo)]`,
-  vietnamese: 'text-base font-semibold leading-snug text-[var(--text-primary)]',
-};
-
-/**
- * The answer, once the card has given it up.
- *
- * Both faces render through here and differ only in which rows they pass and
- * in what order: the word card asks for a reading and shows the meaning under
- * it, the meaning card asks for the word and shows its reading under that.
- *
- * They used to be two hand-written blocks, and had drifted into two layouts
- * with two sets of sizes for the same three facts — a grouped stack with one
- * speaker on one side, labelled rows with their own speakers on the other.
- * Which rows appear is the caller's business; how a row looks is not.
- */
-function RevealedRows({
-  rows,
-  fontStyle,
-}: {
-  rows: readonly RevealedRow[];
-  fontStyle: 'mincho' | 'gothic';
-}) {
-  const jpWeight =
-    fontStyle === 'mincho'
-      ? 'font-jp-serif font-medium tracking-wide'
-      : 'font-jp-sans font-bold tracking-tight';
-
-  return (
-    <>
-      {rows.map(({ label, value, kind }) => (
-        <div key={label} className="min-w-0">
-          <span className="block text-[11px] font-medium text-[var(--text-muted)]">{label}</span>
-          <p className={`mt-0.5 ${ROW_STYLES[kind]} ${kind === 'headword' ? jpWeight : ''}`}>
-            {value}
-          </p>
-        </div>
-      ))}
-    </>
-  );
-}
-
-/** `開 KHAI · 始 THỦY`, in the one shape both faces use for it. */
-function HanVietTag({ hanViet }: { hanViet: string }) {
-  return (
-    <span className="inline-block rounded-full border border-[var(--border-subtle)] bg-[var(--bg-muted)] px-3 py-1 text-xs font-semibold tracking-wide text-[var(--text-secondary)]">
-      Hán Việt: {hanViet}
-    </span>
-  );
-}
-
-/**
- * What you typed, against what the card wanted.
- *
- * A wrong answer shows the attempt back verbatim — without it you cannot tell
- * a mistype from a genuinely wrong reading, which is exactly the judgement
- * "gõ nhầm" asks you to make.
- */
-function Verdict({ attempt }: { attempt: Attempt }) {
-  if (attempt.correct) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] px-3 py-2 text-sm font-semibold text-[var(--bamboo)]">
-        <Check className="h-4 w-4 shrink-0" />
-        <span>Chính xác</span>
-        {/* Which try it took, because it is the thing the grade should turn
-            on and the only record of it is about to disappear. */}
-        {attempt.attempts > 1 && (
-          <span className="font-normal opacity-80">— lượt thứ {attempt.attempts}</span>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-      <X className="h-4 w-4 shrink-0" />
-      <span className="font-semibold">Chưa đúng</span>
-      {attempt.input.trim() && (
-        <span className="font-jp-serif truncate opacity-80">— bạn gõ: {attempt.input}</span>
-      )}
-    </div>
-  );
-}
-
-/**
- * The prototype's completion screen, rebuilt around the fact that finishing a
- * session is no longer the end of the day.
- *
- * Its old "Ôn tập lại từ đầu" button replayed the same deck, which against a
- * real scheduler means re-rating cards already answered. "Phiên tiếp theo"
- * is not that: it deals the cards the budget did not reach.
- *
- * The button is offered on what the action can find, never on `remaining` —
- * that number is counted when the session is built, so it cannot see the
- * learning cards the session made for itself every time you answered Quên.
- * Gating on it would say "done" with a session's work still waiting.
- */
-function Finished({
-  state,
-  summary,
-  missed,
-  now,
-  busy,
-  error,
-  onNext,
-}: {
-  state: FinishState;
-  summary: string | null;
-  missed: MissedWord[];
-  now: string;
-  busy: boolean;
-  error: string | null;
-  onNext: () => void;
-}) {
-  const copy = finishCopy(state, now);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.94 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 25 }}
-      className="w-full max-w-lg mx-auto py-16 px-6 text-center"
-    >
-      <motion.div
-        initial={{ scale: 0, rotate: -20 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ type: 'spring', stiffness: 380, damping: 22, delay: 0.1 }}
-        className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shadow-xs"
-      >
-        <CheckCircle2 className="w-8 h-8" />
-      </motion.div>
-      <h2 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">{copy.title}</h2>
-
-      {summary && (
-        <p className="mt-2 text-sm text-[var(--text-muted)] leading-relaxed max-w-sm mx-auto">
-          {summary}
-        </p>
-      )}
-      <p className="mt-2 text-sm text-[var(--text-muted)] leading-relaxed max-w-sm mx-auto">
-        {copy.detail}
-      </p>
-
-      {error && <p className="mt-3 text-xs text-[var(--rust)]">{error}</p>}
-
-      {missed.length > 0 && <Recap words={missed} />}
-
-      <div className="mt-8 flex flex-col items-center gap-2">
-        <div className="flex items-center justify-center gap-3">
-          {copy.next && (
-            <button
-              type="button"
-              onClick={onNext}
-              disabled={busy || !copy.next.enabled}
-              className="px-5 py-2.5 rounded-xl bg-[var(--bamboo)] text-white text-sm font-semibold hover:bg-[var(--bamboo-hover)] transition-opacity cursor-pointer flex items-center gap-2 shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Play className="w-4 h-4" />
-              <span>{busy ? 'Đang chuẩn bị…' : copy.next.label}</span>
-            </button>
-          )}
-          <Link
-            href="/add"
-            className="px-5 py-2.5 rounded-xl bg-[var(--text-primary)] text-[var(--bg-page)] text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2 shadow-xs"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Thêm từ vựng</span>
-          </Link>
-        </div>
-        {copy.next && !copy.next.enabled && (
-          <span className="text-[11px] text-[var(--text-muted)]">{copy.next.blocked}</span>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-/** What each finish state says, and what it offers. */
-function finishCopy(
-  state: FinishState,
-  now: string,
-): {
-  title: string;
-  detail: string;
-  next?: { label: string; enabled: boolean; blocked: string };
-} {
-  switch (state.kind) {
-    case 'empty-collection':
-      return {
-        title: 'Chưa có thẻ nào',
-        detail: 'Chưa có thẻ nào trong sổ. Thêm từ đầu tiên và nó sẽ xuất hiện ở đây ngay.',
-      };
-
-    case 'waiting-for-sync':
-      return {
-        title: 'Xong phiên này',
-        detail: 'Đang gửi các lượt vừa chấm. Thử lại sau vài giây.',
-        next: { label: 'Thử lại', enabled: true, blocked: '' },
-      };
-
-    case 'more-waiting': {
-      const rest = describeRemaining(state.remaining);
-      return {
-        title: 'Xong phiên này',
-        detail: state.canDeal
-          ? `Còn ${rest} đang chờ.`
-          : `Còn ${rest} đang chờ. Cần có mạng để nhận phiên tiếp theo — mở lại khi có mạng là học tiếp được ngay.`,
-        next: {
-          label: 'Phiên tiếp theo',
-          enabled: state.canDeal,
-          blocked: 'Đang ngoại tuyến',
-        },
-      };
-    }
-
-    case 'all-clear': {
-      const due = state.nextDue
-        ? `Thẻ gần nhất ${formatDueIn(new Date(now), new Date(state.nextDue))}.`
-        : 'Không còn thẻ nào chờ đến hạn.';
-      return {
-        title: 'Đã ôn hết',
-        detail: state.outOfNewWords
-          ? `${due} Sổ từ không còn từ mới nào — thêm từ để học tiếp.`
-          : due,
-      };
-    }
-
-    case 'nothing-due':
-      return {
-        title: 'Không còn thẻ đến hạn',
-        detail: state.nextDue
-          ? `Bạn đã ôn xong các từ đến hạn. Thẻ gần nhất ${formatDueIn(new Date(now), new Date(state.nextDue))}.`
-          : 'Bạn đã ôn xong các từ đến hạn.',
-      };
-
-    case 'practice-empty':
-      return {
-        title: 'Chưa có từ để luyện tập',
-        detail:
-          'Luyện tập ôn lại những từ bạn đã học. Hãy ôn tập vài từ trước đã — chúng sẽ xuất hiện ở đây ngay sau đó.',
-      };
-
-    case 'practice-done': {
-      // The page number is shown because the set moves under you: the newest
-      // page today is not the newest page after the next import, and without
-      // a position there is no way to tell one drill from another.
-      const where = `Trang ${state.page + 1}/${state.pages}.`;
-      const last = state.page + 1 >= state.pages;
-      const rest = last
-        ? 'Hết sổ từ — trang sau quay lại những từ mới nhất.'
-        : 'Trang sau là những từ cũ hơn.';
-      return {
-        title: 'Xong phiên luyện tập',
-        // Practice queues nothing, so nothing is ever in flight. The one
-        // thing that can block the next page is a spent lookahead with no
-        // network — the page has to be fetched, and only the server knows
-        // which words are on it.
-        detail: state.canDeal
-          ? `${where} ${rest}`
-          : `${where} Cần có mạng để nhận trang tiếp theo.`,
-        next: {
-          label: last ? 'Quay lại từ đầu' : 'Trang tiếp theo',
-          enabled: state.canDeal,
-          blocked: 'Đang ngoại tuyến',
-        },
-      };
-    }
-  }
-}
-
-/**
- * The day's misses, and a way to take them somewhere else.
- *
- * Three fields and no fourth. The grade is not a column because the list is
- * already ordered by it — Quên before Khó — and a badge on every row would
- * make the loudest thing on the screen the scoring rather than the words.
- *
- * The CSV is on the page whether or not the button works. `navigator.clipboard`
- * is absent outside a secure context and can reject inside one, and a copy
- * button that fails silently on a list you are about to close is a list lost.
- */
-function Recap({ words }: { words: MissedWord[] }) {
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
-  const csv = toCsv(words);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(csv);
-      setCopyFailed(false);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-      setCopyFailed(true);
-    }
-  }
-
-  return (
-    <section className="mt-6 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 text-left shadow-xs">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Cần ôn thêm</h3>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-muted)]">
-            {words.length} từ bạn chấm Quên hoặc Khó trong phiên này.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-            copied
-              ? 'border-[var(--bamboo-border)] bg-[var(--bamboo-subtle)] text-[var(--bamboo)]'
-              : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]'
-          }`}
-        >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          <span>{copied ? 'Đã sao chép' : 'Sao chép CSV'}</span>
-        </button>
-      </div>
-
-      {copyFailed && (
-        <p className="mt-2 text-[11px] text-[var(--danger)]">
-          Không sao chép được — hãy mở “Xem CSV” bên dưới và chọn thủ công.
-        </p>
-      )}
-
-      <ul className="mt-3 divide-y divide-[var(--border-subtle)]">
-        {words.map((word) => (
-          <li key={word.cardId} className="flex items-baseline justify-between gap-3 py-2">
-            <div className="min-w-0">
-              <p className="font-jp-serif text-base text-[var(--text-primary)]">{word.headword}</p>
-              {/* A kana-only word is its own reading; printing it twice reads
-                  as a mistake rather than as a fact about the word. */}
-              {word.reading !== word.headword && (
-                <p className="mt-0.5 font-jp-sans text-xs text-[var(--text-muted)]">
-                  {word.reading}
-                </p>
-              )}
-            </div>
-            <p className="max-w-[55%] shrink-0 text-right text-xs text-[var(--text-secondary)]">
-              {word.meaning}
-            </p>
-          </li>
-        ))}
-      </ul>
-
-      <details className="mt-3 border-t border-[var(--border-subtle)] pt-2">
-        <summary className="cursor-pointer text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
-          Xem CSV
-        </summary>
-        <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-[var(--bg-muted)] p-2 text-[11px] whitespace-pre text-[var(--text-secondary)]">
-          {csv}
-        </pre>
-      </details>
-    </section>
-  );
-}
-
-function summarise(answered: Answered[]): string {
-  // Words, not showings: each was asked twice and graded once, so counting
+function summarise(answered: Answered[], kind: 'word' | 'grammar'): string {
+  // Cards, not showings: a word is asked twice and graded once, so counting
   // the answers would report a session twice the size of the work done.
   const cards = new Set(answered.map((a) => a.item.cardId)).size;
   const forgotten = answered.filter((a) => a.rating === 1).length;
   const forgot = forgotten > 0 ? `, ${forgotten} lượt quên` : '';
-  return `${cards} từ, ${answered.length} lượt chấm${forgot}.`;
+  return `${cards} ${kind === 'grammar' ? 'mẫu' : 'từ'}, ${answered.length} lượt chấm${forgot}.`;
+}
+
+/** The example a grammar showing asks, rotated by how often the card has been reviewed. */
+function sentenceFor(item: { grammar: GrammarView; state: { reps: number } }): SentenceView {
+  // `hydrateQueue` never deals a point without sentences.
+  return pickSentence(item.grammar.sentences, item.state.reps)!;
+}
+
+/** Say the card's answer: a word's reading, or a grammar card's sentence. */
+function speak(item: ReviewItem): void {
+  if (item.kind === 'grammar') playSentenceAudio(sentenceFor(item));
+  else playWordAudio(item.word);
+}
+
+/** What the undo toast names the card by. */
+function itemLabel(item: ReviewItem): string {
+  return item.kind === 'grammar' ? item.grammar.pattern : item.word.headword;
+}
+
+/** An edit to one word, applied to every item that shows it. */
+function editWord(wordId: string, patch: Partial<WordView>) {
+  return (item: ReviewItem): ReviewItem =>
+    item.kind !== 'grammar' && item.word.id === wordId
+      ? { ...item, word: { ...item.word, ...patch } }
+      : item;
+}
+
+/** An edit to one grammar point, applied to every item that shows it. */
+function editGrammar(grammarId: string, patch: Partial<GrammarView>) {
+  return (item: ReviewItem): ReviewItem =>
+    item.kind === 'grammar' && item.grammar.id === grammarId
+      ? { ...item, grammar: { ...item.grammar, ...patch } }
+      : item;
 }
 
 /**
@@ -1908,12 +1364,4 @@ function spend(remaining: RemainingWork, dealt: readonly ReviewItem[]): Remainin
     newCards: Math.max(0, remaining.newCards - newCards),
     reviewCards: Math.max(0, remaining.reviewCards - (cards.size - newCards)),
   };
-}
-
-/** "Còn 12 thẻ đến hạn và 3 từ mới", dropping whichever half is zero. */
-function describeRemaining(remaining: RemainingWork): string {
-  const parts: string[] = [];
-  if (remaining.reviewCards > 0) parts.push(`${remaining.reviewCards} thẻ đến hạn`);
-  if (remaining.newCards > 0) parts.push(`${remaining.newCards} từ mới`);
-  return parts.join(' và ');
 }

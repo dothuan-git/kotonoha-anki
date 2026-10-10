@@ -1,8 +1,18 @@
 # Bulk import format
 
-`/add/bulk` takes a `.json` file, previews what it will do, and writes only
-after confirmation. The whole file becomes one `import_batches` row and can be
-undone as a unit.
+`/add/bulk` takes a `.json` file of words, and `/grammar/add/bulk` one of
+grammar points ([below](#grammar-files)). Both preview what they will do and
+write only after confirmation. The whole file becomes one `import_batches` row,
+tagged with its `kind`, and can be undone as a unit from the screen it came in
+through.
+
+Either screen also takes the JSON pasted ("Dán JSON"). The browser wraps the
+text in a file named `JSON đã dán.json` and from there it is a file like any
+other — same route, same two passes, same edits — so a paste without a
+`source` makes a batch called "JSON đã dán". One code block enclosing the
+whole paste is dropped first (`unfence` in `lib/import-edit.ts`), since the
+prompts ask for exactly that and copying the whole reply brings the fence
+along.
 
 ## File shape
 
@@ -47,6 +57,21 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
   the insert never sees them. Positions travel rather than words: the server
   re-parses the same bytes, so nothing about the row has to be trusted from the
   round trip.
+- **A row opens its detail on click** — part of speech, Hán Việt, sentences,
+  note; for grammar, formation and every sentence. ←/→ step through the rows
+  and a row can be struck off from there. Each preview row carries a
+  `detail` built from the parse (`previewDetails`) before the duplicate check
+  and the exclusions clear `data`, so a skipped row still shows what the file
+  says. It is display fields only, never the insert payload. An invalid row has
+  no detail; its reason is the whole story.
+- **A row can be fixed before the import.** "Sửa" turns the dialog's card
+  into a form, and a refused row opens straight in it with the parser's
+  reason above. Saving writes the row back into the file in the browser
+  (`lib/import-edit.ts`) and posts the edited file for a fresh dry run; the
+  edited file is what the commit posts too. So an edit is judged by the same
+  parser and duplicate check as the file — the form validates nothing, and
+  the server trusts an edited row no more than any other. Keys the form does
+  not show (`hanViet`, unknown ones) are kept as the file had them.
 - **Duplicates are reported before the insert**, by one query on
   `(headword, reading)`, so the preview can say what will be skipped. The
   unique index is still behind the write.
@@ -60,63 +85,43 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
 - **Undo deletes the words, then the batch row**, with cascades taking
   sentences, cards and review history — which is why the screen asks first.
 
-## The prompt that generates a file
+## Grammar files
 
-Paste into Claude, then the word list. Keep in step with `lib/import.ts` if the
-format changes.
-
-````
-Generate a JSON file to bulk-import Japanese vocabulary into my Anki-style app.
-
-Output ONE JSON code block and nothing else — no commentary before or after.
-
-Shape:
+```json
 {
-  "source": "<short name for this batch, e.g. the textbook lesson>",
-  "words": [ { …one object per word, in the order I gave them… } ]
+  "source": "Minna no Nihongo, ngữ pháp bài 12",
+  "grammar": [ { "pattern": "〜てしまう", "…": "…" } ]
 }
+```
 
-Fields per word:
+| Field | Required | Notes |
+|---|---|---|
+| `pattern` | yes | The pattern as a grammar book writes it: `〜てしまう`. |
+| `meaning` | yes | Vietnamese, one meaning. A pattern with several distinct meanings is one object per meaning — each its own card, scheduled apart. |
+| `formation` | no | How it attaches: `V-て + しまう`. |
+| `jlpt` | no | `N5`–`N1`. |
+| `note` | no | Vietnamese, up to 2000 characters. |
+| `sentences` | yes | 1–2 of `{ "jpRuby": "…", "vi": "…" }`. Same ruby rules as a word's sentence; a sentence with kanji and no furigana is rejected. |
 
-- "headword"  (required) The word as written in Japanese — kanji if it has kanji.
-- "reading"   (required) The reading in HIRAGANA ONLY (katakana for loanwords).
-              Never any kanji here. The app speaks this field aloud.
-- "meaning"   (required) The Vietnamese meaning. Several senses separated by commas.
-- "pos"       (required) EXACTLY one of these English strings:
-                "Noun", "Verb 1", "Verb 2", "Verb 3", "I-adjective",
-                "Na-adjective", "Adverb", "Particle", "Conjunction",
-                "Counter", "Expression"
-              Verb 1 = godan/五段 (飲む, 書く). Verb 2 = ichidan/一段 (食べる, 見る).
-              Verb 3 = irregular (する, 来る, and every 〜する compound verb).
-              A noun like 勉強 that takes する stays "Noun".
-- "transitivity" (verbs only, omit otherwise) "transitive" or "intransitive".
-- "jlpt"      (optional) One of "N5", "N4", "N3", "N2", "N1".
-- "note"      (optional) A short Vietnamese usage note. Omit if you have nothing useful.
-- "hanViet"   (optional) Object mapping each kanji in the headword to its Hán Việt
-              reading(s), lowercase, as an array: { "勉": ["miễn"], "強": ["cường"] }.
-- "sentence"  (optional but please include one) An example sentence:
-              { "jpRuby": "<sentence with furigana>", "vi": "<Vietnamese translation>" }
+The same route takes it — `POST /api/import` with `kind=grammar` — through the
+same two passes, struck-off rows and chunked writes. What differs is the
+parser (`parseGrammarImport`), the identity a duplicate is judged on
+(`(pattern, meaning)`, not the pattern alone) and the table written.
 
-Furigana format for "jpRuby" — this is the part to get exactly right:
+The card asks with the Vietnamese sentence and the pattern, and you say the
+Japanese; so the Vietnamese has to be natural, and the Japanese has to be the
+answer you would want to give — a sentence that only works with some *other*
+pattern is a card you will fail correctly.
 
-  Put the reading in square brackets immediately after each kanji run.
-  A bracket group annotates ONLY the kanji directly before it, never the
-  okurigana or the kana around it.
+## The prompts that generate a file
 
-    毎日[まいにち]日本語[にほんご]を勉強[べんきょう]します。
-    窓[まど]を開[あ]けてください。        ← 開[あ], NOT 開ける[あける]
-    友[とも]達[だち]                      ← WRONG, write 友達[ともだち]
+Each is a plain-text file: copy the whole file into Claude, then paste your
+list after the last line. Claude's reply can be saved as a file or pasted
+straight into the import screen.
 
-  A run of adjacent kanji is annotated as one group with its whole reading.
-  Kana needs no brackets. Do NOT include a separate plain-text version of the
-  sentence — the app derives it.
+| Prompt | List to paste | Keep in step with |
+|---|---|---|
+| [prompts/import-words.txt](prompts/import-words.txt) | Words | `parseImport` in `lib/import.ts` |
+| [prompts/import-grammar.txt](prompts/import-grammar.txt) | Grammar points, one per line. `〜ために (mục đích)` asks for that one meaning; a bare pattern gets one object per distinct meaning. | `parseGrammarImport` in `lib/import.ts` |
 
-Rules:
-- Keep my order. The app introduces the words in the order they appear in the file.
-- Every word exactly once. Do not invent words I did not give you.
-- Keep sentences short and at or below the word's JLPT level, and make sure each
-  sentence actually uses its headword.
-- Valid JSON: double quotes, no trailing commas, no comments.
-
-Here are the words:
-````
+If the format changes, change the prompt in the same commit.

@@ -34,6 +34,39 @@ day when the day is shorter than the step. Nothing about `state.due` is
 negotiated here; only which questions fill the wait. Before this, every repeat
 came back two cards later, which made Hard feel like no interval at all.
 
+## Grammar cards
+
+`/grammar` reviews grammar points through the same reviewer, scheduler and
+write path. What changes is the card, not anything under it.
+
+- **One face, `produce`.** The front is a Vietnamese sentence and the pattern
+  to say it with; the task is the Japanese. The pattern is on the front on
+  purpose — "tôi lỡ làm mất ví" can be said correctly without 〜てしまう, and a
+  card that accepted that would test translation rather than the grammar.
+  There is no Japanese→Vietnamese face: recognising a pattern you have seen is
+  trivially easy, and would only inflate the grade.
+- **No pair.** With one face, `revises()` is always false, so every showing
+  after the first is a learning step — `lib/fsrs/pair.ts` needs no special
+  case. `expandFaces` keeps `buildQueue`'s order for single-face cards rather
+  than shuffling: the shuffle exists to keep twins apart, and there are none.
+- **Self-graded; nothing is matched.** A sentence has too many right answers
+  (word order, は/が, plain/polite) for an exact comparison to mean anything,
+  and the matcher is exact everywhere. Typing mode is a scratch pad: what you
+  wrote is shown beside the model sentence, and you grade yourself as on a
+  flip card. No confusions are recorded for grammar.
+- **The sentence rotates** — `pickSentence(sentences, state.reps)`. Keyed on
+  the review count, so it needs no storage, is the same on every device, and
+  moves on after every rating, a learning step included: answer Quên and the
+  card comes back with a different sentence. Recalling the answer you gave a
+  minute ago is not producing the pattern.
+- **Its own budget**, `settings.grammarPerSession` (20): a grammar card is one
+  showing but a slow one. `sessionSlots` splits it exactly as it splits the
+  word budget. The badge counts grammar showings — one per card.
+- **Spoken** from the sentence's ruby, like a word's example sentence.
+- The leech prompt and the in-review editor work as for words, editing the
+  point's meaning, formation and note; the pattern and sentences are edited on
+  `/grammar/list`.
+
 ## Answering
 
 - A card opens on its face and stays there; nothing about the answer is on the
@@ -233,6 +266,9 @@ and 登る are both のぼる, and recording one at random would put a fact on `
 that nobody observed.
 
 ## `/stats`
+
+Scoped to the study mode you are in — word cards or grammar cards — with
+`?scope=all` for both (`buildStats(now, scope)`). Confusions are words only.
 
 Four charts, all pure functions in `lib/stats.ts`: reviews per day (new vs
 review, 30/90 days), the 30-day forecast, weekly retention against

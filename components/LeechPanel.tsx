@@ -3,8 +3,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 
-import { ReviewEditPanel, type ReviewEdit } from '@/components/ReviewEditPanel';
-import type { WordView } from '@/lib/types';
 
 /**
  * The leech prompt: shown once at six lapses on a card, asking for the
@@ -20,19 +18,18 @@ import type { WordView } from '@/lib/types';
  * manual, and putting them behind this button would be the same thing with
  * an extra tap: the moment you have just failed a word six times is the
  * worst moment to decide you are done with it.
+ *
+ * The editor itself is the caller's — a word and a grammar point are fixed
+ * through different fields — and is expected to treat its cancel as "để
+ * nguyên", which acknowledges the prompt like a save does.
  */
 export function LeechPanel({
-  word,
   lapses,
-  saving,
-  onSave,
-  onDismiss,
+  children,
 }: {
-  word: WordView;
   lapses: number;
-  saving: boolean;
-  onSave: (patch: ReviewEdit) => void;
-  onDismiss: () => void;
+  /** The editor for this card's kind. */
+  children: React.ReactNode;
 }) {
   return (
     <motion.div
@@ -49,20 +46,14 @@ export function LeechPanel({
             Thẻ khó — đã quên {lapses} lần
           </p>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
-            Thường thì nghĩa đang ghi chưa khớp với cách bạn nhớ từ này. Viết lại nghĩa hoặc thêm
-            một ghi chú để phân biệt. Từ vẫn tiếp tục xuất hiện — không bị xoá và cũng không bị tạm
+            Thường thì nghĩa đang ghi chưa khớp với cách bạn nhớ thẻ này. Viết lại nghĩa hoặc thêm
+            một ghi chú để phân biệt. Thẻ vẫn tiếp tục xuất hiện — không bị xoá và cũng không bị tạm
             dừng.
           </p>
         </div>
       </div>
 
-      <ReviewEditPanel
-        word={word}
-        saving={saving}
-        onCancel={onDismiss}
-        onSave={onSave}
-        cancelLabel="Để nguyên"
-      />
+      {children}
 
       <p className="mt-2 text-center text-[11px] text-[var(--text-muted)]">
         Nhắc một lần duy nhất cho thẻ này.

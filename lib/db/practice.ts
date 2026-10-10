@@ -61,7 +61,7 @@ export async function buildPracticeSession(
     db
       .select({
         cardId: cards.id,
-        wordId: cards.wordId,
+        ownerId: cards.wordId,
         leechAckedAt: cards.leechAckedAt,
         createdAt: words.createdAt,
       })
@@ -96,7 +96,8 @@ export async function buildPracticeSession(
   // One card per word is a unique index, so there is nothing to dedupe here —
   // the collision `buildQueue` guards against cannot arise.
   const entries = (slice: typeof rows): QueueEntry[] =>
-    slice.map((row) => ({ cardId: row.cardId, wordId: row.wordId, isNew: false }));
+    // Inner-joined on `words`, so the nullable owner column is never null.
+    slice.map((row) => ({ cardId: row.cardId, ownerId: row.ownerId!, isNew: false }));
 
   const meta = new Map(rows.map((row) => [row.cardId, row]));
 

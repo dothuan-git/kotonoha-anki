@@ -14,7 +14,7 @@ import { csvField, mergeMissed, missedWords, toCsv, type MissedWord, type Showin
 const show = (
   cardId: string,
   rating: RatingValue,
-  word: Partial<Showing['item']['word']> = {},
+  word: Partial<Extract<Showing['item'], { word: unknown }>['word']> = {},
 ): Showing => ({
   rating,
   item: {

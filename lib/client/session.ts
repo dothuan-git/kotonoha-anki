@@ -183,3 +183,27 @@ export function chooseSession(input: {
   }
   return { session: server, source: 'server' };
 }
+
+/**
+ * How many outbox entries matter to the resume decision on this screen.
+ *
+ * One outbox serves both the word and the grammar reviewer, so the global
+ * count would let a word rating still in flight pin the grammar screen to its
+ * stored session, and the other way round. What `chooseSession` guards
+ * against is a server queue that still holds a card already rated — so the
+ * entries that count are the ones for cards this screen could deal: in the
+ * server's queue or its lookahead, in the stored queue, or graded in it.
+ */
+export function relevantPending(
+  entries: readonly { cardId: string }[],
+  sessions: readonly (SessionView | null | undefined)[],
+  graded: Readonly<Record<string, unknown>> = {},
+): number {
+  const cards = new Set(Object.keys(graded));
+  for (const session of sessions) {
+    if (!session) continue;
+    for (const item of session.items) cards.add(item.cardId);
+    for (const item of session.next) cards.add(item.cardId);
+  }
+  return entries.filter((entry) => cards.has(entry.cardId)).length;
+}

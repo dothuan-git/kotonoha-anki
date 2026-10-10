@@ -381,7 +381,11 @@ export function buildHeatmap(volume: readonly VolumeDay[], days = HEATMAP_DAYS):
 }
 
 /** Everything /stats renders. Assembled by `buildStats` in `lib/db/stats.ts`. */
+/** Which cards /stats is about: one kind, or both together. */
+export type StatsScope = 'word' | 'grammar' | 'all';
+
 export interface StatsView {
+  scope: StatsScope;
   now: string;
   volume: VolumeDay[];
   forecast: ForecastDay[];
@@ -396,6 +400,7 @@ export interface StatsView {
     ratings: number;
     /** Distinct cards reviewed at least once. */
     cardsStudied: number;
+    /** Words and/or grammar points in the collection, by scope. */
     words: number;
   };
 }

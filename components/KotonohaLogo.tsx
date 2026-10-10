@@ -22,15 +22,15 @@ export const KotonohaLogo: React.FC<KotonohaLogoProps> = ({
         <div
           className={`relative rounded-xl flex items-center justify-center transition-transform hover:scale-105 ${
             isSm
-              ? 'w-7 h-7 bg-[var(--bamboo-subtle)] border border-[var(--bamboo-border)]'
+              ? 'w-7 h-7 bg-[var(--brand-subtle)] border border-[var(--brand-border)]'
               : isLg
-              ? 'w-11 h-11 bg-[var(--bamboo-subtle)] border-1.5 border-[var(--bamboo-border)] shadow-xs'
-              : 'w-8.5 h-8.5 bg-[var(--bamboo-subtle)] border border-[var(--bamboo-border)] shadow-2xs'
+              ? 'w-11 h-11 bg-[var(--brand-subtle)] border-1.5 border-[var(--brand-border)] shadow-xs'
+              : 'w-8.5 h-8.5 bg-[var(--brand-subtle)] border border-[var(--brand-border)] shadow-2xs'
           }`}
         >
           {/* Stylized Bamboo Leaf Accent (Top right corner sprig) */}
           <svg
-            className={`absolute -top-1.5 -right-1 text-[var(--bamboo)] pointer-events-none drop-shadow-xs ${
+            className={`absolute -top-1.5 -right-1 text-[var(--brand)] pointer-events-none drop-shadow-xs ${
               isSm ? 'w-3 h-3' : isLg ? 'w-4.5 h-4.5 -top-2 -right-1.5' : 'w-3.5 h-3.5'
             }`}
             viewBox="0 0 24 24"
@@ -50,7 +50,7 @@ export const KotonohaLogo: React.FC<KotonohaLogoProps> = ({
 
           {/* Central Seal Kanji: 言 (Koto / Speech) in Classical Mincho */}
           <span
-            className={`font-jp-serif font-bold text-[var(--bamboo)] leading-none ${
+            className={`font-jp-serif font-bold text-[var(--brand)] leading-none ${
               isSm ? 'text-xs' : isLg ? 'text-lg' : 'text-sm'
             }`}
           >
@@ -73,7 +73,7 @@ export const KotonohaLogo: React.FC<KotonohaLogoProps> = ({
 
           {/* Japanese Word Companion */}
           <span
-            className={`font-jp-serif text-[var(--bamboo)] font-medium tracking-[0.18em] ${
+            className={`font-jp-serif text-[var(--brand)] font-medium tracking-[0.18em] ${
               isSm ? 'text-[10px]' : isLg ? 'text-xs' : 'text-[11px]'
             }`}
           >

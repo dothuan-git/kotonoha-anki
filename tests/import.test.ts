@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_IMPORT_ROWS, applyExclusions, countRows, parseImport } from '@/lib/import';
+import {
+  MAX_IMPORT_ROWS,
+  applyExclusions,
+  countRows,
+  parseImport,
+  previewDetails,
+  toPreview,
+  wordDetail,
+} from '@/lib/import';
 
 /**
  * The import file is written by a language model, so the interesting cases are
@@ -251,5 +259,29 @@ describe('parseImport — the file as a whole', () => {
       'test',
     );
     expect(outcome.ok).toBe(false);
+  });
+});
+
+describe('preview details', () => {
+  /** Taken from the parse, so a later skip clears the payload but not the detail. */
+  it('keeps the detail of a skipped row and never ships the insert payload', () => {
+    const outcome = parseImport(JSON.stringify([VALID, { headword: '猫' }]), 'test');
+    if (!outcome.ok) throw new Error(outcome.error);
+
+    const details = previewDetails(outcome.result.rows, wordDetail);
+    const preview = toPreview(applyExclusions(outcome.result.rows, new Set([0])), details);
+
+    expect(preview[0]).toMatchObject({
+      status: 'excluded',
+      detail: {
+        kind: 'word',
+        pos: 'Noun',
+        jlpt: 'N5',
+        sentence: { jpRuby: VALID.sentence.jpRuby, vi: VALID.sentence.vi },
+      },
+    });
+    expect(preview[0]).not.toHaveProperty('data');
+    // An invalid row has nothing past its reason to show.
+    expect(preview[1]?.detail).toBeUndefined();
   });
 });
