@@ -78,7 +78,7 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
 | `formation` | no | How it attaches: `V-て + しまう`. |
 | `jlpt` | no | `N5`–`N1`. |
 | `note` | no | Vietnamese, up to 2000 characters. |
-| `sentences` | yes | 1–5 of `{ "jpRuby": "…", "vi": "…" }`. Same ruby rules as a word's sentence; a sentence with kanji and no furigana is rejected. |
+| `sentences` | yes | 1–2 of `{ "jpRuby": "…", "vi": "…" }`. Same ruby rules as a word's sentence; a sentence with kanji and no furigana is rejected. |
 
 The same route takes it — `POST /api/import` with `kind=grammar` — through the
 same two passes, struck-off rows and chunked writes. What differs is the

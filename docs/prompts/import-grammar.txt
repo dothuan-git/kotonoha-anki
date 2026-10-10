@@ -21,7 +21,7 @@ Fields per grammar point:
 - "formation" (optional) How it attaches, e.g. "V-て + しまう", "N + の + ために".
 - "jlpt"      (optional) One of "N5", "N4", "N3", "N2", "N1".
 - "note"      (optional) A short Vietnamese note: nuance, register, a common confusion.
-- "sentences" (required) 3 to 5 example sentences, each:
+- "sentences" (required) Exactly 2 example sentences, each:
               { "jpRuby": "<Japanese with furigana>", "vi": "<natural Vietnamese>" }
 
 How the card works, so you write sentences that fit it: the app shows the

@@ -11,7 +11,7 @@ words ──┬── word_kanji ── kanji
         ├── cards ─────────────┐ (one per word)
         └── confusions         │ (word_id, typed_word_id — append-only)
                                │
-grammar_points ──┬── grammar_sentences   (1–5 per point)
+grammar_points ──┬── grammar_sentences   (1–2 per point)
                  └── cards ────┤ (one per point)
                                ├── card_states  (one per card, derived)
                                └── review_logs  (append-only)
@@ -28,7 +28,7 @@ settings  dict_cache                      (standalone)
 | `word_kanji` | Word↔kanji, with position | |
 | `sentences` | One example per word, enforced | Stores `jp` and `jp_ruby`; `jp` is derived from the ruby, never typed twice. |
 | `grammar_points` | The grammar | Identity is `(pattern, meaning)`, unique — one pattern can carry two meanings (〜ばかり), each its own card. `created_at`, `sort_order`, `suspended` and `import_batch_id` mean what they mean on `words`. |
-| `grammar_sentences` | The examples a grammar card is asked from | 1–5 per point (enforced by the form and the importer, not the schema). `sort_order` is the rotation order; `jp` is derived from `jp_ruby`. Replaced wholesale on edit — nothing refers to a sentence. |
+| `grammar_sentences` | The examples a grammar card is asked from | 1–2 per point (enforced by the form and the importer, not the schema). `sort_order` is the rotation order; `jp` is derived from `jp_ruby`. Replaced wholesale on edit — nothing refers to a sentence. |
 | `cards` | The scheduling identity | Exactly one owner: `word_id` **or** `grammar_id`, enforced by the `cards_one_owner` check. One card per word and one per grammar point, both enforced. `leech_acked_at` is the one bit of review state the log cannot express. |
 | `card_states` | **Derived.** The current FSRS state | A projection of `review_logs`, stored only for query speed. |
 | `review_logs` | **Append-only.** Every rating | The source of truth for scheduling and for three of the four `/stats` charts. `id` is generated on the device so replay is idempotent. |

@@ -11,10 +11,10 @@ import { JLPT_VALUES } from '@/lib/types';
  */
 
 /**
- * Enough sentences that the answer cannot be learned as one string, few
- * enough that each one is worth writing well. The card rotates through them.
+ * Two, so the card alternates and the answer cannot be learned as one string,
+ * and each one stays worth writing well.
  */
-export const MAX_GRAMMAR_SENTENCES = 5;
+export const MAX_GRAMMAR_SENTENCES = 2;
 
 /** An optional text field: blank means absent, not an empty string stored. */
 const optionalText = (max: number) =>
