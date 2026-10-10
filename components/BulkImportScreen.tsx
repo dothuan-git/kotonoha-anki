@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState, useTransition } from 'react';
 
+import { ImportPreviewDialog } from '@/components/ImportPreviewDialog';
 import { deleteImportBatch } from '@/lib/actions/imports';
 import { applyExclusions, countRows } from '@/lib/import';
 import type { ImportReport, PreviewRow, RowStatus } from '@/lib/import';
@@ -77,6 +78,8 @@ export function BulkImportScreen({
   // File positions the user struck off in the preview. Cleared with the file,
   // because the next file's row 3 is a different word.
   const [excluded, setExcluded] = useState<ReadonlySet<number>>(new Set());
+  /** The row open in the detail dialog, by file position. */
+  const [viewing, setViewing] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -84,6 +87,7 @@ export function BulkImportScreen({
     setReport(null);
     setError(null);
     setExcluded(new Set());
+    setViewing(null);
     setStatus('idle');
     if (fileRef.current) fileRef.current.value = '';
   }
@@ -95,6 +99,7 @@ export function BulkImportScreen({
     setReport(null);
     setError(null);
     setExcluded(new Set());
+    setViewing(null);
     setStatus('reading');
 
     try {
@@ -143,6 +148,8 @@ export function BulkImportScreen({
   );
   const counts = useMemo(() => countRows(rows), [rows]);
   const canImport = status === 'previewing' && counts.ok > 0;
+  // Looked up from `rows`, so the dialog follows a row struck off behind it.
+  const viewed = rows.find((row) => row.index === viewing) ?? null;
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -243,11 +250,18 @@ export function BulkImportScreen({
                 row={row}
                 editable={status === 'previewing'}
                 onToggle={() => toggleExcluded(row.index)}
+                onOpen={() => setViewing(row.index)}
               />
             ))}
           </ul>
         </section>
       )}
+
+      <ImportPreviewDialog
+        row={viewed}
+        status={viewed ? STATUS_STYLE[viewed.status] : undefined}
+        onClose={() => setViewing(null)}
+      />
 
       <BatchHistory batches={batches} noun={copy.noun} />
     </div>
@@ -274,22 +288,26 @@ function Summary({
  * One previewed row. Only a row that would actually be written can be struck
  * off — a duplicate or an invalid row is already being skipped, and offering
  * to remove it again would say nothing.
+ *
+ * A row that parsed opens its detail on click; an invalid one has nothing
+ * past its reason to show, so it stays plain text.
  */
 function PreviewItem({
   row,
   editable,
   onToggle,
+  onOpen,
 }: {
   row: PreviewRow;
   editable: boolean;
   onToggle: () => void;
+  onOpen: () => void;
 }) {
   const style = STATUS_STYLE[row.status];
   const removable = row.status === 'ok' || row.status === 'excluded';
   const dropped = row.status === 'excluded';
-
-  return (
-    <li className={`flex items-baseline gap-3 px-3.5 py-2.5 ${dropped ? 'opacity-55' : ''}`}>
+  const body = (
+    <>
       <span className="w-6 shrink-0 text-right text-[11px] tabular-nums text-[var(--text-muted)]">
         {row.index + 1}
       </span>
@@ -316,6 +334,26 @@ function PreviewItem({
       <span className={`shrink-0 text-[11px] font-semibold ${style.className}`}>
         {style.label}
       </span>
+    </>
+  );
+  const bodyClass = `flex min-w-0 flex-1 items-baseline gap-3 px-3.5 py-2.5 text-left ${
+    dropped ? 'opacity-55' : ''
+  }`;
+
+  return (
+    <li className="flex items-center">
+      {row.detail ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-haspopup="dialog"
+          className={`${bodyClass} cursor-pointer transition-colors hover:bg-[var(--bg-muted)]/60`}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className={bodyClass}>{body}</div>
+      )}
       {removable && editable && (
         <button
           type="button"
@@ -325,7 +363,7 @@ function PreviewItem({
               ? `Nhập lại ${row.headword}`
               : `Bỏ ${row.headword} khỏi lần nhập này`
           }
-          className="shrink-0 self-center cursor-pointer rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--danger-subtle)] hover:text-[var(--danger)]"
+          className="mr-2 shrink-0 cursor-pointer rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--danger-subtle)] hover:text-[var(--danger)]"
         >
           {dropped ? <Undo2 className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
         </button>

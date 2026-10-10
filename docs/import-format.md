@@ -49,6 +49,12 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
   the insert never sees them. Positions travel rather than words: the server
   re-parses the same bytes, so nothing about the row has to be trusted from the
   round trip.
+- **A row opens its detail on click** — part of speech, Hán Việt, sentences,
+  note; for grammar, formation and every sentence. Each preview row carries a
+  `detail` built from the parse (`previewDetails`) before the duplicate check
+  and the exclusions clear `data`, so a skipped row still shows what the file
+  says. It is display fields only, never the insert payload. An invalid row has
+  no detail; its reason is the whole story.
 - **Duplicates are reported before the insert**, by one query on
   `(headword, reading)`, so the preview can say what will be skipped. The
   unique index is still behind the write.

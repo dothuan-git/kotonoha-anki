@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { grammarKey, parseGrammarImport } from '@/lib/import';
+import { grammarDetail, grammarKey, parseGrammarImport, previewDetails } from '@/lib/import';
 
 const point = {
   pattern: '〜てしまう',
@@ -74,5 +74,21 @@ describe('grammarKey', () => {
     expect(grammarKey({ pattern: 'a', meaning: 'b' })).not.toBe(
       grammarKey({ pattern: 'a', meaning: 'c' }),
     );
+  });
+});
+
+describe('grammarDetail', () => {
+  it('shows every sentence in file order, without the stored fields', () => {
+    const outcome = parse([point]);
+    if (!outcome.ok) throw new Error(outcome.error);
+    const details = previewDetails(outcome.result.rows, grammarDetail);
+
+    expect(details.get(0)).toEqual({
+      kind: 'grammar',
+      formation: 'V-て + しまう',
+      jlpt: 'N4',
+      note: null,
+      sentences: point.sentences,
+    });
   });
 });

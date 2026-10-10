@@ -10,7 +10,9 @@ import {
   POS_LABELS,
   POS_VALUES,
   TRANSITIVITY_VALUES,
+  type Jlpt,
   type Pos,
+  type Transitivity,
 } from '@/lib/types';
 
 /**
@@ -61,13 +63,34 @@ export type ParseOutcome<T = WordInsert> =
   | { ok: true; result: ParseResult<T> }
   | { ok: false; error: string };
 
+/** What the preview's detail dialog shows for a row that parsed. */
+export type PreviewDetail =
+  | {
+      kind: 'word';
+      pos: Pos;
+      transitivity: Transitivity;
+      jlpt: Jlpt | null;
+      note: string | null;
+      hanViet: Record<string, string[]>;
+      sentence: { jpRuby: string; vi: string } | null;
+    }
+  | {
+      kind: 'grammar';
+      formation: string | null;
+      jlpt: Jlpt | null;
+      note: string | null;
+      sentences: { jpRuby: string; vi: string }[];
+    };
+
 /**
- * A row on its way to the browser. `data` is dropped: the preview needs to
- * name each word and say what will happen to it, and shipping the full insert
- * payload back out would double the response for nothing — the file is posted
- * again to commit, so the server re-parses rather than trusting a round trip.
+ * A row on its way to the browser. `data` is dropped for `detail`: the
+ * display fields only, never the insert payload — the file is posted again to
+ * commit, so the server re-parses rather than trusting a round trip.
+ *
+ * `detail` is present on every row that parsed, including one later found to
+ * be a duplicate, so the preview can show what the file says about it.
  */
-export type PreviewRow = Omit<ParsedRow<unknown>, 'data'>;
+export type PreviewRow = Omit<ParsedRow<unknown>, 'data'> & { detail?: PreviewDetail };
 
 export interface ImportReport {
   source: string;
@@ -78,8 +101,51 @@ export interface ImportReport {
   inserted?: number;
 }
 
-export function toPreview(rows: readonly ParsedRow<unknown>[]): PreviewRow[] {
-  return rows.map(({ data: _data, ...row }) => row);
+/**
+ * `details` is keyed by file position and taken from the parse, before the
+ * duplicate check and the exclusions clear `data` — so a skipped row keeps
+ * its detail without its insert payload surviving the skip.
+ */
+export function toPreview(
+  rows: readonly ParsedRow<unknown>[],
+  details: ReadonlyMap<number, PreviewDetail> = new Map(),
+): PreviewRow[] {
+  return rows.map(({ data: _data, ...row }) => {
+    const detail = details.get(row.index);
+    return detail ? { ...row, detail } : row;
+  });
+}
+
+/** The details of every row that parsed, by file position. */
+export function previewDetails<T>(
+  rows: readonly ParsedRow<T>[],
+  detailOf: (data: T) => PreviewDetail,
+): Map<number, PreviewDetail> {
+  const details = new Map<number, PreviewDetail>();
+  for (const row of rows) if (row.data) details.set(row.index, detailOf(row.data));
+  return details;
+}
+
+export function wordDetail(word: WordInsert): PreviewDetail {
+  return {
+    kind: 'word',
+    pos: word.pos,
+    transitivity: word.transitivity,
+    jlpt: word.jlpt,
+    note: word.note,
+    hanViet: word.hanViet,
+    sentence: word.sentence && { jpRuby: word.sentence.jpRuby, vi: word.sentence.vi },
+  };
+}
+
+export function grammarDetail(point: GrammarInsert): PreviewDetail {
+  return {
+    kind: 'grammar',
+    formation: point.formation,
+    jlpt: point.jlpt,
+    note: point.note,
+    sentences: point.sentences.map(({ jpRuby, vi }) => ({ jpRuby, vi })),
+  };
 }
 
 /**

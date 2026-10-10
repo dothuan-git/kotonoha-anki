@@ -14,14 +14,18 @@ import type { WordInsert } from '@/lib/db/words';
 import {
   applyExclusions,
   countRows,
+  grammarDetail,
   grammarKey,
   pairKey,
   parseGrammarImport,
   parseImport,
+  previewDetails,
   toPreview,
+  wordDetail,
   type ImportReport,
   type ParseOutcome,
   type ParsedRow,
+  type PreviewDetail,
 } from '@/lib/import';
 import type { CardKind } from '@/lib/types';
 
@@ -92,6 +96,8 @@ interface Importer<T> {
   /** The `ok` rows already in the book, as keys `keyOf` understands. */
   existing: (rows: ParsedRow<T>[]) => Promise<Set<string>>;
   keyOf: (row: ParsedRow<T>) => string;
+  /** What the preview dialog shows of a parsed row. */
+  detail: (data: T) => PreviewDetail;
   insert: (rows: T[]) => Promise<{ index: number; error?: unknown; id?: string }[]>;
   noun: string;
   revalidate: () => void;
@@ -103,6 +109,7 @@ const IMPORTERS = {
     parse: parseImport,
     existing: (rows) => findExistingPairs(rows),
     keyOf: pairKey,
+    detail: wordDetail,
     insert: async (rows) =>
       (await insertWords(rows)).map((o) => ({ index: o.index, error: o.error, id: o.wordId })),
     noun: 'từ',
@@ -117,6 +124,7 @@ const IMPORTERS = {
     existing: (rows) =>
       findExistingGrammar(rows.map((r) => ({ pattern: r.headword, meaning: r.meaning }))),
     keyOf: (row) => grammarKey({ pattern: row.headword, meaning: row.meaning }),
+    detail: grammarDetail,
     insert: async (rows) =>
       (await insertGrammarRows(rows)).map((o) => ({
         index: o.index,
@@ -149,6 +157,8 @@ async function run<T extends { createdAt?: Date; importBatchId?: string | null }
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
   const { source, note, rows } = parsed.result;
+  // Taken now, before the duplicate check and the exclusions clear `data`.
+  const details = previewDetails(rows, importer.detail);
 
   let checked: ParsedRow<T>[];
   try {
@@ -165,7 +175,7 @@ async function run<T extends { createdAt?: Date; importBatchId?: string | null }
   const counts = countRows(marked);
 
   if (dryRun) {
-    return NextResponse.json({ source, rows: toPreview(marked), counts } satisfies ImportReport);
+    return NextResponse.json({ source, rows: toPreview(marked, details), counts } satisfies ImportReport);
   }
 
   if (counts.ok === 0) {
@@ -180,7 +190,7 @@ async function run<T extends { createdAt?: Date; importBatchId?: string | null }
     importer.revalidate();
     return NextResponse.json({
       source,
-      rows: toPreview(marked),
+      rows: toPreview(marked, details),
       // Recounted: `commit` demotes any row the database refused.
       counts: countRows(marked),
       batchId: inserted.batchId,
