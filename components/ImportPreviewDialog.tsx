@@ -165,7 +165,7 @@ export function ImportPreviewDialog({
                   </AnimatePresence>
                 </ScrollBody>
 
-                <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-5 py-2.5 sm:px-7">
+                <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-5 py-3 sm:px-7">
                   <div className="-ml-1.5 flex items-center">
                     <NavButton label="Mục trước (←)" onClick={onPrev}>
                       <ChevronLeft className="h-4 w-4" />
@@ -295,7 +295,7 @@ function WordFace({ row, detail }: { row: PreviewRow; detail: WordDetail }) {
         <SpeakButton label="Nghe phát âm" onClick={() => playWordAudio({ reading: row.reading })} />
       </CardTop>
 
-      <div className="py-6 text-center">
+      <div className="py-8 text-center">
         <h2 className="font-jp-serif text-5xl font-medium tracking-wide text-[var(--text-primary)] sm:text-6xl">
           {row.headword}
         </h2>
@@ -306,7 +306,7 @@ function WordFace({ row, detail }: { row: PreviewRow; detail: WordDetail }) {
         )}
       </div>
 
-      <div className="space-y-3.5 border-t border-[var(--border-subtle)] pt-5">
+      <div className="space-y-5 border-t border-[var(--border-subtle)] pt-6">
         <Field label="Cách đọc">
           <p className="font-jp-serif text-xl font-semibold tracking-wide text-[var(--brand)] sm:text-2xl">
             {row.reading}
@@ -316,7 +316,11 @@ function WordFace({ row, detail }: { row: PreviewRow; detail: WordDetail }) {
           <p className="text-base font-semibold leading-snug">{row.meaning}</p>
         </Field>
         {detail.note && <Note text={detail.note} />}
-        {detail.sentence && <SentenceBox sentence={detail.sentence} />}
+        {detail.sentence && (
+          <Field label="Câu ví dụ">
+            <SentenceBox sentence={detail.sentence} />
+          </Field>
+        )}
       </div>
     </>
   );
@@ -328,13 +332,13 @@ function GrammarFace({ row, detail }: { row: PreviewRow; detail: GrammarDetail }
     <>
       <CardTop jlpt={detail.jlpt} label="Ngữ pháp" />
 
-      <div className="py-6 text-center">
-        <h2 className="font-jp-serif text-4xl font-medium tracking-wide text-[var(--text-primary)] sm:text-5xl">
+      <div className="py-8 text-center">
+        <h2 className="font-jp-serif text-3xl font-medium tracking-wide text-[var(--text-primary)] sm:text-4xl">
           {row.headword}
         </h2>
       </div>
 
-      <div className="space-y-3.5 border-t border-[var(--border-subtle)] pt-5">
+      <div className="space-y-5 border-t border-[var(--border-subtle)] pt-6">
         <Field label="Nghĩa">
           <p className="text-base font-semibold leading-snug">{row.meaning}</p>
         </Field>
@@ -344,9 +348,13 @@ function GrammarFace({ row, detail }: { row: PreviewRow; detail: GrammarDetail }
           </Field>
         )}
         {detail.note && <Note text={detail.note} />}
-        {detail.sentences.map((sentence, i) => (
-          <SentenceBox key={i} sentence={sentence} />
-        ))}
+        <Field label="Câu ví dụ">
+          <div className="space-y-2.5">
+            {detail.sentences.map((sentence, i) => (
+              <SentenceBox key={i} sentence={sentence} />
+            ))}
+          </div>
+        </Field>
       </div>
     </>
   );
@@ -382,7 +390,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
       <span className="block text-[11px] font-medium text-[var(--text-muted)]">{label}</span>
-      <div className="mt-0.5">{children}</div>
+      <div className="mt-1">{children}</div>
     </div>
   );
 }
@@ -397,13 +405,13 @@ function Note({ text }: { text: string }) {
 
 function SentenceBox({ sentence }: { sentence: Sentence }) {
   return (
-    <div className="flex items-start justify-between gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-muted)]/70 p-3">
+    <div className="flex items-start justify-between gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-muted)]/70 px-4 py-3.5">
       <div className="min-w-0">
         <Ruby
           text={sentence.jpRuby}
           className="font-jp-sans text-sm font-medium leading-relaxed text-[var(--text-primary)] sm:text-base"
         />
-        <p className="mt-1 text-xs text-[var(--text-secondary)]">{sentence.vi}</p>
+        <p className="mt-1.5 text-xs text-[var(--text-secondary)]">{sentence.vi}</p>
       </div>
       <button
         type="button"
