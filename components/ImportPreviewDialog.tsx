@@ -130,7 +130,7 @@ export function ImportPreviewDialog({
                 initial="hidden"
                 animate="shown"
                 exit="gone"
-                className="relative flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
+                className="relative flex max-h-[85dvh] w-full max-w-md flex-col sm:max-w-xl lg:max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
               >
                 <button
                   type="button"
