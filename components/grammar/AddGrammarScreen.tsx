@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Check, Upload } from 'lucide-react';
+import { Check, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
 
@@ -40,22 +40,13 @@ export function AddGrammarScreen() {
             Mỗi thẻ hỏi một câu tiếng Việt dùng mẫu này — bạn dịch sang tiếng Nhật rồi tự chấm.
           </p>
         </div>
-        <div className="mt-1 flex shrink-0 flex-col items-end gap-1.5 sm:flex-row">
-          <Link
-            href="/grammar/add/bulk"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
-          >
-            <Upload className="h-3.5 w-3.5" />
-            Nhập hàng loạt
-          </Link>
-          <Link
-            href="/grammar/list"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
-          >
-            Kho ngữ pháp
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
+        <Link
+          href="/grammar/add/bulk"
+          className="mt-1 flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Nhập hàng loạt
+        </Link>
       </div>
 
       {saved && (
