@@ -74,7 +74,7 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
 | Field | Required | Notes |
 |---|---|---|
 | `pattern` | yes | The pattern as a grammar book writes it: `〜てしまう`. |
-| `meaning` | yes | Vietnamese. The same pattern may appear again with another meaning — each is its own card. |
+| `meaning` | yes | Vietnamese, one meaning. A pattern with several distinct meanings is one object per meaning — each its own card, scheduled apart. |
 | `formation` | no | How it attaches: `V-て + しまう`. |
 | `jlpt` | no | `N5`–`N1`. |
 | `note` | no | Vietnamese, up to 2000 characters. |
@@ -170,8 +170,13 @@ Shape:
 Fields per grammar point:
 
 - "pattern"   (required) The pattern as a grammar book writes it, with 〜: "〜てしまう".
-- "meaning"   (required) The Vietnamese meaning, short. If a pattern has two
-              distinct meanings I want to learn separately, make two objects.
+- "meaning"   (required) ONE meaning, in short Vietnamese.
+              If a pattern has several distinct meanings, make one object per
+              meaning, each with its own sentences — never join two meanings in
+              one object. Example: 〜ために becomes two objects, "để (mục đích)"
+              and "vì (nguyên nhân)".
+              Distinct = translated differently or built differently. Nuances of
+              one idea stay together: 〜てしまう "lỡ…, mất rồi" is one object.
 - "formation" (optional) How it attaches, e.g. "V-て + しまう", "N + の + ために".
 - "jlpt"      (optional) One of "N5", "N4", "N3", "N2", "N1".
 - "note"      (optional) A short Vietnamese note: nuance, register, a common confusion.
@@ -180,8 +185,8 @@ Fields per grammar point:
 
 How the card works, so you write sentences that fit it: the app shows the
 Vietnamese sentence and the pattern, and I say the Japanese. So:
-- Each Japanese sentence must use the pattern, and be the natural way to say
-  the Vietnamese with it.
+- Each Japanese sentence must use the pattern in THAT object's meaning, and be
+  the natural way to say the Vietnamese with it.
 - Each Vietnamese sentence must be natural Vietnamese, not a word-for-word gloss,
   and must carry the meaning the pattern adds (regret, completion, purpose…).
 - Vary the sentences — different verbs and situations — so the pattern is what
@@ -203,7 +208,9 @@ Furigana format for "jpRuby" — this is the part to get exactly right:
 
 Rules:
 - Keep my order. The app introduces the points in the order they appear in the file.
-- Every point exactly once, unless I asked for its meanings to be split.
+  The objects of a split pattern go next to each other.
+- Every meaning exactly once. A meaning I wrote in brackets after a pattern is
+  one object; a pattern with no brackets gets one object per distinct meaning.
 - Valid JSON: double quotes, no trailing commas, no comments.
 
 Here are the grammar points:
