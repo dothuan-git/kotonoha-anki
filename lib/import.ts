@@ -215,7 +215,7 @@ const POS_BY_LABEL = new Map<string, Pos>(
 );
 const POS_BY_VALUE = new Map<string, Pos>(POS_VALUES.map((p) => [p.toLowerCase(), p]));
 
-function normalisePos(raw: string): Pos | null {
+export function normalisePos(raw: string): Pos | null {
   const key = raw.trim().toLowerCase();
   return POS_BY_VALUE.get(key) ?? POS_BY_LABEL.get(key) ?? null;
 }

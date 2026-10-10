@@ -25,7 +25,7 @@ touches scheduling, run the recompute check too.
 | Schema, migrations, anything storing review history | [docs/data-model.md](docs/data-model.md) |
 | `lib/fsrs/*`, `ReviewScreen`, `lib/answer.ts`, `/stats`, `/practice`, `/grammar` | [docs/review-model.md](docs/review-model.md) |
 | `lib/client/*`, `/api/sync`, `public/sw.js` | [docs/offline.md](docs/offline.md) |
-| `lib/import.ts`, `/api/import` | [docs/import-format.md](docs/import-format.md) |
+| `lib/import.ts`, `lib/import-edit.ts`, `/api/import` | [docs/import-format.md](docs/import-format.md) |
 | `lib/mode.ts`, `AppNav`, `globals.css` palettes | [docs/architecture.md](docs/architecture.md#study-modes) |
 | Routes, module boundaries, anything unfamiliar | [docs/architecture.md](docs/architecture.md) |
 

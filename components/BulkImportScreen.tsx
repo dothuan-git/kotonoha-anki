@@ -9,6 +9,7 @@ import { ImportPreviewDialog, type Direction } from '@/components/ImportPreviewD
 import { deleteImportBatch } from '@/lib/actions/imports';
 import { applyExclusions, countRows } from '@/lib/import';
 import type { ImportReport, PreviewRow, RowStatus } from '@/lib/import';
+import { readRow, replaceRow, type RawRow } from '@/lib/import-edit';
 import type { CardKind, ImportBatchView } from '@/lib/types';
 
 /** What the screen calls one row of the file, and where "add one" lives. */
@@ -72,6 +73,14 @@ export function BulkImportScreen({
   const copy = COPY[kind];
 
   const [file, setFile] = useState<File | null>(null);
+  /**
+   * The file's text, kept so a row can be edited: the edit is written into
+   * this text and the result posted as the file from then on. Null if the
+   * browser could not read it, which only turns editing off.
+   */
+  const [text, setText] = useState<string | null>(null);
+  /** File positions edited in this preview, for a mark in the list. */
+  const [edited, setEdited] = useState<ReadonlySet<number>>(new Set());
   const [report, setReport] = useState<ImportReport | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +93,8 @@ export function BulkImportScreen({
 
   function reset() {
     setFile(null);
+    setText(null);
+    setEdited(new Set());
     setReport(null);
     setError(null);
     setExcluded(new Set());
@@ -96,11 +107,19 @@ export function BulkImportScreen({
     if (!picked) return;
 
     setFile(picked);
+    setEdited(new Set());
     setReport(null);
     setError(null);
     setExcluded(new Set());
     setViewing(null);
     setStatus('reading');
+
+    try {
+      setText(await picked.text());
+    } catch (e) {
+      console.error('[import] could not read the file for editing', e);
+      setText(null);
+    }
 
     try {
       setReport(await postImport(kind, picked, true, new Set()));
@@ -128,6 +147,31 @@ export function BulkImportScreen({
     }
   }
 
+  /**
+   * An edited row, written into the file and the file checked again. The
+   * edited file is what is posted from here on, the import included, so the
+   * server judges the edit exactly as it would have judged the file —
+   * nothing about the row is trusted from the form.
+   */
+  async function saveEdit(index: number, patch: RawRow): Promise<string | null> {
+    if (!file || text === null || status !== 'previewing') return 'Không sửa được lúc này';
+
+    const next = replaceRow(text, kind, index, { ...readRow(text, kind, index), ...patch });
+    if (next === null) return 'Không tìm thấy dòng này trong tệp';
+    const nextFile = new File([next], file.name, { type: 'application/json' });
+
+    try {
+      const nextReport = await postImport(kind, nextFile, true, new Set());
+      setFile(nextFile);
+      setText(next);
+      setReport(nextReport);
+      setEdited((current) => new Set(current).add(index));
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Không kiểm tra lại được tệp';
+    }
+  }
+
   /** Toggling costs nothing until the import runs: nothing is written yet. */
   function toggleExcluded(index: number) {
     if (status !== 'previewing') return;
@@ -148,11 +192,20 @@ export function BulkImportScreen({
   );
   const counts = useMemo(() => countRows(rows), [rows]);
   const canImport = status === 'previewing' && counts.ok > 0;
+  const canEdit = status === 'previewing' && text !== null;
   // The rows the dialog can step through, and the one it shows — looked up
-  // from `rows`, so it follows a row struck off from inside it.
-  const openable = useMemo(() => rows.filter((row) => row.detail), [rows]);
+  // from `rows`, so it follows a row struck off or fixed from inside it. A
+  // refused row has no card, so it opens only while it can be fixed.
+  const openable = useMemo(
+    () => rows.filter((row) => row.detail || (canEdit && row.status === 'invalid')),
+    [rows, canEdit],
+  );
   const at = viewing ? openable.findIndex((row) => row.index === viewing.index) : -1;
   const viewed = openable[at] ?? null;
+  const viewedRaw = useMemo(
+    () => (canEdit && text !== null && viewed ? readRow(text, kind, viewed.index) : null),
+    [canEdit, text, kind, viewed],
+  );
   const step = (by: -1 | 1) => {
     const target = openable[at + by];
     return target ? () => setViewing({ index: target.index, direction: by }) : null;
@@ -258,6 +311,8 @@ export function BulkImportScreen({
                 key={row.index}
                 row={row}
                 editable={status === 'previewing'}
+                openable={Boolean(row.detail) || (canEdit && row.status === 'invalid')}
+                edited={edited.has(row.index)}
                 onToggle={() => toggleExcluded(row.index)}
                 onOpen={() => setViewing({ index: row.index, direction: 0 })}
               />
@@ -267,7 +322,10 @@ export function BulkImportScreen({
       )}
 
       <ImportPreviewDialog
+        kind={kind}
         row={viewed}
+        raw={viewedRaw}
+        onSave={canEdit && viewed ? (patch) => saveEdit(viewed.index, patch) : null}
         direction={viewing?.direction ?? 0}
         position={viewed ? { current: at + 1, total: openable.length } : null}
         onClose={() => setViewing(null)}
@@ -302,17 +360,21 @@ function Summary({
  * off — a duplicate or an invalid row is already being skipped, and offering
  * to remove it again would say nothing.
  *
- * A row that parsed opens its detail on click; an invalid one has nothing
- * past its reason to show, so it stays plain text.
+ * A row that parsed opens its detail on click; a refused one opens in the
+ * form while it can still be fixed, and is plain text after.
  */
 function PreviewItem({
   row,
   editable,
+  openable,
+  edited,
   onToggle,
   onOpen,
 }: {
   row: PreviewRow;
   editable: boolean;
+  openable: boolean;
+  edited: boolean;
   onToggle: () => void;
   onOpen: () => void;
 }) {
@@ -345,6 +407,7 @@ function PreviewItem({
         )}
       </div>
       <span className={`shrink-0 text-[11px] font-semibold ${style.className}`}>
+        {edited && <span className="font-normal text-[var(--text-muted)]">Đã sửa · </span>}
         {style.label}
       </span>
     </>
@@ -355,7 +418,7 @@ function PreviewItem({
 
   return (
     <li className="flex items-center">
-      {row.detail ? (
+      {openable ? (
         <button
           type="button"
           onClick={onOpen}

@@ -56,6 +56,14 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
   and the exclusions clear `data`, so a skipped row still shows what the file
   says. It is display fields only, never the insert payload. An invalid row has
   no detail; its reason is the whole story.
+- **A row can be fixed before the import.** "Sửa" turns the dialog's card
+  into a form, and a refused row opens straight in it with the parser's
+  reason above. Saving writes the row back into the file in the browser
+  (`lib/import-edit.ts`) and posts the edited file for a fresh dry run; the
+  edited file is what the commit posts too. So an edit is judged by the same
+  parser and duplicate check as the file — the form validates nothing, and
+  the server trusts an edited row no more than any other. Keys the form does
+  not show (`hanViet`, unknown ones) are kept as the file had them.
 - **Duplicates are reported before the insert**, by one query on
   `(headword, reading)`, so the preview can say what will be skipped. The
   unique index is still behind the write.

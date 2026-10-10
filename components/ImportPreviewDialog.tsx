@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, Volume2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pencil, Volume2, X } from 'lucide-react';
 import { AnimatePresence, MotionConfig, motion, type Variants } from 'motion/react';
 import {
   useEffect,
@@ -11,10 +11,14 @@ import {
   type ReactNode,
 } from 'react';
 
+import { ImportRowEditor } from '@/components/ImportRowEditor';
 import { Ruby } from '@/components/Ruby';
 import { playSentenceAudio, playWordAudio } from '@/lib/client/audio';
 import type { PreviewDetail, PreviewRow, RowStatus } from '@/lib/import';
-import { formatPos } from '@/lib/types';
+import type { RawRow } from '@/lib/import-edit';
+import { formatPos, type CardKind } from '@/lib/types';
+
+const EDITOR_FORM = 'import-row-editor';
 
 type Sentence = { jpRuby: string; vi: string };
 type WordDetail = Extract<PreviewDetail, { kind: 'word' }>;
@@ -47,17 +51,26 @@ const content: Variants = {
  * A native modal <dialog> underneath, for the focus trap, the inert page and
  * the top layer; the backdrop and the panel are drawn inside it so they can
  * animate out, and the dialog is closed only once they have.
+ *
+ * "Sửa" turns the card into a form over the row as the file has it. A row
+ * the parser refused has no card to show, so it opens straight in the form.
  */
 export function ImportPreviewDialog({
+  kind,
   row,
+  raw,
   direction,
   position,
   onClose,
   onPrev,
   onNext,
   onToggle,
+  onSave,
 }: {
+  kind: CardKind;
   row: PreviewRow | null;
+  /** The row as the file has it — what the form starts from. Null: not editable. */
+  raw: RawRow | null;
   direction: Direction;
   /** Where this row sits among the ones that open, for "3 / 40". */
   position: { current: number; total: number } | null;
@@ -66,9 +79,52 @@ export function ImportPreviewDialog({
   onNext: (() => void) | null;
   /** Strike the row off, or put it back. Absent when it cannot be. */
   onToggle: (() => void) | null;
+  /**
+   * Writes the edit into the file and checks the file again. Resolves to an
+   * error to show, or null once the preview has been refreshed. Absent when
+   * rows cannot be edited.
+   */
+  onSave: ((patch: RawRow) => Promise<string | null>) | null;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const open = Boolean(row?.detail);
+  const editable = Boolean(onSave && raw);
+  const open = Boolean(row && (row.detail || editable));
+  /** The row whose card was turned into the form, by file position. */
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const editing = Boolean(row && editable && (editingIndex === row.index || !row.detail));
+
+  function startEditing() {
+    if (!row) return;
+    setSaveError(null);
+    setEditingIndex(row.index);
+  }
+
+  function stopEditing() {
+    setSaveError(null);
+    setEditingIndex(null);
+  }
+
+  async function save(patch: RawRow) {
+    if (!onSave || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    const error = await onSave(patch);
+    setSaving(false);
+    if (error) {
+      setSaveError(error);
+      return;
+    }
+    // Back to the card. A row still refused has none, and stays in the form
+    // with the parser's new reason above it.
+    setEditingIndex(null);
+  }
+
+  function close() {
+    stopEditing();
+    onClose();
+  }
 
   useEffect(() => {
     const dialog = ref.current;
@@ -82,10 +138,14 @@ export function ImportPreviewDialog({
   function onKeyDown(e: KeyboardEvent) {
     // Escape is taken here, not from `cancel`: Chrome ignores preventDefault on
     // `cancel` without a fresh user gesture, and the panel would vanish
-    // instead of animating out.
+    // instead of animating out. In the form it backs out to the card first.
     if (e.key === 'Escape') {
       e.preventDefault();
-      onClose();
+      if (editing && row?.detail) stopEditing();
+      else close();
+    } else if (editing) {
+      // Arrows belong to the inputs while editing; stepping away would drop the edit.
+      return;
     } else if (e.key === 'ArrowLeft' && onPrev) {
       e.preventDefault();
       onPrev();
@@ -101,7 +161,7 @@ export function ImportPreviewDialog({
       // Any other close request (a phone's back gesture); animate out the same way.
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        close();
       }}
       // A browser may close it regardless; keep the state in step.
       onClose={() => {
@@ -114,11 +174,11 @@ export function ImportPreviewDialog({
     >
       <MotionConfig reducedMotion="user">
         <AnimatePresence onExitComplete={() => ref.current?.close()}>
-          {open && row?.detail && (
+          {open && row && (
             <div key="layer" className="flex h-full w-full items-center justify-center p-4">
               <motion.div
                 aria-hidden
-                onClick={onClose}
+                onClick={close}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0.16 } }}
@@ -134,7 +194,7 @@ export function ImportPreviewDialog({
               >
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={close}
                   aria-label="Đóng"
                   className="absolute right-3 top-3 z-10 cursor-pointer rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)] sm:right-4 sm:top-4"
                 >
@@ -151,20 +211,84 @@ export function ImportPreviewDialog({
                       animate="center"
                       exit="leave"
                     >
-                      {/* A struck-off row stays readable, but reads as set aside. */}
-                      <div
-                        className={`transition-opacity ${row.status === 'excluded' ? 'opacity-45' : ''}`}
-                      >
-                        {row.detail.kind === 'word' ? (
-                          <WordFace row={row} detail={row.detail} />
-                        ) : (
-                          <GrammarFace row={row} detail={row.detail} />
-                        )}
+                      {/* `relative`, for the card or form popped out while it leaves. */}
+                      <div className="relative">
+                        <AnimatePresence mode="popLayout" initial={false}>
+                          <motion.div
+                            key={editing ? 'form' : 'card'}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                          >
+                            {editing && raw ? (
+                              <>
+                                <p className="mb-4 pr-8 text-xs font-medium text-[var(--text-muted)]">
+                                  Sửa dòng {row.index + 1}
+                                </p>
+                                <ImportRowEditor
+                                  id={EDITOR_FORM}
+                                  kind={kind}
+                                  row={raw}
+                                  problem={row.status === 'ok' ? undefined : row.reason}
+                                  onSubmit={(patch) => void save(patch)}
+                                />
+                              </>
+                            ) : (
+                              row.detail && (
+                                // A struck-off row stays readable, but reads as set aside.
+                                <div
+                                  className={`transition-opacity ${
+                                    row.status === 'excluded' ? 'opacity-45' : ''
+                                  }`}
+                                >
+                                  {row.detail.kind === 'word' ? (
+                                    <WordFace
+                                      row={row}
+                                      detail={row.detail}
+                                      onEdit={editable ? startEditing : null}
+                                    />
+                                  ) : (
+                                    <GrammarFace
+                                      row={row}
+                                      detail={row.detail}
+                                      onEdit={editable ? startEditing : null}
+                                    />
+                                  )}
+                                </div>
+                              )
+                            )}
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
                     </motion.div>
                   </AnimatePresence>
                 </ScrollBody>
 
+                {editing ? (
+                  <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-5 py-3 sm:px-7">
+                    <span role="alert" className="min-w-0 text-xs text-[var(--danger)]">
+                      {saveError}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={row.detail ? stopEditing : close}
+                        className="cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
+                      >
+                        Huỷ
+                      </button>
+                      <button
+                        type="submit"
+                        form={EDITOR_FORM}
+                        disabled={saving}
+                        className="cursor-pointer rounded-lg bg-[var(--brand)] px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[var(--brand-hover)] disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {saving ? 'Đang kiểm tra…' : 'Lưu'}
+                      </button>
+                    </div>
+                  </footer>
+                ) : (
                 <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-5 py-3 sm:px-7">
                   <div className="-ml-1.5 flex items-center">
                     <NavButton label="Mục trước (←)" onClick={onPrev}>
@@ -181,6 +305,7 @@ export function ImportPreviewDialog({
                   </div>
                   <RowAction status={row.status} reason={row.reason} onToggle={onToggle} />
                 </footer>
+                )}
               </motion.section>
             </div>
           )}
@@ -283,7 +408,15 @@ function NavButton({
 }
 
 /** The word card, turned over: front above the line, answer below it. */
-function WordFace({ row, detail }: { row: PreviewRow; detail: WordDetail }) {
+function WordFace({
+  row,
+  detail,
+  onEdit,
+}: {
+  row: PreviewRow;
+  detail: WordDetail;
+  onEdit: (() => void) | null;
+}) {
   const hanViet = Object.entries(detail.hanViet)
     .filter(([, readings]) => readings.length > 0)
     .map(([kanji, readings]) => `${kanji} ${readings.join('/').toUpperCase()}`)
@@ -292,6 +425,7 @@ function WordFace({ row, detail }: { row: PreviewRow; detail: WordDetail }) {
   return (
     <>
       <CardTop jlpt={detail.jlpt} label={formatPos(detail.pos, detail.transitivity)}>
+        {onEdit && <EditButton onClick={onEdit} />}
         <SpeakButton label="Nghe phát âm" onClick={() => playWordAudio({ reading: row.reading })} />
       </CardTop>
 
@@ -327,10 +461,20 @@ function WordFace({ row, detail }: { row: PreviewRow; detail: WordDetail }) {
 }
 
 /** The grammar card's answer side: the pattern, then what it means and how it is used. */
-function GrammarFace({ row, detail }: { row: PreviewRow; detail: GrammarDetail }) {
+function GrammarFace({
+  row,
+  detail,
+  onEdit,
+}: {
+  row: PreviewRow;
+  detail: GrammarDetail;
+  onEdit: (() => void) | null;
+}) {
   return (
     <>
-      <CardTop jlpt={detail.jlpt} label="Ngữ pháp" />
+      <CardTop jlpt={detail.jlpt} label="Ngữ pháp">
+        {onEdit && <EditButton onClick={onEdit} />}
+      </CardTop>
 
       <div className="py-12 text-center">
         <h2 className="font-jp-serif text-3xl font-medium tracking-wide text-[var(--text-primary)] sm:text-4xl">
@@ -381,7 +525,7 @@ function CardTop({
         )}
         <span className="text-xs font-medium text-[var(--text-muted)]">{label}</span>
       </div>
-      {children}
+      <div className="flex items-center gap-1.5">{children}</div>
     </div>
   );
 }
@@ -436,6 +580,20 @@ function SpeakButton({ label, onClick }: { label: string; onClick: () => void })
       className="cursor-pointer rounded-md border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 p-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--brand)]"
     >
       <Volume2 className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+/** Same shape as the card's font switch: a small labelled control. */
+function EditButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex cursor-pointer items-center gap-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-muted)]/50 px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--brand)]"
+    >
+      <Pencil className="h-3 w-3" />
+      Sửa
     </button>
   );
 }
