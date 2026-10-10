@@ -16,7 +16,7 @@ interface SentenceDraft {
 const INPUT =
   'w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none';
 
-/** Three empty rows to start: one is required, and three is the number worth aiming for. */
+/** One empty row per allowed sentence: one is required, the rest are worth filling. */
 const blankSentences = (): SentenceDraft[] =>
   Array.from({ length: MAX_GRAMMAR_SENTENCES }, () => ({ jpRuby: '', vi: '' }));
 
