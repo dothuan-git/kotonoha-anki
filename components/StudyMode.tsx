@@ -70,9 +70,11 @@ export function StudyModeProvider({
     (next: CardKind) => {
       if (next === mode) return;
       if (isSharedPath(pathname)) {
-        // Stats and settings serve both: stay, and change colours.
+        // Stats and settings serve both: stay, change colours, and re-render
+        // on the server — /stats reads the mode from the cookie just written.
         setRemembered(next);
         rememberMode(next);
+        router.refresh();
         return;
       }
       router.push(homeOf(next));

@@ -16,6 +16,7 @@ export function SettingsScreen({
 }) {
   const [cardsPerSession, setCardsPerSession] = useState(settings.cardsPerSession);
   const [practiceWords, setPracticeWords] = useState(settings.practiceWords);
+  const [grammarPerSession, setGrammarPerSession] = useState(settings.grammarPerSession);
   const [retention, setRetention] = useState(settings.requestRetention);
   const [dark, setDark] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -76,6 +77,20 @@ export function SettingsScreen({
           />
         </Row>
 
+        <Row
+          label="Số mẫu ngữ pháp mỗi phiên"
+          hint="Mặc định 20. Mỗi mẫu hỏi một lượt — một câu để dịch, nên chậm hơn một thẻ từ."
+        >
+          <input
+            type="number"
+            min={5}
+            max={500}
+            value={grammarPerSession}
+            onChange={(e) => setGrammarPerSession(Number(e.target.value))}
+            className="w-20 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-2 py-1.5 text-right text-sm"
+          />
+        </Row>
+
         <Row label="Mục tiêu ghi nhớ" hint="Mặc định 0.90. Cao hơn nghĩa là ôn dày hơn.">
           <input
             type="number"
@@ -100,6 +115,7 @@ export function SettingsScreen({
                 const result = await saveSettings({
                   cardsPerSession,
                   practiceWords,
+                  grammarPerSession,
                   requestRetention: retention,
                 });
                 if (!result.ok) {

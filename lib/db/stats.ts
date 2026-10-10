@@ -1,9 +1,9 @@
-import { asc, eq, gte } from 'drizzle-orm';
+import { and, asc, eq, gte, isNotNull, sql, type SQL } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
 import { listConfusions } from '@/lib/db/confusions';
 import { getSettings } from '@/lib/db/queries';
-import { cardStates, cards, reviewLogs, words } from '@/lib/db/schema';
+import { cardStates, cards, grammarPoints, reviewLogs, words } from '@/lib/db/schema';
 import { startOfStudyDay } from '@/lib/fsrs/day';
 import {
   FORECAST_DAYS,
@@ -14,6 +14,7 @@ import {
   bucketRetention,
   bucketVolume,
   type StatLog,
+  type StatsScope,
   type StatsView,
 } from '@/lib/stats';
 
@@ -29,7 +30,17 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export async function buildStats(now = new Date()): Promise<StatsView> {
+/**
+ * The cards a scope covers, as a condition on `cards`. A card has exactly one
+ * owner, so "is a word card" is simply "has a word".
+ */
+function ofScope(scope: StatsScope): SQL | undefined {
+  if (scope === 'word') return isNotNull(cards.wordId);
+  if (scope === 'grammar') return isNotNull(cards.grammarId);
+  return undefined;
+}
+
+export async function buildStats(now = new Date(), scope: StatsScope = 'all'): Promise<StatsView> {
   // One window covering both history charts: the volume chart wants 90 study
   // days, retention wants 26 weeks, so the wider of the two is read once and
   // bucketed twice rather than queried twice.
@@ -38,15 +49,18 @@ export async function buildStats(now = new Date()): Promise<StatsView> {
 
   const [settings, logs, states, confusions, totals] = await Promise.all([
     getSettings(),
-    selectLogsSince(since),
-    selectActiveStates(),
-    listConfusions(),
-    selectTotals(),
+    selectLogsSince(since, scope),
+    selectActiveStates(scope),
+    // Confusions are between words; grammar answers are never matched, so
+    // there is nothing to confuse.
+    scope === 'grammar' ? [] : listConfusions(),
+    selectTotals(scope),
   ]);
 
   const { overdue, forecast } = bucketForecast(states, now, FORECAST_DAYS);
 
   return {
+    scope,
     now: now.toISOString(),
     volume: bucketVolume(logs, now, VOLUME_DAYS),
     forecast,
@@ -68,7 +82,7 @@ export async function buildStats(now = new Date()): Promise<StatsView> {
  * retention buckets are the two things to push into SQL, and the study-day
  * boundary (04:00, a fixed zone) is the only awkward part of doing so.
  */
-function selectLogsSince(since: Date): Promise<StatLog[]> {
+function selectLogsSince(since: Date, scope: StatsScope): Promise<StatLog[]> {
   return db
     .select({
       cardId: reviewLogs.cardId,
@@ -77,7 +91,8 @@ function selectLogsSince(since: Date): Promise<StatLog[]> {
       reviewedAt: reviewLogs.reviewedAt,
     })
     .from(reviewLogs)
-    .where(gte(reviewLogs.reviewedAt, since))
+    .innerJoin(cards, eq(cards.id, reviewLogs.cardId))
+    .where(and(gte(reviewLogs.reviewedAt, since), ofScope(scope)))
     .orderBy(asc(reviewLogs.reviewedAt));
 }
 
@@ -90,24 +105,37 @@ function selectLogsSince(since: Date): Promise<StatLog[]> {
  * due on one day, and a forecast that doubled every bar would be describing
  * keystrokes rather than vocabulary.
  */
-function selectActiveStates(): Promise<{ due: Date; state: number; stability: number | null }[]> {
+function selectActiveStates(
+  scope: StatsScope,
+): Promise<{ due: Date; state: number; stability: number | null }[]> {
   return db
     .select({ due: cardStates.due, state: cardStates.state, stability: cardStates.stability })
     .from(cardStates)
     .innerJoin(cards, eq(cards.id, cardStates.cardId))
-    .innerJoin(words, eq(words.id, cards.wordId))
-    .where(eq(words.suspended, false));
+    .leftJoin(words, eq(words.id, cards.wordId))
+    .leftJoin(grammarPoints, eq(grammarPoints.id, cards.grammarId))
+    .where(
+      and(sql`not coalesce(${words.suspended}, ${grammarPoints.suspended})`, ofScope(scope)),
+    );
 }
 
-async function selectTotals(): Promise<StatsView['totals']> {
-  const [ratings, cardsStudied, wordCount] = await Promise.all([
-    db.$count(reviewLogs),
+async function selectTotals(scope: StatsScope): Promise<StatsView['totals']> {
+  const [[logs], wordCount, grammarCount] = await Promise.all([
     db
-      .selectDistinct({ cardId: reviewLogs.cardId })
+      .select({
+        ratings: sql<number>`count(*)::int`,
+        cardsStudied: sql<number>`count(distinct ${reviewLogs.cardId})::int`,
+      })
       .from(reviewLogs)
-      .then((rows) => rows.length),
-    db.$count(words),
+      .innerJoin(cards, eq(cards.id, reviewLogs.cardId))
+      .where(ofScope(scope)),
+    scope === 'grammar' ? 0 : db.$count(words),
+    scope === 'word' ? 0 : db.$count(grammarPoints),
   ]);
 
-  return { ratings: Number(ratings), cardsStudied, words: Number(wordCount) };
+  return {
+    ratings: logs?.ratings ?? 0,
+    cardsStudied: logs?.cardsStudied ?? 0,
+    words: Number(wordCount) + Number(grammarCount),
+  };
 }
