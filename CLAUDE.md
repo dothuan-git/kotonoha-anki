@@ -2,8 +2,8 @@
 
 # Kotonoha
 
-Private Japanese vocabulary trainer, Vietnamese meanings. Single user, offline
-first. Next.js 16 App Router, TypeScript strict, Tailwind v4, Neon + Drizzle,
+Private Japanese vocabulary and grammar trainer, Vietnamese meanings. Single
+user, offline first. Next.js 16 App Router, TypeScript strict, Tailwind v4, Neon + Drizzle,
 Auth.js, `ts-fsrs`, `idb`, Vitest.
 
 Setup and scripts are in [README.md](README.md).
@@ -23,9 +23,10 @@ touches scheduling, run the recompute check too.
 | Touching | Read |
 |---|---|
 | Schema, migrations, anything storing review history | [docs/data-model.md](docs/data-model.md) |
-| `lib/fsrs/*`, `ReviewScreen`, `lib/answer.ts`, `/stats`, `/practice` | [docs/review-model.md](docs/review-model.md) |
+| `lib/fsrs/*`, `ReviewScreen`, `lib/answer.ts`, `/stats`, `/practice`, `/grammar` | [docs/review-model.md](docs/review-model.md) |
 | `lib/client/*`, `/api/sync`, `public/sw.js` | [docs/offline.md](docs/offline.md) |
 | `lib/import.ts`, `/api/import` | [docs/import-format.md](docs/import-format.md) |
+| `lib/mode.ts`, `AppNav`, `globals.css` palettes | [docs/architecture.md](docs/architecture.md#study-modes) |
 | Routes, module boundaries, anything unfamiliar | [docs/architecture.md](docs/architecture.md) |
 
 ## Hard rules
@@ -45,13 +46,16 @@ Breaking one of these is a bug even when it type-checks.
    is inert, so nothing to write ever exists — do not "fix" it into a second
    write path.
 5. **One card per word, asked twice, graded once** on the worse answer.
+   **One card per grammar point, asked once**, self-graded. A card has exactly
+   one owner (`cards_one_owner`); paths that start from a card id must
+   left-join both owners, never inner-join `words`.
 6. **Never import a *value* from `lib/db/*` into a client component** — it
    pulls the database client into the browser bundle and throws at runtime.
    Type-only imports are fine.
 7. **The reading is what gets spoken**, never the headword. A reading
    containing kanji is invalid.
 8. **Matching is exact** (`lib/answer.ts`). No fuzzy matching, no edit
-   distance, anywhere.
+   distance, anywhere. Grammar answers are not matched at all.
 
 ## Conventions
 

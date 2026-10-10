@@ -11,11 +11,14 @@ IndexedDB holds the day's queue and unsent ratings.
 |---|---|
 | `/` | The review session |
 | `/practice` | The drill: recent words, due dates ignored, nothing written |
+| `/grammar` | The grammar review — same reviewer and scheduler, grammar cards |
+| `/grammar/add`, `/grammar/add/bulk` | Add one grammar point, or import a JSON file |
+| `/grammar/list` | Grammar points: search, edit, suspend, delete |
 | `/words` | Word list, search, inline edit, suspend/delete |
 | `/add`, `/add/bulk` | Add one word, or import a JSON file |
 | `/kanji`, `/kanji/[char]` | Kanji index and detail, with Hán Việt |
-| `/stats` | Four charts over the review log |
-| `/settings` | Session size, practice size, target retention, theme |
+| `/stats` | Four charts over the review log, for the current study mode or both |
+| `/settings` | Session sizes, practice size, target retention, theme |
 | `/signin` | Google sign-in |
 
 | Route handler | Purpose |
@@ -23,7 +26,7 @@ IndexedDB holds the day's queue and unsent ratings.
 | `POST /api/sync` | The only way a rating reaches the database |
 | `GET /api/lookup` | Jotoba dictionary lookup, cached in `dict_cache` |
 | `POST /api/share` | PWA share target; redirects to `/add?q=` |
-| `POST /api/import` | Bulk import preview (`dryRun=1`) and commit |
+| `POST /api/import` | Bulk import preview (`dryRun=1`) and commit; `kind=grammar` for grammar files |
 | `/api/auth/*` | Auth.js |
 
 Auth is Auth.js with Google and a single allowlisted address
@@ -35,6 +38,8 @@ anything unauthenticated to `/signin`.
 ```
 app/              routes and route handlers
 components/       client components, one per screen
+components/review/ the reviewer's card bodies (word, grammar), finish screen
+components/grammar/ the grammar add form and list
 components/stats/ the charts, inline SVG
 lib/db/           Drizzle schema, queries, the review projection, the
                   practice queue, /stats reads
@@ -46,6 +51,8 @@ lib/dict/         Jotoba client, tag→pos mapping, furigana
 lib/actions/      server actions
 lib/answer.ts     answer matching and normalisation
 lib/practice.ts   which page of the collection a drill deals
+lib/grammar.ts    grammar validation and sentence rotation
+lib/mode.ts       which study mode a path is in
 lib/import.ts     bulk-import parser (pure, no database)
 lib/stats.ts      the /stats charts as pure functions over rows
 lib/ruby.ts       furigana parsing  ·  lib/share.ts  share-text extraction
@@ -71,6 +78,24 @@ server renders the queue  →  IndexedDB (session + card states)
 
 The same path runs online and offline; being online only means the outbox
 drains sooner. Details in [offline.md](offline.md).
+
+## Study modes
+
+Vocabulary and grammar are two **study modes**, switched by the 語/文 toggle in
+the header. A mode is a tab set and a palette, nothing more: each mode's
+screens are their own routes, so no screen branches on it.
+
+- **Read off the URL** (`modeFor`, `lib/mode.ts`): `/grammar/*` is grammar,
+  every other screen is vocabulary. `/stats` and `/settings` serve both and
+  keep the mode you came from, remembered in the `kotonoha-mode` cookie so the
+  server renders the same tab set the client will.
+- **The palette** is the same CSS tokens redefined under
+  `[data-mode='grammar']` — momiji red where vocabulary is bamboo green.
+  `ThemeScript` sets `data-mode` before first paint by inlining `modeFor`'s own
+  source, so the URL rule exists once; `StudyModeProvider` keeps it in step on
+  client navigation.
+- **The toggle shows the other mode's due count**, so grammar reviews never
+  pile up unseen behind the vocabulary nav, or the reverse.
 
 ## Design decisions
 

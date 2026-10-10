@@ -1,8 +1,10 @@
 # Bulk import format
 
-`/add/bulk` takes a `.json` file, previews what it will do, and writes only
-after confirmation. The whole file becomes one `import_batches` row and can be
-undone as a unit.
+`/add/bulk` takes a `.json` file of words, and `/grammar/add/bulk` one of
+grammar points ([below](#grammar-files)). Both preview what they will do and
+write only after confirmation. The whole file becomes one `import_batches` row,
+tagged with its `kind`, and can be undone as a unit from the screen it came in
+through.
 
 ## File shape
 
@@ -59,6 +61,34 @@ disagreeing with itself is a failure mode worth removing rather than reporting.
   offending row is reported.
 - **Undo deletes the words, then the batch row**, with cascades taking
   sentences, cards and review history — which is why the screen asks first.
+
+## Grammar files
+
+```json
+{
+  "source": "Minna no Nihongo, ngữ pháp bài 12",
+  "grammar": [ { "pattern": "〜てしまう", "…": "…" } ]
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `pattern` | yes | The pattern as a grammar book writes it: `〜てしまう`. |
+| `meaning` | yes | Vietnamese. The same pattern may appear again with another meaning — each is its own card. |
+| `formation` | no | How it attaches: `V-て + しまう`. |
+| `jlpt` | no | `N5`–`N1`. |
+| `note` | no | Vietnamese, up to 2000 characters. |
+| `sentences` | yes | 1–5 of `{ "jpRuby": "…", "vi": "…" }`. Same ruby rules as a word's sentence; a sentence with kanji and no furigana is rejected. |
+
+The same route takes it — `POST /api/import` with `kind=grammar` — through the
+same two passes, struck-off rows and chunked writes. What differs is the
+parser (`parseGrammarImport`), the identity a duplicate is judged on
+(`(pattern, meaning)`, not the pattern alone) and the table written.
+
+The card asks with the Vietnamese sentence and the pattern, and you say the
+Japanese; so the Vietnamese has to be natural, and the Japanese has to be the
+answer you would want to give — a sentence that only works with some *other*
+pattern is a card you will fail correctly.
 
 ## The prompt that generates a file
 
@@ -119,4 +149,62 @@ Rules:
 - Valid JSON: double quotes, no trailing commas, no comments.
 
 Here are the words:
+````
+
+## The prompt that generates a grammar file
+
+Paste into Claude, then the list of grammar points. Keep in step with
+`parseGrammarImport` in `lib/import.ts`.
+
+````
+Generate a JSON file to bulk-import Japanese grammar points into my Anki-style app.
+
+Output ONE JSON code block and nothing else — no commentary before or after.
+
+Shape:
+{
+  "source": "<short name for this batch, e.g. the textbook lesson>",
+  "grammar": [ { …one object per grammar point, in the order I gave them… } ]
+}
+
+Fields per grammar point:
+
+- "pattern"   (required) The pattern as a grammar book writes it, with 〜: "〜てしまう".
+- "meaning"   (required) The Vietnamese meaning, short. If a pattern has two
+              distinct meanings I want to learn separately, make two objects.
+- "formation" (optional) How it attaches, e.g. "V-て + しまう", "N + の + ために".
+- "jlpt"      (optional) One of "N5", "N4", "N3", "N2", "N1".
+- "note"      (optional) A short Vietnamese note: nuance, register, a common confusion.
+- "sentences" (required) 3 to 5 example sentences, each:
+              { "jpRuby": "<Japanese with furigana>", "vi": "<natural Vietnamese>" }
+
+How the card works, so you write sentences that fit it: the app shows the
+Vietnamese sentence and the pattern, and I say the Japanese. So:
+- Each Japanese sentence must use the pattern, and be the natural way to say
+  the Vietnamese with it.
+- Each Vietnamese sentence must be natural Vietnamese, not a word-for-word gloss,
+  and must carry the meaning the pattern adds (regret, completion, purpose…).
+- Vary the sentences — different verbs and situations — so the pattern is what
+  repeats, not the sentence.
+- Keep them short and at or below the pattern's JLPT level.
+
+Furigana format for "jpRuby" — this is the part to get exactly right:
+
+  Put the reading in square brackets immediately after each kanji run.
+  A bracket group annotates ONLY the kanji directly before it, never the
+  okurigana or the kana around it.
+
+    財布[さいふ]をなくしてしまった。
+    窓[まど]を開[あ]けておきました。        ← 開[あ], NOT 開け[あけ]
+    友[とも]達[だち]                        ← WRONG, write 友達[ともだち]
+
+  Every kanji gets a reading. Kana needs no brackets. Do NOT include a separate
+  plain-text version of the sentence — the app derives it.
+
+Rules:
+- Keep my order. The app introduces the points in the order they appear in the file.
+- Every point exactly once, unless I asked for its meanings to be split.
+- Valid JSON: double quotes, no trailing commas, no comments.
+
+Here are the grammar points:
 ````

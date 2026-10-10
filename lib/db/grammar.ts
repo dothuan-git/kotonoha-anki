@@ -168,3 +168,37 @@ export async function getGrammar(id: string): Promise<GrammarView | null> {
   const [view] = await hydrateGrammar(rows);
   return view ?? null;
 }
+
+/** A grammar point is four statements; twenty points is one comfortable round trip. */
+const IMPORT_CHUNK_SIZE = 20;
+
+/**
+ * Writes many grammar points, chunked — the grammar twin of `insertWords`,
+ * with the same fallback: a chunk that fails is retried a point at a time,
+ * so one bad row costs only itself.
+ */
+export async function insertGrammarRows(
+  rows: readonly GrammarInsert[],
+): Promise<{ index: number; grammarId?: string; error?: unknown }[]> {
+  const outcomes: { index: number; grammarId?: string; error?: unknown }[] = [];
+
+  for (let start = 0; start < rows.length; start += IMPORT_CHUNK_SIZE) {
+    const chunk = rows.slice(start, start + IMPORT_CHUNK_SIZE);
+    const built = chunk.map(grammarStatements);
+
+    try {
+      await db.batch(built.flatMap((b) => b.statements) as Batch);
+      built.forEach((b, i) => outcomes.push({ index: start + i, grammarId: b.grammarId }));
+    } catch {
+      for (const [i, row] of chunk.entries()) {
+        try {
+          outcomes.push({ index: start + i, grammarId: await insertGrammar(row) });
+        } catch (error) {
+          outcomes.push({ index: start + i, error });
+        }
+      }
+    }
+  }
+
+  return outcomes;
+}

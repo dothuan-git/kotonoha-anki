@@ -39,5 +39,7 @@ export async function deleteImportBatch(id: string): Promise<ActionResult<{ dele
   revalidatePath('/words');
   revalidatePath('/kanji');
   revalidatePath('/add/bulk');
+  revalidatePath('/grammar/list');
+  revalidatePath('/grammar/add/bulk');
   return { ok: true, data: { deleted } };
 }

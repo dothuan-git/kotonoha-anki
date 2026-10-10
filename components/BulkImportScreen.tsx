@@ -8,7 +8,21 @@ import { useMemo, useRef, useState, useTransition } from 'react';
 import { deleteImportBatch } from '@/lib/actions/imports';
 import { applyExclusions, countRows } from '@/lib/import';
 import type { ImportReport, PreviewRow, RowStatus } from '@/lib/import';
-import type { ImportBatchView } from '@/lib/types';
+import type { CardKind, ImportBatchView } from '@/lib/types';
+
+/** What the screen calls one row of the file, and where "add one" lives. */
+const COPY: Record<
+  CardKind,
+  { noun: string; list: string; addOne: string; addHref: '/add' | '/grammar/add' }
+> = {
+  word: { noun: 'từ', list: 'danh sách từ', addOne: 'Thêm từng từ', addHref: '/add' },
+  grammar: {
+    noun: 'mẫu',
+    list: 'danh sách mẫu ngữ pháp',
+    addOne: 'Thêm từng mẫu',
+    addHref: '/grammar/add',
+  },
+};
 
 type Status = 'idle' | 'reading' | 'previewing' | 'importing' | 'done';
 
@@ -26,11 +40,13 @@ const STATUS_STYLE: Record<RowStatus, { label: string; className: string }> = {
  * Only the list of struck-off rows travels with the second post.
  */
 async function postImport(
+  kind: CardKind,
   file: File,
   dryRun: boolean,
   excluded: ReadonlySet<number>,
 ): Promise<ImportReport> {
   const body = new FormData();
+  body.set('kind', kind);
   body.set('file', file);
   body.set('dryRun', dryRun ? '1' : '0');
   // By file position: the server re-parses the same bytes, so the index names
@@ -44,8 +60,15 @@ async function postImport(
   return data as ImportReport;
 }
 
-export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
+export function BulkImportScreen({
+  batches,
+  kind = 'word',
+}: {
+  batches: ImportBatchView[];
+  kind?: CardKind;
+}) {
   const router = useRouter();
+  const copy = COPY[kind];
 
   const [file, setFile] = useState<File | null>(null);
   const [report, setReport] = useState<ImportReport | null>(null);
@@ -75,7 +98,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
     setStatus('reading');
 
     try {
-      setReport(await postImport(picked, true, new Set()));
+      setReport(await postImport(kind, picked, true, new Set()));
       setStatus('previewing');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không đọc được tệp');
@@ -90,7 +113,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
     setError(null);
 
     try {
-      setReport(await postImport(file, false, excluded));
+      setReport(await postImport(kind, file, false, excluded));
       setStatus('done');
       // The batch list is server-rendered; the new row is not in this render.
       router.refresh();
@@ -125,17 +148,17 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
     <div className="mx-auto w-full max-w-3xl">
       <div className="mb-4">
         <Link
-          href="/add"
+          href={copy.addHref}
           className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--brand)]"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Thêm từng từ
+          {copy.addOne}
         </Link>
         <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
           Nhập hàng loạt
         </h1>
         <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">
-          Chọn tệp .json chứa danh sách từ. Bạn sẽ xem trước kết quả trước khi lưu, và có
+          Chọn tệp .json chứa {copy.list}. Bạn sẽ xem trước kết quả trước khi lưu, và có
           thể hoàn tác cả lần nhập sau đó.
         </p>
       </div>
@@ -149,7 +172,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
           {file ? file.name : 'Chọn tệp .json'}
         </span>
         <span className="text-xs text-[var(--text-muted)]">
-          {status === 'reading' ? 'Đang kiểm tra…' : 'Tối đa 1000 từ, 2 MB'}
+          {status === 'reading' ? 'Đang kiểm tra…' : `Tối đa 1000 ${copy.noun}, 2 MB`}
         </span>
         <input
           id="import-file"
@@ -191,7 +214,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-[var(--brand)]">
                   <Check className="h-4 w-4" />
-                  Đã nhập {report.inserted} từ
+                  Đã nhập {report.inserted} {copy.noun}
                 </span>
                 <button
                   type="button"
@@ -208,7 +231,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
                 disabled={!canImport}
                 className="cursor-pointer rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-[var(--brand-hover)] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {status === 'importing' ? 'Đang nhập…' : `Nhập ${counts.ok} từ`}
+                {status === 'importing' ? 'Đang nhập…' : `Nhập ${counts.ok} ${copy.noun}`}
               </button>
             )}
           </div>
@@ -226,7 +249,7 @@ export function BulkImportScreen({ batches }: { batches: ImportBatchView[] }) {
         </section>
       )}
 
-      <BatchHistory batches={batches} />
+      <BatchHistory batches={batches} noun={copy.noun} />
     </div>
   );
 }
@@ -311,7 +334,7 @@ function PreviewItem({
   );
 }
 
-function BatchHistory({ batches }: { batches: ImportBatchView[] }) {
+function BatchHistory({ batches, noun }: { batches: ImportBatchView[]; noun: string }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -349,7 +372,7 @@ function BatchHistory({ batches }: { batches: ImportBatchView[] }) {
                     {batch.source}
                   </p>
                   <p className="text-[11px] text-[var(--text-muted)]">
-                    {formatDate(batch.createdAt)} · {batch.wordCount} từ còn lại
+                    {formatDate(batch.createdAt)} · {batch.wordCount} {noun} còn lại
                   </p>
                 </div>
               </div>
@@ -366,7 +389,7 @@ function BatchHistory({ batches }: { batches: ImportBatchView[] }) {
             {confirming === batch.id && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl border border-[var(--danger)]/40 bg-[var(--danger-subtle)] px-3 py-2.5">
                 <span className="text-xs font-medium leading-relaxed text-[var(--danger)]">
-                  Xoá {batch.wordCount} từ của lần nhập này, cùng câu ví dụ và lịch sử ôn tập?
+                  Xoá {batch.wordCount} {noun} của lần nhập này, cùng câu ví dụ và lịch sử ôn tập?
                 </span>
                 <div className="flex shrink-0 gap-2">
                   <button

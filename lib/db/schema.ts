@@ -33,11 +33,13 @@ export const POS_VALUES = [
 export const TRANSITIVITY_VALUES = ['transitive', 'intransitive'] as const;
 export const JLPT_VALUES = ['N5', 'N4', 'N3', 'N2', 'N1'] as const;
 export const SENTENCE_SOURCE_VALUES = ['ai', 'manual'] as const;
+export const CARD_KIND_VALUES = ['word', 'grammar'] as const;
 
 export const posEnum = pgEnum('pos', POS_VALUES);
 export const transitivityEnum = pgEnum('transitivity', TRANSITIVITY_VALUES);
 export const jlptEnum = pgEnum('jlpt', JLPT_VALUES);
 export const sentenceSourceEnum = pgEnum('sentence_source', SENTENCE_SOURCE_VALUES);
+export const cardKindEnum = pgEnum('card_kind', CARD_KIND_VALUES);
 
 export const words = pgTable(
   'words',
@@ -93,6 +95,12 @@ export const words = pgTable(
  */
 export const importBatches = pgTable('import_batches', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * What the file held. Each bulk-import screen lists and undoes its own
+   * batches — and a batch whose rows have all been deleted since could not
+   * otherwise say which kind it was.
+   */
+  kind: cardKindEnum('kind').notNull().default('word'),
   /** Filename, deck name, or whatever the user will recognise it by. */
   source: text('source').notNull(),
   note: text('note'),

@@ -56,14 +56,21 @@ persisted, so without it a reload mid-session would empty the recap of
 everything answered before it. Dealing a new session clears it. `dayStart` is
 now only a staleness guard — nothing in the record is scoped to the day.
 
-**Two stored queues, one outbox.** The reviewer and the practice drill keep
-their sessions under separate keys (`SESSION_KEY`, `PRACTICE_SESSION_KEY`), so
-a half-finished drill cannot evict a half-finished review and each screen
-resumes its own. There is only one outbox because only one mode writes:
-practice reports a pending count of zero, which is both true and what stops a
-full outbox from pinning a stale drill in place through `chooseSession`.
+**Three stored queues, one outbox.** The word reviewer, the grammar
+reviewer and the practice drill keep their sessions under separate keys
+(`SESSION_KEY`, `GRAMMAR_SESSION_KEY`, `PRACTICE_SESSION_KEY`), so none can
+evict another and each screen resumes its own. Practice reports a pending
+count of zero, which is both true and what stops a full outbox from pinning a
+stale drill in place through `chooseSession`.
 
-Signing out clears cached pages and both stored queues, but never the outbox —
+The two reviewers share the outbox — a rating is a rating — so the resume
+decision counts only the entries for cards *this* screen could deal
+(`relevantPending`: its server queue and lookahead, its stored queue, its
+graded cards). Otherwise a word rating still inside its undo window would pin
+the grammar screen to a finished stored session, and the reverse. The flush
+and the sync indicator still see the whole outbox.
+
+Signing out clears cached pages and every stored queue, but never the outbox —
 those are reviews that have not reached the server, and only one address can
 sign in.
 
@@ -71,7 +78,7 @@ sign in.
 
 Cached: the shell, hashed `_next/static` chunks, and the Google Fonts faces — a
 card set in a fallback sans-serif is a different card. Documents are cached
-network-first.
+network-first, whichever route they are — `/grammar` included, once visited.
 
 **Not cached: `/api/*` and React flight payloads.** A cached `?_rsc=` response
 is a session rendered at some past moment; serving it as current would hand
