@@ -1,6 +1,6 @@
 'use client';
 
-import { CornerDownLeft, PenLine, Sparkles, Volume2 } from 'lucide-react';
+import { CornerDownLeft, Eye, Sparkles, Volume2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { bind, unbind } from 'wanakana';
@@ -9,6 +9,7 @@ import { Ruby } from '@/components/Ruby';
 import { GrammarEditPanel, type GrammarEditPatch } from '@/components/review/GrammarEditPanel';
 import type { FontStyle } from '@/components/review/types';
 import { playSentenceAudio } from '@/lib/client/audio';
+import { overlapPercent } from '@/lib/overlap';
 import type { GrammarView, SentenceView } from '@/lib/types';
 
 /**
@@ -54,6 +55,8 @@ export function GrammarCard({
 }) {
   /** What was written, kept to put beside the model answer. Never judged. */
   const [written, setWritten] = useState('');
+
+  const overlap = overlapPercent(written, sentence);
 
   const jpFont =
     fontStyle === 'mincho'
@@ -108,19 +111,25 @@ export function GrammarCard({
       </div>
 
       <div className="relative flex min-h-fit flex-1 flex-col justify-center py-6 text-center">
-        <span className="text-[11px] text-[var(--text-muted)] block font-medium">
-          Nói câu này bằng tiếng Nhật
-        </span>
-        <p className="mt-1.5 text-2xl sm:text-3xl font-bold leading-snug text-[var(--text-primary)]">
-          {sentence.vi}
-        </p>
-        <div className="mt-3">
-          <span
-            className={`inline-block rounded-full border border-[var(--brand-border)] bg-[var(--brand-subtle)] px-3 py-1 text-sm text-[var(--brand)] ${jpFont}`}
-          >
-            {grammar.pattern}
+        {/* Steps up to make room for the field, as in `WordCard`. */}
+        <motion.div
+          layout
+          transition={{ layout: { type: 'spring', stiffness: 240, damping: 30, mass: 0.8 } }}
+        >
+          <span className="text-[11px] text-[var(--text-muted)] block font-medium">
+            {typing ? 'Viết câu này bằng tiếng Nhật' : 'Nói câu này bằng tiếng Nhật'}
           </span>
-        </div>
+          <p className="mt-1.5 text-2xl sm:text-3xl font-bold leading-snug text-[var(--text-primary)]">
+            {sentence.vi}
+          </p>
+          <div className="mt-3">
+            <span
+              className={`inline-block rounded-full border border-[var(--brand-border)] bg-[var(--brand-subtle)] px-3 py-1 text-sm text-[var(--brand)] ${jpFont}`}
+            >
+              {grammar.pattern}
+            </span>
+          </div>
+        </motion.div>
 
         <AnimatePresence mode="popLayout" initial={false}>
           {!isRevealed &&
@@ -167,10 +176,19 @@ export function GrammarCard({
           >
             {written.trim() && (
               <div>
-                <span className="block text-[11px] font-medium text-[var(--text-muted)]">
-                  Bạn viết
-                </span>
-                <p className={`mt-0.5 text-lg text-[var(--text-secondary)] ${jpFont}`}>{written}</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-medium text-[var(--text-muted)]">Bạn viết</span>
+                  {/* A glance, not a grade — see `overlapPercent`. */}
+                  {overlap !== null && (
+                    <span
+                      className={`rounded-full border px-1.5 text-[10px] font-semibold ${overlapTone(overlap)}`}
+                      title="Tỉ lệ ký tự trùng với câu mẫu — chỉ để tham khảo, không chấm điểm"
+                    >
+                      Giống {overlap}%
+                    </span>
+                  )}
+                </div>
+                <p className={`mt-0.5 text-xl sm:text-2xl text-[var(--text-secondary)] ${jpFont}`}>{written}</p>
               </div>
             )}
 
@@ -227,10 +245,28 @@ export function GrammarCard({
   );
 }
 
+/** Green, amber, red — the same palette the verdict and the rating row use. */
+function overlapTone(percent: number): string {
+  if (percent >= 80) {
+    return 'border-[var(--brand-border)] bg-[var(--brand-subtle)] text-[var(--brand)]';
+  }
+  if (percent >= 50) {
+    return 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400';
+  }
+  return 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400';
+}
+
 /**
- * Where the attempt is written. Romaji becomes kana as you type, as in the
- * word card's answer field, and an IME works as well — kanji are welcome, the
- * field is never compared with anything.
+ * Where the attempt is written:`AnswerInput`'s field and buttons, so the two
+ * kinds of card do not read as two different typing modes. What differs is
+ * underneath — nothing is checked, so the primary button just turns the card
+ * over, and there are no tries to spend.
+ *
+ * Romaji becomes kana as you type and an IME works as well; kanji are welcome,
+ * the field is never compared with anything.
+ *
+ * Space is left alone, unlike the word card's field where it gives up. A word
+ * never contains one, a sentence can, and an IME converts with it.
  */
 function ScratchInput({
   disabled,
@@ -240,6 +276,7 @@ function ScratchInput({
   onSubmit: (text: string) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [hasText, setHasText] = useState(false);
 
   useEffect(() => {
     const el = inputRef.current;
@@ -249,44 +286,80 @@ function ScratchInput({
     return () => unbind(el);
   }, []);
 
-  const submit = () => {
+  /** Turn the card over with whatever is written, which may be nothing. */
+  const reveal = () => {
     if (disabled) return;
     onSubmit(inputRef.current?.value ?? '');
   };
 
   return (
-    <div className="mx-auto mt-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="mt-6 space-y-2.5">
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          inputMode="text"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          disabled={disabled}
+          aria-label="Câu tiếng Nhật"
+          onInput={(e) => setHasText(e.currentTarget.value.trim().length > 0)}
+          onKeyDown={(e) => {
+            // Enter also confirms an IME conversion; that one is not a submit.
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              if (hasText) reveal();
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+          // Smaller than the word card's field: a sentence runs out of room
+          // at text-2xl after about seventeen characters.
+          className="font-jp-serif w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-3 text-center text-xl tracking-wide text-[var(--text-primary)] outline-none focus:border-[var(--brand)] disabled:opacity-60"
+        />
+        {/* An overlay rather than ::placeholder, for the reason `AnswerInput` gives. */}
+        {!hasText && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-4 right-4 flex items-center justify-center"
+          >
+            <span className="min-w-0 truncate text-sm text-[var(--text-muted)]">
+              Viết câu tiếng Nhật…
+            </span>
+          </span>
+        )}
+      </div>
+
       <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <PenLine className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-          <input
-            ref={inputRef}
-            type="text"
-            autoComplete="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            placeholder="Viết câu tiếng Nhật…"
-            disabled={disabled}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            className="font-jp-sans w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] py-2.5 pl-9 pr-3 text-base text-[var(--text-primary)] focus:border-[var(--brand)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/20"
-          />
-        </div>
         <button
           type="button"
-          onClick={submit}
-          disabled={disabled}
-          className="rounded-xl bg-[var(--brand)] p-2.5 text-white hover:bg-[var(--brand-hover)] cursor-pointer disabled:opacity-60"
-          aria-label="Xem đáp án"
+          disabled={disabled || !hasText}
+          onClick={(e) => {
+            e.stopPropagation();
+            reveal();
+          }}
+          className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-[var(--brand)] py-3 text-sm font-semibold tracking-wide text-white transition-colors hover:bg-[var(--brand-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <CornerDownLeft className="h-4 w-4" />
+          <span>Xem đáp án</span>
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={(e) => {
+            e.stopPropagation();
+            reveal();
+          }}
+          className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] px-3.5 py-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] disabled:opacity-50"
+          title="Hiện câu mẫu ngay, không cần viết"
+        >
+          <Eye className="h-3.5 w-3.5" />
+          <span>Chưa nhớ ra</span>
         </button>
       </div>
-      <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+
+      <p className="text-center text-xs text-[var(--text-muted)]">
         Không chấm tự động — so với câu mẫu rồi tự chấm điểm.
       </p>
     </div>
