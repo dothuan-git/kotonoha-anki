@@ -53,7 +53,14 @@ write path. What changes is the card, not anything under it.
   (word order, は/が, plain/polite) for an exact comparison to mean anything,
   and the matcher is exact everywhere. Typing mode is a scratch pad: what you
   wrote is shown beside the model sentence, and you grade yourself as on a
-  flip card. No confusions are recorded for grammar.
+  flip card. No confusions are recorded for grammar. The field, its buttons and
+  the way it opens are the word card's (`AnswerInput`), so the two modes look
+  alike; "Xem đáp án" replaces "Kiểm tra" since nothing is checked, and Space
+  is not a give-up key here — a sentence can contain one, and an IME converts
+  with it. Beside what you wrote sits a "Giống N%" figure
+  (`lib/overlap.ts`): Dice's coefficient over character pairs, against the
+  sentence and its reading, whichever is higher. It is there to glance at and
+  nothing reads it — the grade is still yours, and the matcher is still exact.
 - **The sentence rotates** — `pickSentence(sentences, state.reps)`. Keyed on
   the review count, so it needs no storage, is the same on every device, and
   moves on after every rating, a learning step included: answer Quên and the
