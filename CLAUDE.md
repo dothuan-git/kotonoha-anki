@@ -55,7 +55,9 @@ Breaking one of these is a bug even when it type-checks.
 7. **The reading is what gets spoken**, never the headword. A reading
    containing kanji is invalid.
 8. **Matching is exact** (`lib/answer.ts`). No fuzzy matching, no edit
-   distance, anywhere. Grammar answers are not matched at all.
+   distance, anywhere. Grammar answers are not matched at all. The one
+   exception is `lib/overlap.ts`, a display-only percentage on the back of a
+   grammar card; it never reaches a rating or decides anything.
 
 ## Conventions
 
