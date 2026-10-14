@@ -1,6 +1,6 @@
 'use client';
 
-import { CornerDownLeft, Eye, Sparkles, Volume2 } from 'lucide-react';
+import { Check, Copy, CornerDownLeft, Eye, Sparkles, Volume2, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { bind, unbind } from 'wanakana';
@@ -187,6 +187,15 @@ export function GrammarCard({
                       Giống {overlap}%
                     </span>
                   )}
+                  {overlap !== null && overlap < 100 && (
+                    <CopyAttemptButton
+                      text={[
+                        `Tiếng Việt: ${sentence.vi}`,
+                        `Bạn viết: ${written.trim()}`,
+                        `Câu mẫu: ${sentence.jp}`,
+                      ].join('\n')}
+                    />
+                  )}
                 </div>
                 <p className={`mt-0.5 text-xl sm:text-2xl text-[var(--text-secondary)] ${jpFont}`}>{written}</p>
               </div>
@@ -254,6 +263,60 @@ function overlapTone(percent: number): string {
     return 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400';
   }
   return 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400';
+}
+
+/**
+ * Copies the prompt, the attempt and the model sentence together, to take a
+ * near miss somewhere that can explain it. All three are on the card already,
+ * so a failed copy (no clipboard outside a secure context) still leaves them
+ * selectable.
+ */
+function CopyAttemptButton({ text }: { text: string }) {
+  const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+
+  useEffect(() => {
+    if (status === 'idle') return;
+    const timer = setTimeout(() => setStatus('idle'), 2000);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus('copied');
+    } catch {
+      setStatus('failed');
+    }
+  }
+
+  const Icon = status === 'copied' ? Check : status === 'failed' ? X : Copy;
+  const tone =
+    status === 'copied'
+      ? 'text-[var(--brand)]'
+      : status === 'failed'
+        ? 'text-[var(--danger)]'
+        : 'text-[var(--text-muted)] hover:text-[var(--brand)]';
+  const label =
+    status === 'copied'
+      ? 'Đã sao chép'
+      : status === 'failed'
+        ? 'Không sao chép được — hãy chọn thủ công'
+        : 'Sao chép câu tiếng Việt, câu bạn viết và câu mẫu';
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        void copy();
+      }}
+      className={`ml-auto shrink-0 cursor-pointer p-1 transition-colors ${tone}`}
+      title={label}
+      aria-label={label}
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </button>
+  );
 }
 
 /**

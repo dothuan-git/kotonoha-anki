@@ -61,6 +61,9 @@ write path. What changes is the card, not anything under it.
   (`lib/overlap.ts`): Dice's coefficient over character pairs, against the
   sentence and its reading, whichever is higher. It is there to glance at and
   nothing reads it — the grade is still yours, and the matcher is still exact.
+  Below 100% a copy icon sits at the end of that row; it puts the Vietnamese
+  prompt, the attempt and the model sentence (`jp`) on the clipboard as three
+  labelled lines.
 - **The sentence rotates** — `pickSentence(sentences, state.reps)`. Keyed on
   the review count, so it needs no storage, is the same on every device, and
   moves on after every rating, a learning step included: answer Quên and the
