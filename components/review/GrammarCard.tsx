@@ -18,7 +18,9 @@ import type { GrammarView, SentenceView } from '@/lib/types';
  * The prompt is a Vietnamese sentence and the pattern it should be said with;
  * the task is to produce the Japanese. The pattern is on the front on purpose:
  * "tôi lỡ làm mất ví" can be said correctly without 〜てしまう, and a card that
- * accepted that would be testing translation, not the grammar point.
+ * accepted that would be testing translation, not the grammar point. It starts
+ * blurred, though, so you can first try to recall which pattern the
+ * sentence calls for; clearing it is a click or a backtick away.
  *
  * Nothing is matched. A sentence has too many right answers — word order,
  * は or が, plain or polite — for an exact comparison to mean anything, and a
@@ -57,6 +59,24 @@ export function GrammarCard({
   const [written, setWritten] = useState('');
 
   const overlap = overlapPercent(written, sentence);
+
+  /** The pattern starts blurred; turning the card over clears it too. */
+  const [patternShown, setPatternShown] = useState(false);
+  const patternCovered = !patternShown && !isRevealed;
+
+  // A plain backtick clears the blur, from the answer field as well — so the
+  // listener is the card's own, not `ReviewScreen`'s, which steps aside for a
+  // focused input. Alt+` is the mode switch and is left to it.
+  useEffect(() => {
+    if (!patternCovered) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '`' || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+      e.preventDefault();
+      setPatternShown(true);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [patternCovered]);
 
   const jpFont =
     fontStyle === 'mincho'
@@ -123,11 +143,43 @@ export function GrammarCard({
             {sentence.vi}
           </p>
           <div className="mt-3">
-            <span
-              className={`inline-block rounded-full border border-[var(--brand-border)] bg-[var(--brand-subtle)] px-3 py-1 text-sm text-[var(--brand)] ${jpFont}`}
+            {/* Covered, the pill keeps its shape and the pattern sits behind
+                frosted glass; uncovering wipes the frost off from the left. */}
+            <button
+              type="button"
+              disabled={!patternCovered}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPatternShown(true);
+              }}
+              className={`relative inline-block overflow-hidden rounded-full border border-[var(--brand-border)] bg-[var(--brand-subtle)] px-3 py-1 text-sm text-[var(--brand)] ${jpFont} ${
+                patternCovered
+                  ? 'cursor-pointer select-none transition-colors hover:border-[var(--brand)]/60'
+                  : 'cursor-text select-text'
+              }`}
+              title={patternCovered ? 'Bấm hoặc nhấn ` để xem mẫu ngữ pháp' : undefined}
+              aria-label={patternCovered ? 'Hiện mẫu ngữ pháp' : undefined}
             >
-              {grammar.pattern}
-            </span>
+              <motion.span
+                aria-hidden={patternCovered}
+                className="inline-block"
+                initial={false}
+                animate={patternCovered ? { filter: 'blur(5px)', opacity: 0.6 } : { filter: 'blur(0px)', opacity: 1 }}
+                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {grammar.pattern}
+              </motion.span>
+              <AnimatePresence initial={false}>
+                {patternCovered && (
+                  <motion.span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 rounded-full bg-[var(--bg-surface)]/30 ring-1 ring-inset ring-white/25"
+                    exit={{ clipPath: 'inset(0% 0% 0% 100%)', opacity: 0 }}
+                    transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                  />
+                )}
+              </AnimatePresence>
+            </button>
           </div>
         </motion.div>
 

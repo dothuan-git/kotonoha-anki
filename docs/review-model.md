@@ -43,6 +43,9 @@ write path. What changes is the card, not anything under it.
   to say it with; the task is the Japanese. The pattern is on the front on
   purpose — "tôi lỡ làm mất ví" can be said correctly without 〜てしまう, and a
   card that accepted that would test translation rather than the grammar.
+  The pill starts blurred, as if behind frosted glass, so you can first try to
+  recall the pattern yourself; a click or a plain backtick clears it (Alt+`
+  stays the mode switch), and turning the card over clears it too.
   There is no Japanese→Vietnamese face: recognising a pattern you have seen is
   trivially easy, and would only inflate the grade.
 - **No pair.** With one face, `revises()` is always false, so every showing
