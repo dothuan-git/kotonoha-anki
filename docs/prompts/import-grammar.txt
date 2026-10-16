@@ -32,6 +32,13 @@ Vietnamese sentence and the pattern, and I say the Japanese. So:
   and must carry the meaning the pattern adds (regret, completion, purpose…).
 - Vary the sentences — different verbs and situations — so the pattern is what
   repeats, not the sentence.
+- Write every sentence from scratch. Never take a sentence you wrote for one
+  grammar point and swap in another pattern or change a word or two — not even
+  for the meanings of a split pattern. Across the whole file, every sentence
+  has its own situation, subject, main verb and objects, and the two sentences
+  of one point are as different from each other as from the rest.
+- Before you output, read all the sentences together. If two of them describe
+  the same scene, or one is the other with the grammar changed, rewrite one.
 - Keep them short and at or below the pattern's JLPT level.
 
 Furigana format for "jpRuby" — this is the part to get exactly right:

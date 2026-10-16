@@ -1,6 +1,6 @@
 'use client';
 
-import { CornerDownLeft, Eye, Sparkles, Volume2 } from 'lucide-react';
+import { Check, Copy, CornerDownLeft, Eye, Sparkles, Volume2, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { bind, unbind } from 'wanakana';
@@ -18,7 +18,9 @@ import type { GrammarView, SentenceView } from '@/lib/types';
  * The prompt is a Vietnamese sentence and the pattern it should be said with;
  * the task is to produce the Japanese. The pattern is on the front on purpose:
  * "tôi lỡ làm mất ví" can be said correctly without 〜てしまう, and a card that
- * accepted that would be testing translation, not the grammar point.
+ * accepted that would be testing translation, not the grammar point. It starts
+ * blurred, though, so you can first try to recall which pattern the
+ * sentence calls for; clearing it is a click or a backtick away.
  *
  * Nothing is matched. A sentence has too many right answers — word order,
  * は or が, plain or polite — for an exact comparison to mean anything, and a
@@ -57,6 +59,24 @@ export function GrammarCard({
   const [written, setWritten] = useState('');
 
   const overlap = overlapPercent(written, sentence);
+
+  /** The pattern starts blurred; turning the card over clears it too. */
+  const [patternShown, setPatternShown] = useState(false);
+  const patternCovered = !patternShown && !isRevealed;
+
+  // A plain backtick clears the blur, from the answer field as well — so the
+  // listener is the card's own, not `ReviewScreen`'s, which steps aside for a
+  // focused input. Alt+` is the mode switch and is left to it.
+  useEffect(() => {
+    if (!patternCovered) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '`' || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+      e.preventDefault();
+      setPatternShown(true);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [patternCovered]);
 
   const jpFont =
     fontStyle === 'mincho'
@@ -123,11 +143,43 @@ export function GrammarCard({
             {sentence.vi}
           </p>
           <div className="mt-3">
-            <span
-              className={`inline-block rounded-full border border-[var(--brand-border)] bg-[var(--brand-subtle)] px-3 py-1 text-sm text-[var(--brand)] ${jpFont}`}
+            {/* Covered, the pill keeps its shape and the pattern sits behind
+                frosted glass; uncovering wipes the frost off from the left. */}
+            <button
+              type="button"
+              disabled={!patternCovered}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPatternShown(true);
+              }}
+              className={`relative inline-block overflow-hidden rounded-full border border-[var(--brand-border)] bg-[var(--brand-subtle)] px-3 py-1 text-sm text-[var(--brand)] ${jpFont} ${
+                patternCovered
+                  ? 'cursor-pointer select-none transition-colors hover:border-[var(--brand)]/60'
+                  : 'cursor-text select-text'
+              }`}
+              title={patternCovered ? 'Bấm hoặc nhấn ` để xem mẫu ngữ pháp' : undefined}
+              aria-label={patternCovered ? 'Hiện mẫu ngữ pháp' : undefined}
             >
-              {grammar.pattern}
-            </span>
+              <motion.span
+                aria-hidden={patternCovered}
+                className="inline-block"
+                initial={false}
+                animate={patternCovered ? { filter: 'blur(5px)', opacity: 0.6 } : { filter: 'blur(0px)', opacity: 1 }}
+                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {grammar.pattern}
+              </motion.span>
+              <AnimatePresence initial={false}>
+                {patternCovered && (
+                  <motion.span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 rounded-full bg-[var(--bg-surface)]/30 ring-1 ring-inset ring-white/25"
+                    exit={{ clipPath: 'inset(0% 0% 0% 100%)', opacity: 0 }}
+                    transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                  />
+                )}
+              </AnimatePresence>
+            </button>
           </div>
         </motion.div>
 
@@ -186,6 +238,15 @@ export function GrammarCard({
                     >
                       Giống {overlap}%
                     </span>
+                  )}
+                  {overlap !== null && overlap < 100 && (
+                    <CopyAttemptButton
+                      text={[
+                        `Tiếng Việt: ${sentence.vi}`,
+                        `Bạn viết: ${written.trim()}`,
+                        `Câu mẫu: ${sentence.jp}`,
+                      ].join('\n')}
+                    />
                   )}
                 </div>
                 <p className={`mt-0.5 text-xl sm:text-2xl text-[var(--text-secondary)] ${jpFont}`}>{written}</p>
@@ -254,6 +315,60 @@ function overlapTone(percent: number): string {
     return 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400';
   }
   return 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400';
+}
+
+/**
+ * Copies the prompt, the attempt and the model sentence together, to take a
+ * near miss somewhere that can explain it. All three are on the card already,
+ * so a failed copy (no clipboard outside a secure context) still leaves them
+ * selectable.
+ */
+function CopyAttemptButton({ text }: { text: string }) {
+  const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+
+  useEffect(() => {
+    if (status === 'idle') return;
+    const timer = setTimeout(() => setStatus('idle'), 2000);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus('copied');
+    } catch {
+      setStatus('failed');
+    }
+  }
+
+  const Icon = status === 'copied' ? Check : status === 'failed' ? X : Copy;
+  const tone =
+    status === 'copied'
+      ? 'text-[var(--brand)]'
+      : status === 'failed'
+        ? 'text-[var(--danger)]'
+        : 'text-[var(--text-muted)] hover:text-[var(--brand)]';
+  const label =
+    status === 'copied'
+      ? 'Đã sao chép'
+      : status === 'failed'
+        ? 'Không sao chép được — hãy chọn thủ công'
+        : 'Sao chép câu tiếng Việt, câu bạn viết và câu mẫu';
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        void copy();
+      }}
+      className={`ml-auto shrink-0 cursor-pointer p-1 transition-colors ${tone}`}
+      title={label}
+      aria-label={label}
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </button>
+  );
 }
 
 /**

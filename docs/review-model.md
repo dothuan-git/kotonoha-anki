@@ -43,6 +43,9 @@ write path. What changes is the card, not anything under it.
   to say it with; the task is the Japanese. The pattern is on the front on
   purpose — "tôi lỡ làm mất ví" can be said correctly without 〜てしまう, and a
   card that accepted that would test translation rather than the grammar.
+  The pill starts blurred, as if behind frosted glass, so you can first try to
+  recall the pattern yourself; a click or a plain backtick clears it (Alt+`
+  stays the mode switch), and turning the card over clears it too.
   There is no Japanese→Vietnamese face: recognising a pattern you have seen is
   trivially easy, and would only inflate the grade.
 - **No pair.** With one face, `revises()` is always false, so every showing
@@ -61,6 +64,9 @@ write path. What changes is the card, not anything under it.
   (`lib/overlap.ts`): Dice's coefficient over character pairs, against the
   sentence and its reading, whichever is higher. It is there to glance at and
   nothing reads it — the grade is still yours, and the matcher is still exact.
+  Below 100% a copy icon sits at the end of that row; it puts the Vietnamese
+  prompt, the attempt and the model sentence (`jp`) on the clipboard as three
+  labelled lines.
 - **The sentence rotates** — `pickSentence(sentences, state.reps)`. Keyed on
   the review count, so it needs no storage, is the same on every device, and
   moves on after every rating, a learning step included: answer Quên and the
