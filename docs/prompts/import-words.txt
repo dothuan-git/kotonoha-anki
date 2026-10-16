@@ -48,6 +48,9 @@ Rules:
 - Every word exactly once. Do not invent words I did not give you.
 - Keep sentences short and at or below the word's JLPT level, and make sure each
   sentence actually uses its headword.
+- Write every sentence from scratch. Never take another word's sentence and
+  swap in this headword or change a word or two. Across the whole file, every
+  sentence has its own situation; if two describe the same scene, rewrite one.
 - Valid JSON: double quotes, no trailing commas, no comments.
 
 Here are the words:
